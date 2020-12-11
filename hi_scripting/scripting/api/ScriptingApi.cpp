@@ -824,7 +824,9 @@ struct ScriptingApi::Engine::Wrapper
 	API_METHOD_WRAPPER_0(Engine, getSampleRate);
 	API_METHOD_WRAPPER_1(Engine, setMinimumSampleRate);
 	API_METHOD_WRAPPER_1(Engine, getMidiNoteName);
+	API_METHOD_WRAPPER_3(Engine, getMidiNoteNameFormatted);
 	API_METHOD_WRAPPER_1(Engine, getMidiNoteFromName);
+	API_METHOD_WRAPPER_1(Engine, getMidiNoteFromFormattedName);
 	API_METHOD_WRAPPER_1(Engine, getMacroName);
 	
 	API_VOID_METHOD_WRAPPER_1(Engine, setFrontendMacros)
@@ -929,7 +931,9 @@ parentMidiProcessor(dynamic_cast<ScriptBaseMidiProcessor*>(p))
 	ADD_API_METHOD_0(getSampleRate);
 	ADD_API_METHOD_1(setMinimumSampleRate);
 	ADD_API_METHOD_1(getMidiNoteName);
+	ADD_API_METHOD_3(getMidiNoteNameFormatted);
 	ADD_API_METHOD_1(getMidiNoteFromName);
+	ADD_API_METHOD_1(getMidiNoteFromFormattedName);
 	ADD_API_METHOD_1(getMacroName);
 	ADD_API_METHOD_1(setFrontendMacros);
 	ADD_API_METHOD_2(setKeyColour);
@@ -1429,7 +1433,31 @@ int ScriptingApi::Engine::getMidiNoteFromName(String midiNoteName) const
 	return -1;
 }
 
+int ScriptingApi::Engine::getMidiNoteFromFormattedName(String noteNameFormatted) const
+{
+	static const char* const octaves[] = { "-2", "-1", "0", "1", "2", "3", "4", "5", "6", "7", "8" };
 
+	bool useSharps = true;
+	bool includeOctaveNumber = false;
+
+	if (noteNameFormatted.contains("b"))
+		useSharps = false;
+
+	for (int i = 0; i < 11; i++)
+	{
+		if (noteNameFormatted.contains(octaves[i])){
+			includeOctaveNumber = true;
+			break;
+		}
+	}
+
+	for (int i = 0; i < 127; i++)
+	{
+		if (getMidiNoteNameFormatted(i, useSharps, includeOctaveNumber) == noteNameFormatted)
+			return i;
+	}
+	return -1;
+}
 
 var ScriptingApi::Engine::createDspNetwork(String id)
 {

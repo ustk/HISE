@@ -279,8 +279,14 @@ public:
 		/** Converts MIDI note number to Midi note name ("C3" for middle C). */
 		String getMidiNoteName(int midiNumber) const { return MidiMessage::getMidiNoteName(midiNumber, true, true, 3); };
 
+		/** Converts MIDI note number to Midi a formatted note name ("C3" for middle C). */
+		String getMidiNoteNameFormatted(int midiNumber, bool useSharps, bool includeOctaveNumber) const { return MidiMessage::getMidiNoteName(midiNumber, useSharps, includeOctaveNumber, 3); };
+
 		/** Converts MIDI note name to MIDI number ("C3" for middle C). */
 		int getMidiNoteFromName(String midiNoteName) const;
+
+		/** Converts MIDI note name that is formatted (Eb4) to MIDI number ("C3" for middle C). If no octave number is speified, function will return midi notes from 0 to 11 */
+		int getMidiNoteFromFormattedName(String noteNameFormatted) const;
 
 		/** Creates a Dsp node network. */
 		var createDspNetwork(String id);
