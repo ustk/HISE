@@ -887,7 +887,7 @@ struct ScriptingApi::Engine::Wrapper
 	API_VOID_METHOD_WRAPPER_1(Engine, setGlobalFont);
 	API_VOID_METHOD_WRAPPER_0(Engine, undo);
 	API_VOID_METHOD_WRAPPER_0(Engine, redo);
-	API_VOID_METHOD_WRAPPER_0(Engine, loadAudioFilesIntoPool);
+	API_METHOD_WRAPPER_0(Engine, loadAudioFilesIntoPool);
 	API_VOID_METHOD_WRAPPER_1(Engine, loadImageIntoPool);
 	API_VOID_METHOD_WRAPPER_0(Engine, clearMidiFilePool);
 	API_VOID_METHOD_WRAPPER_0(Engine, clearSampleMapPool);
@@ -1741,7 +1741,7 @@ void ScriptingApi::Engine::setAllowDuplicateSamples(bool shouldAllow)
 	getProcessor()->getMainController()->getSampleManager().getModulatorSamplerSoundPool2()->setAllowDuplicateSamples(shouldAllow);
 }
 
-void ScriptingApi::Engine::loadAudioFilesIntoPool()
+var ScriptingApi::Engine::loadAudioFilesIntoPool()
 {
 #if USE_BACKEND
 
@@ -1749,7 +1749,17 @@ void ScriptingApi::Engine::loadAudioFilesIntoPool()
 
 	auto pool = getScriptProcessor()->getMainController_()->getCurrentAudioSampleBufferPool();
 	pool->loadAllFilesFromProjectFolder();
+
 #endif
+
+	auto allList = getScriptProcessor()->getMainController_()->getSampleManager().getProjectHandler().pool->getAudioSampleBufferPool().getListOfAllReferences(true);
+
+	Array<var> ar;
+
+	for (auto& ref : allList)
+		ar.add(ref.getReferenceString());
+
+	return var(ar);
 }
 
 void ScriptingApi::Engine::loadImageIntoPool(const String& id)
@@ -4137,6 +4147,7 @@ struct ScriptingApi::Console::Wrapper
 	API_VOID_METHOD_WRAPPER_1(Console, assertIsDefined);
 	API_VOID_METHOD_WRAPPER_1(Console, assertIsObjectOrArray);
 	API_VOID_METHOD_WRAPPER_1(Console, assertLegalNumber);
+	API_VOID_METHOD_WRAPPER_0(Console, breakInDebugger);
 };
 
 ScriptingApi::Console::Console(ProcessorWithScriptingContent *p) :
@@ -4154,6 +4165,8 @@ startTime(0.0)
 	ADD_API_METHOD_1(assertIsDefined);
 	ADD_API_METHOD_1(assertIsObjectOrArray);
 	ADD_API_METHOD_1(assertLegalNumber);
+
+	ADD_API_METHOD_0(breakInDebugger);
 }
 
 
@@ -4275,6 +4288,12 @@ void ScriptingApi::Console::assertLegalNumber(var value)
 	{
 		reportScriptError("Assertion failure: value is not a legal number. Value: " + value.toString());
 	}
+}
+
+void ScriptingApi::Console::breakInDebugger()
+{
+	// There you go...
+	jassertfalse;
 }
 
 #undef SEND_MESSAGE
