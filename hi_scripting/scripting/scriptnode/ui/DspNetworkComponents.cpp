@@ -313,7 +313,7 @@ void DspNetworkGraph::paintOverChildren(Graphics& g)
 	{
 		auto n = b->parent.node.get();
 
-		if (n == nullptr)
+		if (n == nullptr || !n->isBodyShown())
 			continue;
 
 		auto connection = n->getValueTree().getProperty(PropertyIds::DynamicBypass).toString();
