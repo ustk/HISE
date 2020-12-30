@@ -604,7 +604,10 @@ public:
 
 				auto jsp = dynamic_cast<JavascriptProcessor*>(s);
 
-				String code = "Content.makeFrontInterface(" + String(getWidth()) + ", " + String(getHeight()) + ");";
+				String code = "Content.makeFrontInterface(" + String(getWidth()) + ", " + String(getHeight()) + ");"
+							+ " Console.clear();"
+							+ " include(\"../../_SCRIPTS/helper.js\");"
+							+ "\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n";
 
 				jsp->getSnippet(0)->replaceContentAsync(code);
 				jsp->compileScript();
