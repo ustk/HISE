@@ -634,7 +634,7 @@ void AhdsrEnvelope::setDecayCurve(float newValue)
 {
 	decayCurve = newValue;
 
-	const float newRatio = decayCurve * 0.0001f;
+	const float newRatio = pow(decayCurve, 4);
 
 	setTargetRatioDR(newRatio);
 	setDecayRate(decay);
@@ -850,12 +850,15 @@ void AhdsrGraph::timerCallback()
 	float this_sustain = processor->getAttribute(AhdsrEnvelope::Sustain);
 	float this_release = processor->getAttribute(AhdsrEnvelope::Release);
 	float this_attackCurve = processor->getAttribute(AhdsrEnvelope::AttackCurve);
+	float this_decayCurve = processor->getAttribute(AhdsrEnvelope::DecayCurve);
+
 	lastState = dynamic_cast<AhdsrEnvelope*>(processor.get())->getStateInfo();
 
 	if (this_attack != attack ||
 		this_attackCurve != attackCurve ||
 		this_attackLevel != attackLevel ||
 		this_decay != decay ||
+		this_decayCurve != decayCurve ||
 		this_sustain != sustain ||
 		this_hold != hold ||
 		this_release != release)
@@ -867,6 +870,7 @@ void AhdsrGraph::timerCallback()
 		sustain = this_sustain;
 		release = this_release;
 		attackCurve = this_attackCurve;
+		decayCurve = this_decayCurve;
 
 		rebuildGraph();
 	}
@@ -909,11 +913,11 @@ void AhdsrGraph::rebuildGraph()
 	lastX = x;
 	x += an;
 
-	const float controlY = margin + aln * height + attackCurve * (height - aln * height);
+	const float attackControlY = margin + aln * height + attackCurve * (height - aln * height);
 
-	envelopePath.quadraticTo((lastX + x) / 2, controlY, x, margin + aln * height);
+	envelopePath.quadraticTo((lastX + x) / 2, attackControlY, x, margin + aln * height);
 	
-	attackPath.quadraticTo((lastX + x) / 2, controlY, x, margin + aln * height);
+	attackPath.quadraticTo((lastX + x) / 2, attackControlY, x, margin + aln * height);
 	attackPath.lineTo(x, margin + height);
 	attackPath.closeSubPath();
 
@@ -933,8 +937,10 @@ void AhdsrGraph::rebuildGraph()
 	lastX = x;
 	x = jmin<float>(x + (dn*4), 0.8f * width);
 
-	envelopePath.quadraticTo(lastX, margin + sn * height, x, margin + sn * height);
-	decayPath.quadraticTo(lastX, margin + sn * height, x, margin + sn * height);
+	const float decayControlY = margin + aln * height + (1.0f - decayCurve) * (sn - aln) * height;
+
+	envelopePath.quadraticTo(lastX, decayControlY, x, margin + sn * height);
+	decayPath.quadraticTo(lastX, decayControlY, x, margin + sn * height);
 
 	x = 0.8f * width;
 

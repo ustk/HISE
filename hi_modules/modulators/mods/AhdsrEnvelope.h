@@ -326,9 +326,10 @@ private:
 	float attackLevel = 0.0f;
 	float hold = 0.0f;
 	float decay = 0.0f;
-	float sustain = 0.f;
-	float release = 0.f;
-	float attackCurve = 0.f;
+	float sustain = 0.0f;
+	float release = 0.0f;
+	float attackCurve = 0.0f;
+	float decayCurve = 0.0f;
 
 	Path envelopePath;
 	Path attackPath;
