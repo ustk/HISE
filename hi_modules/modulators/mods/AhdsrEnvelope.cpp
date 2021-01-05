@@ -65,6 +65,7 @@ AhdsrEnvelope::AhdsrEnvelope(MainController *mc, const String &id, int voiceAmou
 	parameterNames.add("Release");
 	parameterNames.add("AttackCurve");
 	parameterNames.add("DecayCurve");
+	parameterNames.add("ReleaseCurve");
 	parameterNames.add("EcoMode");
 
 	editorStateIdentifiers.add("AttackTimeChainShown");
@@ -94,6 +95,7 @@ AhdsrEnvelope::AhdsrEnvelope(MainController *mc, const String &id, int voiceAmou
 
 	setAttackCurve(0.0f);
 	setDecayCurve(0.0f);
+	setReleaseCurve(0.0f);
 
 }
 
@@ -104,6 +106,7 @@ void AhdsrEnvelope::restoreFromValueTree(const ValueTree &v)
 
 	loadAttributeWithDefault(AttackCurve);
 	loadAttributeWithDefault(DecayCurve);
+	loadAttributeWithDefault(ReleaseCurve);
 	loadAttribute(Attack, "Attack");
 	loadAttribute(AttackLevel, "AttackLevel");
 	loadAttribute(Hold, "Hold");
@@ -119,6 +122,7 @@ ValueTree AhdsrEnvelope::exportAsValueTree() const
 
 	saveAttribute(AttackCurve, "AttackCurve");
 	saveAttribute(DecayCurve, "DecayCurve");
+	saveAttribute(ReleaseCurve, "ReleaseCurve");
 	saveAttribute(Attack, "Attack");
 	saveAttribute(AttackLevel, "AttackLevel");
 	saveAttribute(Hold, "Hold");
@@ -159,8 +163,8 @@ void AhdsrEnvelope::setReleaseRate(float rate)
 {
 	release = jmax<float>(1.0f, rate);
 
-    releaseCoef = calcCoef(release, targetRatioDR);
-    releaseBase = -targetRatioDR * (1.0f - releaseCoef);
+    releaseCoef = calcCoef(release, targetRatioRR);
+    releaseBase = -targetRatioRR * (1.0f - releaseCoef);
 }
 
 void AhdsrEnvelope::setSustainLevel(float level)
@@ -177,7 +181,15 @@ void AhdsrEnvelope::setTargetRatioDR(float targetRatio) {
     targetRatioDR = targetRatio;
 
     decayBase = (sustain - targetRatioDR) * (1.0f - decayCoef);
-    releaseBase = -targetRatioDR * (1.0f - releaseCoef);
+}
+
+void AhdsrEnvelope::setTargetRatioRR(float targetRatio) {
+    
+	if (targetRatio < 0.0000001f)
+        targetRatio = 0.0000001f;
+    targetRatioRR = targetRatio;
+
+    releaseBase = -targetRatioRR * (1.0f - releaseCoef);
 }
 
 float AhdsrEnvelope::startVoice(int voiceIndex)
@@ -387,6 +399,7 @@ float AhdsrEnvelope::getDefaultValue(int parameterIndex) const
 	case Release:		return 20.0f;
 	case AttackCurve:	return 1.0f;
 	case DecayCurve:	return 1.0f;
+	case ReleaseCurve:	return 1.0f;
 	case EcoMode:		return 1.0f;
 	default:		jassertfalse; return -1;
 	}
@@ -410,6 +423,7 @@ void AhdsrEnvelope::setInternalAttribute(int parameterIndex, float newValue)
 	case Release:		setReleaseRate(newValue); break;
 	case AttackCurve:	setAttackCurve(newValue); break;
 	case DecayCurve:	setDecayCurve(newValue); break;
+	case ReleaseCurve:	setReleaseCurve(newValue); break;
 	case EcoMode:		break; // not needed anymore...
 	default:			jassertfalse;
 	}
@@ -432,6 +446,7 @@ float AhdsrEnvelope::getAttribute(int parameterIndex) const
 	case Release:		return release;
 	case AttackCurve:	return attackCurve;
 	case DecayCurve:	return decayCurve;
+	case ReleaseCurve:	return releaseCurve;
 	case EcoMode:		return 1.0f; // not needed anymore...
 	default:		jassertfalse; return -1;
 	}
@@ -638,6 +653,15 @@ void AhdsrEnvelope::setDecayCurve(float newValue)
 
 	setTargetRatioDR(newRatio);
 	setDecayRate(decay);
+}
+
+void AhdsrEnvelope::setReleaseCurve(float newValue)
+{
+	releaseCurve = newValue;
+
+	const float newRatio = pow(releaseCurve, 4);
+
+	setTargetRatioRR(newRatio);
 	setReleaseRate(release);
 }
 
@@ -727,8 +751,8 @@ void AhdsrEnvelope::AhdsrEnvelopeState::setReleaseRate(float rate)
 	{
 		const float stateRelease = modValue * rate;
 
-		releaseCoef = envelope->calcCoef(stateRelease, envelope->targetRatioDR);
-		releaseBase = -envelope->targetRatioDR * (1.0f - releaseCoef);
+		releaseCoef = envelope->calcCoef(stateRelease, envelope->targetRatioRR);
+		releaseBase = -envelope->targetRatioRR * (1.0f - releaseCoef);
 
 	}
 	else
@@ -851,6 +875,7 @@ void AhdsrGraph::timerCallback()
 	float this_release = processor->getAttribute(AhdsrEnvelope::Release);
 	float this_attackCurve = processor->getAttribute(AhdsrEnvelope::AttackCurve);
 	float this_decayCurve = processor->getAttribute(AhdsrEnvelope::DecayCurve);
+	float this_releaseCurve = processor->getAttribute(AhdsrEnvelope::ReleaseCurve);
 
 	lastState = dynamic_cast<AhdsrEnvelope*>(processor.get())->getStateInfo();
 
@@ -861,7 +886,8 @@ void AhdsrGraph::timerCallback()
 		this_decayCurve != decayCurve ||
 		this_sustain != sustain ||
 		this_hold != hold ||
-		this_release != release)
+		this_release != release ||
+		this_releaseCurve != releaseCurve)
 	{
 		attack = this_attack;
 		attackLevel = this_attackLevel;
@@ -871,6 +897,7 @@ void AhdsrGraph::timerCallback()
 		release = this_release;
 		attackCurve = this_attackCurve;
 		decayCurve = this_decayCurve;
+		releaseCurve = this_releaseCurve;
 
 		rebuildGraph();
 	}
@@ -890,34 +917,29 @@ void AhdsrGraph::rebuildGraph()
 	const float width = (float)getWidth() - 2.0f*margin;
 	const float height = (float)getHeight() - 2.0f*margin;
 
-	const float an = pow((attack / 20000.0f), 0.2f) * (0.2f * width);
-	const float hn = pow((hold / 20000.0f), 0.2f) * (0.2f * width);
-	const float dn = pow((decay / 20000.0f), 0.2f) * (0.2f * width);
-	const float rn = pow((release / 20000.0f), 0.2f) * (0.2f * width);
-
-	float x = margin;
-	float lastX = x;
+	const float an = pow((attack / 20000.0f), 0.4f) * (0.2f * width);
+	const float hn = pow((hold / 20000.0f), 0.4f) * (0.2f * width);
+	const float dn = pow((decay / 20000.0f), 0.4f) * (0.2f * width);
+	const float rn = pow((release / 20000.0f), 0.4f) * (0.2f * width);
 
 	envelopePath.clear();
-
 	attackPath.clear();
 	decayPath.clear();
 	holdPath.clear();
 	releasePath.clear();
 
-	envelopePath.startNewSubPath(x, margin + height);
-	attackPath.startNewSubPath(x, margin + height);
-
 	// Attack Curve
-
-	lastX = x;
+	float x = margin;
+	float lastX = x;
 	x += an;
+
+	envelopePath.startNewSubPath(lastX, margin + height);
+	attackPath.startNewSubPath(lastX, margin + height);
 
 	const float attackControlY = margin + aln * height + attackCurve * (height - aln * height);
 
-	envelopePath.quadraticTo((lastX + x) / 2, attackControlY, x, margin + aln * height);
-	
-	attackPath.quadraticTo((lastX + x) / 2, attackControlY, x, margin + aln * height);
+	envelopePath.quadraticTo(lastX + attackCurve * x, attackControlY, x, margin + aln * height);
+	attackPath.quadraticTo(lastX + attackCurve * x, attackControlY, x, margin + aln * height);
 	attackPath.lineTo(x, margin + height);
 	attackPath.closeSubPath();
 
@@ -956,8 +978,10 @@ void AhdsrGraph::rebuildGraph()
 	lastX = x;
 	x += rn;
 
-	envelopePath.quadraticTo(lastX, margin + height, x, margin + height);
-	releasePath.quadraticTo(lastX, margin + height, x, margin + height);
+	const float releaseControlY = margin + height - releaseCurve * (height - sn * height);
+
+	envelopePath.quadraticTo(lastX, releaseControlY, x, margin + height);
+	releasePath.quadraticTo(lastX, releaseControlY, x, margin + height);
 
 	releasePath.closeSubPath();
 	envelopePath.closeSubPath();

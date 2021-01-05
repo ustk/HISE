@@ -75,7 +75,8 @@ public:
 		Sustain,	 ///< the sustain level in decibel
 		Release,	 ///< the release time in milliseconds
 		AttackCurve, ///< the attack curve (0.0 = concave, 1.0 = convex)
-		DecayCurve, ///< the release curve (and the decayCurve)
+		DecayCurve,  ///< the decay curve (0.0 = concave, 1.0 = linear)
+		ReleaseCurve,///< the release curve (0.0 = concave, 1.0 = linear)
 		EcoMode,	 ///< uses 16x downsampling and linear interpolation for calculating the envelope curve
 		numTotalParameters
 	};
@@ -155,13 +156,13 @@ public:
 		/** The internal states that this envelope has */
 		enum EnvelopeState
 		{
-			ATTACK, ///< attack phase (isPlaying() returns \c true)
-			HOLD, ///< hold phase
-			DECAY, ///< decay phase
-			SUSTAIN, ///< sustain phase (isPlaying() returns \c true)
-			RETRIGGER, ///< retrigger phase (monophonic only)
-			RELEASE, ///< attack phase (isPlaying() returns \c true)
-			IDLE ///< idle state (isPlaying() returns \c false.
+			ATTACK, 	///< attack phase (isPlaying() returns \c true)
+			HOLD, 		///< hold phase
+			DECAY, 		///< decay phase
+			SUSTAIN, 	///< sustain phase (isPlaying() returns \c true)
+			RETRIGGER, 	///< retrigger phase (monophonic only)
+			RELEASE, 	///< attack phase (isPlaying() returns \c true)
+			IDLE 		///< idle state (isPlaying() returns \c false.
 		};
 
 		/** Calculate the attack rate for the state. If the modulation value is 1.0f, they are simply copied from the envelope. */
@@ -233,6 +234,7 @@ private:
 	void setHoldTime(float holdTimeMs);
 	void setTargetRatioA(float targetRatio);
 	void setTargetRatioDR(float targetRatio);
+	void setTargetRatioRR(float targetRatio);
 
 	float calcCoef(float rate, float targetRatio) const;
 
@@ -240,6 +242,7 @@ private:
 	
 	void setAttackCurve(float newValue);
 	void setDecayCurve(float newValue);
+	void setReleaseCurve(float newValue);
 	
 	float inputValue;
 
@@ -249,6 +252,7 @@ private:
 
 	float attackCurve;
 	float decayCurve;
+	float releaseCurve;
 
 	float hold;
 	float holdTimeSamples;
@@ -265,6 +269,7 @@ private:
 	float release;
 	float releaseCoef;
 	float releaseBase;
+	float targetRatioRR;
 
 	AhdsrEnvelopeState *state;
 
@@ -330,6 +335,7 @@ private:
 	float release = 0.0f;
 	float attackCurve = 0.0f;
 	float decayCurve = 0.0f;
+	float releaseCurve = 0.0f;
 
 	Path envelopePath;
 	Path attackPath;

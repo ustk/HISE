@@ -72,6 +72,7 @@ public:
 		releaseSlider->updateValue();
 		attackCurveSlider->updateValue();
 		decayCurveSlider->updateValue();
+    releaseCurveSlider->updateValue();
 	}
 
 	int getBodyHeight() const override
@@ -114,6 +115,7 @@ private:
     ScopedPointer<AhdsrGraph> ahdsrGraph;
     ScopedPointer<HiSlider> attackCurveSlider;
     ScopedPointer<HiSlider> decayCurveSlider;
+    ScopedPointer<HiSlider> releaseCurveSlider;
 
 
     //==============================================================================

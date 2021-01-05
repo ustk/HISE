@@ -37,6 +37,8 @@ AhdsrEnvelopeEditor::AhdsrEnvelopeEditor (ProcessorEditor *p)
 {
     //[Constructor_pre] You can add your own custom stuff here..
     //[/Constructor_pre]
+    addAndMakeVisible (ahdsrGraph = new AhdsrGraph (getProcessor()));
+    ahdsrGraph->setName ("new component");
 
     addAndMakeVisible (label = new Label ("new label",
                                           TRANS("ahdsr")));
@@ -47,7 +49,7 @@ AhdsrEnvelopeEditor::AhdsrEnvelopeEditor (ProcessorEditor *p)
     label->setColour (TextEditor::textColourId, Colours::black);
     label->setColour (TextEditor::backgroundColourId, Colour (0x00000000));
 
-    addAndMakeVisible (attackSlider = new HiSlider ("Attack"));
+    addAndMakeVisible (attackSlider = new HiSlider ("Attack Rate"));
     attackSlider->setRange (1, 20000, 1);
     attackSlider->setSliderStyle (Slider::RotaryHorizontalVerticalDrag);
     attackSlider->setTextBoxStyle (Slider::TextBoxRight, true, 80, 20);
@@ -57,7 +59,7 @@ AhdsrEnvelopeEditor::AhdsrEnvelopeEditor (ProcessorEditor *p)
     attackSlider->addListener (this);
     attackSlider->setSkewFactor (0.3);
 
-    addAndMakeVisible (releaseSlider = new HiSlider ("Release"));
+    addAndMakeVisible (releaseSlider = new HiSlider ("Release Rate"));
     releaseSlider->setRange (1, 20000, 1);
     releaseSlider->setSliderStyle (Slider::RotaryHorizontalVerticalDrag);
     releaseSlider->setTextBoxStyle (Slider::TextBoxRight, true, 80, 20);
@@ -86,7 +88,7 @@ AhdsrEnvelopeEditor::AhdsrEnvelopeEditor (ProcessorEditor *p)
     holdSlider->addListener (this);
     holdSlider->setSkewFactor (0.3);
 
-    addAndMakeVisible (decaySlider = new HiSlider ("Decay"));
+    addAndMakeVisible (decaySlider = new HiSlider ("Decay Rate"));
     decaySlider->setRange (1, 20000, 1);
     decaySlider->setSliderStyle (Slider::RotaryHorizontalVerticalDrag);
     decaySlider->setTextBoxStyle (Slider::TextBoxRight, true, 80, 20);
@@ -96,7 +98,7 @@ AhdsrEnvelopeEditor::AhdsrEnvelopeEditor (ProcessorEditor *p)
     decaySlider->addListener (this);
     decaySlider->setSkewFactor (0.3);
 
-    addAndMakeVisible (sustainSlider = new HiSlider ("Sustain"));
+    addAndMakeVisible (sustainSlider = new HiSlider ("Sustain Level"));
     sustainSlider->setRange (-100, 0, 1);
     sustainSlider->setSliderStyle (Slider::RotaryHorizontalVerticalDrag);
     sustainSlider->setTextBoxStyle (Slider::TextBoxRight, true, 80, 20);
@@ -105,10 +107,7 @@ AhdsrEnvelopeEditor::AhdsrEnvelopeEditor (ProcessorEditor *p)
     sustainSlider->setColour (Slider::textBoxTextColourId, Colours::white);
     sustainSlider->addListener (this);
 
-    addAndMakeVisible (ahdsrGraph = new AhdsrGraph (getProcessor()));
-    ahdsrGraph->setName ("new component");
-
-    addAndMakeVisible (attackCurveSlider = new HiSlider ("Decay"));
+    addAndMakeVisible (attackCurveSlider = new HiSlider ("Attack Curve"));
     attackCurveSlider->setRange (1, 20000, 1);
     attackCurveSlider->setSliderStyle (Slider::RotaryHorizontalVerticalDrag);
     attackCurveSlider->setTextBoxStyle (Slider::TextBoxRight, true, 80, 20);
@@ -118,7 +117,7 @@ AhdsrEnvelopeEditor::AhdsrEnvelopeEditor (ProcessorEditor *p)
     attackCurveSlider->addListener (this);
     attackCurveSlider->setSkewFactor (0.3);
 
-    addAndMakeVisible (decayCurveSlider = new HiSlider ("Sustain"));
+    addAndMakeVisible (decayCurveSlider = new HiSlider ("Decay Curve"));
     decayCurveSlider->setRange (-100, 0, 1);
     decayCurveSlider->setSliderStyle (Slider::RotaryHorizontalVerticalDrag);
     decayCurveSlider->setTextBoxStyle (Slider::TextBoxRight, true, 80, 20);
@@ -127,6 +126,14 @@ AhdsrEnvelopeEditor::AhdsrEnvelopeEditor (ProcessorEditor *p)
     decayCurveSlider->setColour (Slider::textBoxTextColourId, Colours::white);
     decayCurveSlider->addListener (this);
 
+    addAndMakeVisible (releaseCurveSlider = new HiSlider ("Release Curve"));
+    releaseCurveSlider->setRange (-100, 0, 1);
+    releaseCurveSlider->setSliderStyle (Slider::RotaryHorizontalVerticalDrag);
+    releaseCurveSlider->setTextBoxStyle (Slider::TextBoxRight, true, 80, 20);
+    releaseCurveSlider->setColour (Slider::backgroundColourId, Colour (0x00000000));
+    releaseCurveSlider->setColour (Slider::thumbColourId, Colour (0x80666666));
+    releaseCurveSlider->setColour (Slider::textBoxTextColourId, Colours::white);
+    releaseCurveSlider->addListener (this);
 
     //[UserPreSize]
 
@@ -156,7 +163,8 @@ AhdsrEnvelopeEditor::AhdsrEnvelopeEditor (ProcessorEditor *p)
 	decayCurveSlider->setup(getProcessor(), AhdsrEnvelope::DecayCurve, "Decay Curve");
 	decayCurveSlider->setMode(HiSlider::NormalizedPercentage);
 
-
+  releaseCurveSlider->setup(getProcessor(), AhdsrEnvelope::ReleaseCurve, "Release Curve");
+  releaseCurveSlider->setMode(HiSlider::NormalizedPercentage);
 
     //[/UserPreSize]
 
@@ -196,6 +204,7 @@ AhdsrEnvelopeEditor::~AhdsrEnvelopeEditor()
     ahdsrGraph = nullptr;
     attackCurveSlider = nullptr;
     decayCurveSlider = nullptr;
+    releaseCurveSlider = nullptr;
 
 
     //[Destructor]. You can add your own custom destruction code here..
@@ -224,16 +233,26 @@ void AhdsrEnvelopeEditor::resized()
     //[UserPreResize] Add your own custom resize code here..
     //[/UserPreResize]
 
-    label->setBounds ((getWidth() / 2) + 348 - 290, 8, 290, 40);
-    attackSlider->setBounds ((getWidth() / 2) + -340, 112, 128, 48);
-    releaseSlider->setBounds ((getWidth() / 2) + 341 - 128, 112, 128, 48);
-    attackLevelSlider->setBounds ((getWidth() / 2) + 341 - 128, 42, 128, 48);
-    holdSlider->setBounds ((getWidth() / 2) + -202, 112, 128, 48);
-    decaySlider->setBounds (((getWidth() / 2) + -202) + 128 / 2 + 75, 112, 128, 48);
-    sustainSlider->setBounds ((((getWidth() / 2) + -202) + 128 / 2 + 75) + 128 - -10, 112, 128, 48);
-    ahdsrGraph->setBounds ((getWidth() / 2) + -73 - 264, 32, 264, 64);
-    attackCurveSlider->setBounds (((getWidth() / 2) + -202) + 128 - -10, 42, 128, 48);
-    decayCurveSlider->setBounds ((((getWidth() / 2) + -202) + 128 / 2 + 75) + 128 - -10, 42, 128, 48);
+    ahdsrGraph->setBounds         ((getWidth() / 2) - 100, 5, 200, 60);
+    
+    label->setBounds              ((getWidth() / 2) + 348 - 290, 8, 290, 40);
+
+    attackSlider->setBounds       ((getWidth() / 2) + -340, 112, 128, 48);
+    attackCurveSlider->setBounds  ((getWidth() / 2) + -340, 61, 128, 48);
+    attackLevelSlider->setBounds  ((getWidth() / 2) + -340, 10, 128, 48);
+
+    holdSlider->setBounds         ((getWidth() / 2) + -202, 112, 128, 48);
+    
+    decaySlider->setBounds        (((getWidth() / 2) + -202) + 128 / 2 + 75, 112, 128, 48);
+    decayCurveSlider->setBounds   (((getWidth() / 2) + -202) + 128 / 2 + 75, 61, 128, 48);
+    
+    sustainSlider->setBounds      ((((getWidth() / 2) + -202) + 128 / 2 + 75) + 128 - -10, 112, 128, 48);
+
+    sustainSlider->setBounds      ((((getWidth() / 2) + -202) + 128 / 2 + 75) + 128 - -10, 112, 128, 48);
+
+    releaseSlider->setBounds      ((getWidth() / 2) + 341 - 128, 112, 128, 48);
+    releaseCurveSlider->setBounds ((getWidth() / 2) + 341 - 128, 61, 128, 48);
+
     //[UserResized] Add your own custom resize handling here..
     //[/UserResized]
 }
@@ -295,6 +314,11 @@ void AhdsrEnvelopeEditor::sliderValueChanged (Slider* sliderThatWasMoved)
     {
         //[UserSliderCode_decayCurveSlider] -- add your slider handling code here..
         //[/UserSliderCode_decayCurveSlider]
+    }
+    else if (sliderThatWasMoved == releaseCurveSlider)
+    {
+        //[UserSliderCode_releaseCurveSlider] -- add your slider handling code here..
+        //[/UserSliderCode_releaseCurveSlider]
     }
 
     //[UsersliderValueChanged_Post]
