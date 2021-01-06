@@ -606,7 +606,7 @@ public:
 
 				String code = "Content.makeFrontInterface(" + String(getWidth()) + ", " + String(getHeight()) + ");"
 							+ " Console.clear();"
-							+ " include(\"../../_SCRIPTS/helper.js\");"
+							+ " //include(\"../../_SCRIPTS/helper.js\");"
 							+ "\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n";
 
 				jsp->getSnippet(0)->replaceContentAsync(code);
