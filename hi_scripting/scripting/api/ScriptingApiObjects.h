@@ -1623,6 +1623,9 @@ public:
 		/** Draws a (non interpolated) horizontal line. */
 		void drawHorizontalLine(int y, float x1, float x2);
 
+		/** Draws a (non interpolated) vertical line. */
+		void drawVerticalLine(int x, float y1, float y2);
+
 		/** Sets a global transparency level. */
 		void setOpacity(float alphaValue);
 

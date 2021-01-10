@@ -3247,6 +3247,7 @@ struct ScriptingObjects::GraphicsObject::Wrapper
 	API_VOID_METHOD_WRAPPER_2(GraphicsObject, fillRoundedRectangle);
 	API_VOID_METHOD_WRAPPER_5(GraphicsObject, drawLine);
 	API_VOID_METHOD_WRAPPER_3(GraphicsObject, drawHorizontalLine);
+	API_VOID_METHOD_WRAPPER_3(GraphicsObject, drawVerticalLine);
 	API_VOID_METHOD_WRAPPER_2(GraphicsObject, setFont);
 	API_VOID_METHOD_WRAPPER_2(GraphicsObject, drawText);
 	API_VOID_METHOD_WRAPPER_3(GraphicsObject, drawAlignedText);
@@ -3284,6 +3285,7 @@ rectangleResult(Result::ok())
 	ADD_API_METHOD_2(fillRoundedRectangle);
 	ADD_API_METHOD_5(drawLine);
 	ADD_API_METHOD_3(drawHorizontalLine);
+	ADD_API_METHOD_3(drawVerticalLine);
 	ADD_API_METHOD_2(setFont);
 	ADD_API_METHOD_2(drawText);
 	ADD_API_METHOD_3(drawAlignedText);
@@ -3586,6 +3588,14 @@ struct ScriptedDrawActions
 		int y; float x1; float x2;
 	};
 
+	struct drawVerticalLine : public DrawActions::ActionBase
+	{
+		drawVerticalLine(int x_, float y1_, float y2_) :
+			x(x_), y1(y1_), y2(y2_) {};
+		void perform(Graphics& g) { g.drawVerticalLine(x, y1, y2); };
+		int x; float y1; float y2;
+	};
+
 	struct setOpacity : public DrawActions::ActionBase
 	{
 		setOpacity(float alpha_) :
@@ -3685,6 +3695,11 @@ void ScriptingObjects::GraphicsObject::drawRoundedRectangle(var area, float corn
 void ScriptingObjects::GraphicsObject::drawHorizontalLine(int y, float x1, float x2)
 {
 	drawActionHandler.addDrawAction(new ScriptedDrawActions::drawHorizontalLine(y, SANITIZED(x1), SANITIZED(x2)));
+}
+
+void ScriptingObjects::GraphicsObject::drawVerticalLine(int x, float y1, float y2)
+{
+	drawActionHandler.addDrawAction(new ScriptedDrawActions::drawVerticalLine(x, SANITIZED(y1), SANITIZED(y2)));
 }
 
 void ScriptingObjects::GraphicsObject::setOpacity(float alphaValue)
