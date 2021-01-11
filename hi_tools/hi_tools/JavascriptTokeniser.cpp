@@ -51,17 +51,17 @@ CodeEditorComponent::ColourScheme JavascriptTokeniser::getDefaultColourScheme()
    
 	const Type types[] =
 	{
-		{ "Error", 0xffBB3333 },
-		{ "Comment", 0xff77CC77 },
-		{ "Keyword", 0xFFCB69FF },
-		{ "Operator", 0xFF6868FF },
-		{ "Identifier", 0xffDDDDFF },
-		{ "Integer", 0xffDDAADD },
-		{ "Float", 0xffEEAA00 },
-		{ "String", 0xffDDAAAA },
-		{ "Bracket", 0xffFFFFFF },
-		{ "Punctuation", 0xffCCCCCC },
-		{ "Preprocessor Text", 0xffCC7777 }
+		{ "Error", 				0xffBB3333 },
+		{ "Comment", 			0xff77CC77 },
+		{ "Keyword", 			0xFF6868FF },
+		{ "Operator", 			0xFFCB69FF },
+		{ "Identifier", 		0xffDDDDFF },
+		{ "Integer", 			0xffDDAADD },
+		{ "Float", 				0xffEEAA00 },
+		{ "String", 			0xffDDAAAA },
+		{ "Bracket", 			0xffFFFFFF },
+		{ "Punctuation", 		0xffCCCCCC },
+		{ "Preprocessor Text", 	0xffCC7777 }
 	};
 
     CodeEditorComponent::ColourScheme cs;
