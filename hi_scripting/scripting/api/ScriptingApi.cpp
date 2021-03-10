@@ -864,6 +864,7 @@ struct ScriptingApi::Engine::Wrapper
 	API_METHOD_WRAPPER_0(Engine, getDeviceType);
 	API_METHOD_WRAPPER_0(Engine, getDeviceResolution);
 	API_METHOD_WRAPPER_0(Engine, getZoomLevel);
+	API_VOID_METHOD_WRAPPER_1(Engine, setZoomLevel);
 	API_METHOD_WRAPPER_0(Engine, getVersion);
 	API_METHOD_WRAPPER_0(Engine, getName);
 	API_METHOD_WRAPPER_0(Engine, getFilterModeList);
@@ -967,6 +968,7 @@ parentMidiProcessor(dynamic_cast<ScriptBaseMidiProcessor*>(p))
 	ADD_API_METHOD_0(getPreloadProgress);
 	ADD_API_METHOD_0(getPreloadMessage);
 	ADD_API_METHOD_0(getZoomLevel);
+	ADD_API_METHOD_1(setZoomLevel);
 	ADD_API_METHOD_0(getVersion);
 	ADD_API_METHOD_0(getName);
 	ADD_API_METHOD_0(getFilterModeList);
@@ -1219,6 +1221,8 @@ String ScriptingApi::Engine::getOS()
 {
 #if JUCE_WINDOWS
 	return "WIN";
+#elif JUCE_LINUX
+	return "LINUX";
 #else
 	return "OSX";
 #endif
@@ -1267,7 +1271,17 @@ String ScriptingApi::Engine::getPreloadMessage()
 
 var ScriptingApi::Engine::getZoomLevel() const
 {
-	return dynamic_cast<const GlobalSettingManager*>(getScriptProcessor()->getMainController_())->getGlobalScaleFactor();
+	auto gm = dynamic_cast<const GlobalSettingManager*>(getScriptProcessor()->getMainController_());
+	
+	return gm->getGlobalScaleFactor();
+}
+
+void ScriptingApi::Engine::setZoomLevel(double newLevel)
+{
+	newLevel = jlimit(0.25, 2.0, newLevel);
+
+	auto gm = dynamic_cast<GlobalSettingManager*>(getScriptProcessor()->getMainController_());
+	gm->setGlobalScaleFactor(newLevel, sendNotificationAsync);
 }
 
 var ScriptingApi::Engine::getFilterModeList() const
@@ -3134,8 +3148,8 @@ void ScriptingApi::Synth::noteOffDelayedByEventId(int eventId, int timestamp)
 	}
 	else
 	{
-		if(!parentMidiProcessor->setArtificialTimestamp(eventId, timestamp))
-			reportScriptError("NoteOn with ID" + String(eventId) + " wasn't found");
+		// The note might already be killed, but you want to change the timestamp afterwards...
+		parentMidiProcessor->setArtificialTimestamp(eventId, timestamp);
 	}
 }
 
@@ -4513,7 +4527,7 @@ struct ScriptingApi::FileSystem::Wrapper
 	API_METHOD_WRAPPER_1(FileSystem, getFolder);
 	API_METHOD_WRAPPER_3(FileSystem, findFiles);
 	API_METHOD_WRAPPER_0(FileSystem, getSystemId);
-	API_VOID_METHOD_WRAPPER_4(FileSystem, browse);
+	API_VOID_METHOD_WRAPPER_5(FileSystem, browse);
 };
 
 ScriptingApi::FileSystem::FileSystem(ProcessorWithScriptingContent* pwsc):
@@ -4535,7 +4549,7 @@ ScriptingApi::FileSystem::FileSystem(ProcessorWithScriptingContent* pwsc):
 	ADD_API_METHOD_1(getFolder);
 	ADD_API_METHOD_3(findFiles);
 	ADD_API_METHOD_0(getSystemId);
-	ADD_API_METHOD_4(browse);
+	ADD_API_METHOD_5(browse);
 }
 
 ScriptingApi::FileSystem::~FileSystem()
@@ -4573,7 +4587,7 @@ var ScriptingApi::FileSystem::findFiles(var directory, String wildcard, bool rec
 	return l;
 }
 
-void ScriptingApi::FileSystem::browse(var startFolder, bool forSaving, String wildcard, var callback)
+void ScriptingApi::FileSystem::browse(var startFolder, bool forSaving, String wildcard, bool forDirectory, var callback)
 {
 	File f;
 
@@ -4584,21 +4598,30 @@ void ScriptingApi::FileSystem::browse(var startFolder, bool forSaving, String wi
 
 	auto p_ = p;
 
-	auto cb = [forSaving, f, wildcard, callback, p_]()
+	auto cb = [forSaving, f, wildcard, callback, p_, forDirectory]()
 	{
     FileChooser fc(!forSaving ? "Open file" : "Save file", f, wildcard);
 
 		var a;
 
-		if (forSaving && fc.browseForFileToSave(true))
+		if (forDirectory)
 		{
-			a = var(new ScriptingObjects::ScriptFile(p_, fc.getResult()));
+			if (fc.browseForDirectory())
+			{
+				a = var(new ScriptingObjects::ScriptFile(p_, fc.getResult()));	
+			}
 		}
-		if (!forSaving && fc.browseForFileToOpen())
+		else 
 		{
-			a = var(new ScriptingObjects::ScriptFile(p_, fc.getResult()));
+			if (forSaving && fc.browseForFileToSave(true))
+			{
+				a = var(new ScriptingObjects::ScriptFile(p_, fc.getResult()));
+			}
+			if (!forSaving && fc.browseForFileToOpen())
+			{
+				a = var(new ScriptingObjects::ScriptFile(p_, fc.getResult()));
+			}
 		}
-
 		if (a.isObject())
 		{
 			WeakCallbackHolder cb(p_, callback, 1);
@@ -4822,7 +4845,7 @@ bool ScriptingApi::Server::isOnline()
 		URL u(*url);
 
 		auto ms = Time::getMillisecondCounter();
-		std::unique_ptr<InputStream> in(u.createInputStream(false, nullptr, nullptr, String(), 2000, nullptr));
+		std::unique_ptr<InputStream> in(u.createInputStream(false, nullptr, nullptr, String(), HISE_SCRIPT_SERVER_TIMEOUT, nullptr));
 		dynamic_cast<JavascriptProcessor*>(getScriptProcessor())->getScriptEngine()->extendTimeout(Time::getMillisecondCounter() - ms);
 
 		if (in != nullptr)
@@ -4890,7 +4913,7 @@ void ScriptingApi::Server::WebThread::run()
 			{
 				ScopedPointer<WebInputStream> wis;
 
-				wis = dynamic_cast<WebInputStream*>(job->url.createInputStream(job->isPost, nullptr, nullptr, job->extraHeader, 3000, nullptr, &job->status));
+				wis = dynamic_cast<WebInputStream*>(job->url.createInputStream(job->isPost, nullptr, nullptr, job->extraHeader, HISE_SCRIPT_SERVER_TIMEOUT, nullptr, &job->status));
 
 				auto response = wis != nullptr ? wis->readEntireStreamAsString() : "{}";
 				std::array<var, 2> args;

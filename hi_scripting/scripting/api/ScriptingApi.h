@@ -420,6 +420,9 @@ public:
 		/** Returns the current Zoom Level. */
 		var getZoomLevel() const;
 
+		/** Sets the new zoom level (1.0 = 100%) */
+		void setZoomLevel(double newLevel);
+
 		/** Returns an object that contains all filter modes. */
 		var getFilterModeList() const;
 
@@ -1096,7 +1099,7 @@ public:
 		var findFiles(var directory, String wildcard, bool recursive);
 
 		/** Opens a file browser to choose a file. */
-		void browse(var startFolder, bool forSaving, String wildcard, var callback);
+		void browse(var startFolder, bool forSaving, String wildcard, bool forDirectory, var callback);
 
 		/** Returns a unique machine ID that can be used to identify the computer. */
 		String getSystemId();
