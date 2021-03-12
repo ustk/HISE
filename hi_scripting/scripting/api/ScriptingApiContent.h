@@ -1874,6 +1874,12 @@ public:
 	/** Sets the height of the content. */
 	void setWidth(int newWidth) noexcept;
 
+	/** Gets the height of the interface. */
+	int getHeight() const;
+
+	/** Gets the height of the interface. */
+	int getWidth() const;
+
     /** Sets this script as main interface with the given size. */
     void makeFrontInterface(int width, int height);
     
