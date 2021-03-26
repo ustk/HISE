@@ -401,11 +401,18 @@ bool ExpansionHandler::installFromResourceFile(const File& resourceFile, const F
 			auto samplesDir = expRoot.getChildFile("Samples");
 			samplesDir.createDirectory();
 
-			if (sampleDirectoryToUse != getExpansionFolder())
+			if (sampleDirectoryToUse != getExpansionFolder() && 
+				sampleDirectoryToUse != getMainController()->getCurrentFileHandler().getSubDirectory(FileHandlerBase::Samples))
 			{
 				FileHandlerBase::createLinkFileInFolder(samplesDir, sampleDirectoryToUse);
-				samplesDir = sampleDirectoryToUse;
+				
 			}
+			else
+			{
+				FileHandlerBase::getLinkFile(samplesDir).deleteFile();
+			}
+
+			samplesDir = sampleDirectoryToUse;
 
 			hlac::HlacArchiver::DecompressData data;
 
@@ -418,7 +425,14 @@ bool ExpansionHandler::installFromResourceFile(const File& resourceFile, const F
 			data.partProgress = &unused;
 			data.sourceFile = resourceFile;
 
-			hlac::HlacArchiver a(Thread::getCurrentThread());
+			auto currentThread = Thread::getCurrentThread();
+
+			if (currentThread == nullptr)
+			{
+				currentThread = &getMainController()->getJavascriptThreadPool();
+			}
+
+			hlac::HlacArchiver a(currentThread);
 			a.setListener(this);
 			auto ok = a.extractSampleData(data);
 
