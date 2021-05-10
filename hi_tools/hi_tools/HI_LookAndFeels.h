@@ -502,7 +502,7 @@ public:
 		
 	}
 
-	void drawTableHeaderColumn (Graphics &g, TableHeaderComponent&, const String &columnName, int /*columnId*/, int width, int height, bool /*isMouseOver*/, bool /*isMouseDown*/, int /*columnFlags*/) override
+	void drawTableHeaderColumn (Graphics &g, TableHeaderComponent&, const String &columnName, int columnId, int width, int height, bool /*isMouseOver*/, bool /*isMouseDown*/, int /*columnFlags*/) override
 	{
 		if (width > 0)
 		{
@@ -513,7 +513,10 @@ public:
 			g.setFont(f);
 			g.setColour(textColour);
 
-			g.drawText(columnName, 3, 0, width - 3, height, Justification::centredLeft, true);
+			if (columnId == 2)
+				g.drawText(columnName, 3, 0, width - 3, height, Justification::centredLeft, true);
+			else
+				g.drawText(columnName, 0, 0, width, height, Justification::centred, true);
 		}
 	}
 
