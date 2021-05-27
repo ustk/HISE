@@ -113,6 +113,7 @@ numChannels(1),
 repeatMode(RepeatMode::KillSecondOldestNote),
 deactivateUIUpdate(false),
 samplePreloadPending(false),
+realVoiceAmount(numVoices),
 temporaryVoiceBuffer(DEFAULT_BUFFER_TYPE_IS_FLOAT, 2, 0)
 {
 #if USE_BACKEND || HI_ENABLE_EXPANSION_EDITING
@@ -250,11 +251,11 @@ void ModulatorSampler::setNumChannels(int numNewChannels)
 	}
 
 	const int prevVoiceAmount = voiceAmount;
-	const int prevVoiceLimit = (int)getAttribute(ModulatorSynth::VoiceLimit);
+	
 
 	voiceAmount = -1;
 	setVoiceAmount(prevVoiceAmount);
-	setVoiceLimit(prevVoiceLimit);
+	ModulatorSynth::setVoiceLimit(realVoiceAmount * getNumActiveGroups());
 
 	if (numChannels < 1) numChannels = 1;
 	if (numChannels > NUM_MIC_POSITIONS) numChannels = NUM_MIC_POSITIONS;
@@ -266,6 +267,14 @@ void ModulatorSampler::setNumChannels(int numNewChannels)
 		channelData[i].level = channelData[i].enabled ? 1.0f : 0.0f;
 	}
 
+}
+
+int ModulatorSampler::getNumActiveGroups() const
+{
+	if (crossfadeGroups)
+		return rrGroupAmount;
+
+	return jmax(1, multiRRGroupState.numSet);
 }
 
 void ModulatorSampler::setNumMicPositions(StringArray &micPositions)
@@ -290,7 +299,7 @@ bool ModulatorSampler::checkAndLogIsSoftBypassed(DebugLogger::Location location)
 
 void ModulatorSampler::refreshCrossfadeTables()
 {
-	
+	ModulatorSynth::setVoiceLimit(realVoiceAmount * getNumActiveGroups());
 }
 
 void ModulatorSampler::restoreFromValueTree(const ValueTree &v)
@@ -418,6 +427,8 @@ ValueTree ModulatorSampler::exportAsValueTree() const
 
 float ModulatorSampler::getAttribute(int parameterIndex) const
 {
+	if (parameterIndex == ModulatorSynth::VoiceLimit) return realVoiceAmount;
+
 	if (parameterIndex < ModulatorSynth::numModulatorSynthParameters) return ModulatorSynth::getAttribute(parameterIndex);
 
 	switch (parameterIndex)
@@ -934,7 +945,11 @@ bool ModulatorSampler::soundCanBePlayed(ModulatorSynthSound *sound, int midiChan
 
 	if (!messageFits) return false;
 	
-	const bool rrGroupApplies = crossfadeGroups || static_cast<ModulatorSamplerSound*>(sound)->appliesToRRGroup(currentRRGroupIndex);
+	
+	auto soundGroup = static_cast<ModulatorSamplerSound*>(sound)->getRRGroup();
+
+	const bool rrGroupApplies = (!multiRRGroupState && (crossfadeGroups || currentRRGroupIndex == soundGroup)) ||
+								multiRRGroupState[soundGroup];
 
 	if (!rrGroupApplies) return false;
 
@@ -1019,6 +1034,11 @@ void ModulatorSampler::preHiseEventCallback(const HiseEvent &m)
 
 float* ModulatorSampler::calculateCrossfadeModulationValuesForVoice(int voiceIndex, int startSample, int numSamples, int groupIndex)
 {
+	// If we have set multiple groups to be active manually
+	// we want to use only as much tables as there are active groups...
+	if (multiRRGroupState)
+		groupIndex %= multiRRGroupState.numSet;
+
 	if (groupIndex > 8) return nullptr;
 
 	if (auto compressedValues = modChains[Chains::XFade].getWritePointerForManualExpansion(startSample))
@@ -1075,6 +1095,13 @@ float* ModulatorSampler::calculateCrossfadeModulationValuesForVoice(int voiceInd
 const float * ModulatorSampler::getCrossfadeModValues() const
 {
 	return crossfadeGroups ? modChains[Chains::XFade].getReadPointerForVoiceValues(0) : nullptr;
+}
+
+void ModulatorSampler::setVoiceLimit(int newVoiceLimit)
+{
+	realVoiceAmount = jmax(2, newVoiceLimit);
+
+	ModulatorSynth::setVoiceLimit(realVoiceAmount * getNumActiveGroups());
 }
 
 float ModulatorSampler::getConstantCrossFadeModulationValue() const noexcept
@@ -1197,6 +1224,26 @@ bool ModulatorSampler::setCurrentGroupIndex(int currentIndex)
 	}
 }
 
+bool ModulatorSampler::setMultiGroupState(int groupIndex, bool shouldBeEnabled)
+{
+	if (groupIndex == -1)
+	{
+		multiRRGroupState.setAll(shouldBeEnabled);
+		return true;
+	}
+	else
+	{
+		multiRRGroupState.set(groupIndex, shouldBeEnabled);
+		return (groupIndex - 1) < rrGroupAmount;
+	}
+}
+
+bool ModulatorSampler::setMultiGroupState(const int* data128, int numSet)
+{
+	multiRRGroupState.copyFromIntArray(data128, 128, numSet);
+	return true;
+}
+
 void ModulatorSampler::setRRGroupAmount(int newGroupLimit)
 {
 	rrGroupAmount = jmax(1, newGroupLimit);
@@ -1208,6 +1255,8 @@ void ModulatorSampler::setRRGroupAmount(int newGroupLimit)
 
 	while (auto sound = sIter.getNextSound())
 		sound->setMaxRRGroupIndex(rrGroupAmount);
+
+	ModulatorSynth::setVoiceLimit(realVoiceAmount * getNumActiveGroups());
 }
 
 
