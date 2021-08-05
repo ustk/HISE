@@ -154,6 +154,7 @@ namespace Audio
 {
 DECLARE_ID(Driver);
 DECLARE_ID(Device);
+DECLARE_ID(Input);
 DECLARE_ID(Output);
 DECLARE_ID(Samplerate);
 DECLARE_ID(BufferSize);
@@ -248,11 +249,12 @@ struct ConversionHelpers
 
 	static String getUncamelcasedId(const Identifier& id);
 
-
+	static StringArray getInputChannelPairs(AudioIODevice* currentDevice);
 	static StringArray getChannelPairs(AudioIODevice* currentDevice);
 
 	static String getNameForChannelPair(const String& name1, const String& name2);
 
+	static String getCurrentInputName(AudioIODevice* currentDevice);
 	static String getCurrentOutputName(AudioIODevice* currentDevice);
 
 	static StringArray getChannelList();

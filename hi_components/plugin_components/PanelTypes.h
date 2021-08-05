@@ -64,6 +64,7 @@ const var data = {
 },
 "Driver": true,
 "Device": true,
+"Input": true,
 "Output": true,
 "BufferSize": true,
 "SampleRate": true,
@@ -89,6 +90,7 @@ public:
 	{
 		Driver = 7, ///< The audio driver type (ASIO, WDM, CoreAudio)
 		Device, ///< the audio device type (which sound card / driver)
+		Input, ///< the audio input channel for multichannel audio devices
 		Output, ///< the audio output channel for multichannel audio devices
 		BufferSize, ///< the buffer size (ideally only power of twos)
 		SampleRate, ///< the supported sample rates
