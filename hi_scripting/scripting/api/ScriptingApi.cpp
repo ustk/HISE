@@ -1782,7 +1782,7 @@ var ScriptingApi::Settings::getAvailableOutputChannels()
 	
 	if (currentDevice != nullptr) 
 	{
-		StringArray outputPairs = HiseSettings::ConversionHelpers::getChannelPairs(currentDevice);
+		StringArray outputPairs = HiseSettings::ConversionHelpers::getOutputChannelPairs(currentDevice);
 
 		for (auto x : outputPairs)
 			result.add(x);

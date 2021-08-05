@@ -322,7 +322,7 @@ void CustomSettingsWindow::rebuildMenus(bool rebuildDeviceTypes, bool rebuildDev
             const int thisInputName = (currentDevice->getActiveInputChannels().getHighestBit() - 1) / 2;
             inputSelector->setSelectedItemIndex(thisInputName, dontSendNotification);
 
-            outputSelector->addItemList(HiseSettings::ConversionHelpers::getChannelPairs(currentDevice), 1);
+            outputSelector->addItemList(HiseSettings::ConversionHelpers::getOutputChannelPairs(currentDevice), 1);
             const int thisOutputName = (currentDevice->getActiveOutputChannels().getHighestBit() - 1) / 2;
             outputSelector->setSelectedItemIndex(thisOutputName, dontSendNotification);
             
