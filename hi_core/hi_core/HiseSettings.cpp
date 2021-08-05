@@ -184,6 +184,7 @@ Array<juce::Identifier> HiseSettings::Audio::getAllIds()
 
 	ids.add(Driver);
 	ids.add(Device);
+	ids.add(Input);
 	ids.add(Output);
 	ids.add(Samplerate);
 	ids.add(BufferSize);
@@ -544,8 +545,12 @@ Array<juce::Identifier> HiseSettings::SnexWorkbench::getAllIds()
 		D("The driver type. On Windows you should choose ASIO (on macOS it's CoreAudio by default)");
 		P_();
 
+		P(HiseSettings::Audio::Input);
+		D("The input channel if your audio interface has multiple inputs");
+		P_();
+
 		P(HiseSettings::Audio::Output);
-		D("The output channel if your audio interface has multple outputs");
+		D("The output channel if your audio interface has multiple outputs");
 		P_();
 
 		P(HiseSettings::Audio::Samplerate);
@@ -766,10 +771,15 @@ juce::StringArray HiseSettings::Data::getOptionsFor(const Identifier& id)
 			for (auto l : bs)
 				sa.add(String(roundToInt(l)));
 		}
+		else if (id == Audio::Input)
+		{
+			const auto currentDevice = manager->getCurrentAudioDevice();
+			return ConversionHelpers::getInputChannelPairs(currentDevice);
+		}
 		else if (id == Audio::Output)
 		{
 			const auto currentDevice = manager->getCurrentAudioDevice();
-			return ConversionHelpers::getChannelPairs(currentDevice);
+			return ConversionHelpers::getOutputChannelPairs(currentDevice);
 		}
 		return sa;
 	}
@@ -920,6 +930,12 @@ var HiseSettings::Data::getDefaultSetting(const Identifier& id) const
 		auto device = dynamic_cast<AudioProcessorDriver*>(mc)->deviceManager->getCurrentAudioDevice();
 		return device != nullptr ? device->getName() : "No Device";
 	}
+	else if (id == Audio::Input)
+	{
+		auto device = dynamic_cast<AudioProcessorDriver*>(mc)->deviceManager->getCurrentAudioDevice();
+
+		return ConversionHelpers::getCurrentInputName(device);
+	}
 	else if (id == Audio::Output)
 	{
 		auto device = dynamic_cast<AudioProcessorDriver*>(mc)->deviceManager->getCurrentAudioDevice();
@@ -1061,13 +1077,39 @@ void HiseSettings::Data::settingWasChanged(const Identifier& id, const var& newV
 			sendChangeMessage();
 		}
 	}
+	else if (id == Audio::Input)
+	{
+		if (newValue.toString().isNotEmpty())
+		{
+			auto driver = dynamic_cast<AudioProcessorDriver*>(mc);
+			auto device = driver->deviceManager->getCurrentAudioDevice();
+			auto list = ConversionHelpers::getInputChannelPairs(device);
+			auto inputIndex = list.indexOf(newValue.toString());
+
+			if (inputIndex != -1)
+			{
+				AudioDeviceManager::AudioDeviceSetup config;
+				driver->deviceManager->getAudioDeviceSetup(config);
+
+				auto& original = config.inputChannels;
+
+				original.clear();
+				original.setBit(inputIndex * 2, 1);
+				original.setBit(inputIndex * 2 + 1, 1);
+
+				config.useDefaultInputChannels = false;
+
+				driver->deviceManager->setAudioDeviceSetup(config, true);
+			}
+		}
+	}
 	else if (id == Audio::Output)
 	{
 		if (newValue.toString().isNotEmpty())
 		{
 			auto driver = dynamic_cast<AudioProcessorDriver*>(mc);
 			auto device = driver->deviceManager->getCurrentAudioDevice();
-			auto list = ConversionHelpers::getChannelPairs(device);
+			auto list = ConversionHelpers::getOutputChannelPairs(device);
 			auto outputIndex = list.indexOf(newValue.toString());
 
 			if (outputIndex != -1)
@@ -1184,7 +1226,31 @@ juce::String HiseSettings::ConversionHelpers::getUncamelcasedId(const Identifier
 	return pretty;
 }
 
-juce::StringArray HiseSettings::ConversionHelpers::getChannelPairs(AudioIODevice* currentDevice)
+juce::StringArray HiseSettings::ConversionHelpers::getInputChannelPairs(AudioIODevice* currentDevice)
+{
+	if (currentDevice != nullptr)
+	{
+		StringArray items = currentDevice->getInputChannelNames();
+
+		StringArray pairs;
+
+		for (int i = 0; i < items.size(); i += 2)
+		{
+			const String& name = items[i];
+
+			if (i + 1 >= items.size())
+				pairs.add(name.trim());
+			else
+				pairs.add(getNameForChannelPair(name, items[i + 1]));
+		}
+
+		return pairs;
+	}
+
+	return StringArray();
+}
+
+juce::StringArray HiseSettings::ConversionHelpers::getOutputChannelPairs(AudioIODevice* currentDevice)
 {
 	if (currentDevice != nullptr)
 	{
@@ -1224,11 +1290,24 @@ juce::String HiseSettings::ConversionHelpers::getNameForChannelPair(const String
 	return name1.trim() + " + " + name2.substring(commonBit.length()).trim();
 }
 
+juce::String HiseSettings::ConversionHelpers::getCurrentInputName(AudioIODevice* currentDevice)
+{
+	if(currentDevice != nullptr)
+	{
+		auto list = getInputChannelPairs(currentDevice);
+		const int thisInputName = (currentDevice->getActiveInputChannels().getHighestBit() - 1) / 2;
+
+		return list[thisInputName];
+	}
+
+	return "";
+}
+
 juce::String HiseSettings::ConversionHelpers::getCurrentOutputName(AudioIODevice* currentDevice)
 {
 	if(currentDevice != nullptr)
 	{
-		auto list = getChannelPairs(currentDevice);
+		auto list = getOutputChannelPairs(currentDevice);
 		const int thisOutputName = (currentDevice->getActiveOutputChannels().getHighestBit() - 1) / 2;
 
 		return list[thisOutputName];

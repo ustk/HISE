@@ -176,7 +176,7 @@ If set to 1, the compiled plugin will use a stereo input channel pair and render
 This can be used to simulate an audio effect routing setup (when the appropriate plugin type is selected in the projucer settings).
 */
 #ifndef FORCE_INPUT_CHANNELS
-#define FORCE_INPUT_CHANNELS 0
+#define FORCE_INPUT_CHANNELS 1
 #endif
 
 /** Config: HISE_MIDIFX_PLUGIN
