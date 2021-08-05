@@ -1824,7 +1824,7 @@ int ScriptingApi::Settings::getCurrentOutputChannel()
 
 void ScriptingApi::Settings::setOutputChannel(int index)
 {
-	CustomSettingsWindow::flipEnablement(driver->deviceManager, index);
+	CustomSettingsWindow::flipOutputEnablement(driver->deviceManager, index);
 }
 
 var ScriptingApi::Settings::getAvailableBufferSizes()
