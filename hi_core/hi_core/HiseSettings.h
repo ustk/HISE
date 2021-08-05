@@ -253,7 +253,7 @@ struct ConversionHelpers
 	static String getUncamelcasedId(const Identifier& id);
 
 	static StringArray getInputChannelPairs(AudioIODevice* currentDevice);
-	static StringArray getChannelPairs(AudioIODevice* currentDevice);
+	static StringArray getOutputChannelPairs(AudioIODevice* currentDevice);
 
 	static String getNameForChannelPair(const String& name1, const String& name2);
 
