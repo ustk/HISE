@@ -671,11 +671,20 @@ public:
 		/** Sets the current audio device */
 		void setAudioDevice(String name);
 		
+		/** Returns array of available input channel pairs. */
+		var getAvailableInputChannels();
+
 		/** Returns array of available output channel pairs. */
 		var getAvailableOutputChannels();
 
+		/** Returns current input channel pair. */
+		int getCurrentInputChannel();
+		
 		/** Returns current output channel pair. */
 		int getCurrentOutputChannel();
+		
+		/** Sets the input channel pair */
+		void setInputChannel(int index);
 		
 		/** Sets the output channel pair */
 		void setOutputChannel(int index);

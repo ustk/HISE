@@ -199,6 +199,19 @@ public:
 
 	void resetToDefault();
 
+	void setInputChannelName(const int channelIndex)
+	{
+		AudioDeviceManager::AudioDeviceSetup currentSetup;
+
+		deviceManager->getAudioDeviceSetup(currentSetup);
+		
+		BigInteger thisChannels = 0;
+		thisChannels.setBit(channelIndex);
+		currentSetup.inputChannels = thisChannels;
+
+		deviceManager->setAudioDeviceSetup(currentSetup, true);
+	}
+
 	void setOutputChannelName(const int channelIndex)
 	{
 		AudioDeviceManager::AudioDeviceSetup currentSetup;
@@ -217,6 +230,7 @@ public:
 		AudioDeviceManager::AudioDeviceSetup currentSetup;
 
 		deviceManager->getAudioDeviceSetup(currentSetup);
+		currentSetup.inputDeviceName = deviceName;
 		currentSetup.outputDeviceName = deviceName;
 		deviceManager->setAudioDeviceSetup(currentSetup, true);
 	}

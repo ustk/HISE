@@ -151,7 +151,7 @@
 #endif
 
 #ifndef    FORCE_INPUT_CHANNELS
- //#define FORCE_INPUT_CHANNELS 0
+ #define   FORCE_INPUT_CHANNELS 1
 #endif
 
 #ifndef    HISE_DEACTIVATE_OVERLAY
