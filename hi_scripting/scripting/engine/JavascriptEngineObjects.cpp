@@ -24,6 +24,7 @@ struct HiseJavascriptEngine::RootObject::ArrayClass : public DynamicObject
 	{
 		setMethod("contains", contains);
 		setMethod("remove", remove);
+		setMethod("removeIndex", removeIndex);
 		setMethod("join", join);
 		setMethod("push", push);
         setMethod("sort", sort);
@@ -50,6 +51,14 @@ struct HiseJavascriptEngine::RootObject::ArrayClass : public DynamicObject
 	{
 		if (Array<var>* array = a.thisObject.getArray())
 			array->removeAllInstancesOf(get(a, 0));
+
+		return var();
+	}
+
+	static var removeIndex(Args a)
+	{
+		if (Array<var>* array = a.thisObject.getArray())
+			array->remove(get(a, 0));
 
 		return var();
 	}
@@ -211,6 +220,9 @@ public:
 
 	/** Removes all instances of the given element. */
 	var remove(var elementToRemove) { return var(); }
+
+	/** Removes the element corresponding to the given index. */
+	var removeIndex(var indexToRemove) { return var(); }
 
 	/** Reverses the order of the elements in the array. */
 	void reverse() {}
