@@ -1656,8 +1656,11 @@ struct ScriptingApi::Settings::Wrapper
 	API_METHOD_WRAPPER_0(Settings, getAvailableDeviceNames);
 	API_METHOD_WRAPPER_0(Settings, getCurrentAudioDevice);
 	API_VOID_METHOD_WRAPPER_1(Settings, setAudioDevice);
+	API_METHOD_WRAPPER_0(Settings, getAvailableInputChannels);
 	API_METHOD_WRAPPER_0(Settings, getAvailableOutputChannels);
+	API_METHOD_WRAPPER_0(Settings, getCurrentInputChannel);
 	API_METHOD_WRAPPER_0(Settings, getCurrentOutputChannel);
+	API_VOID_METHOD_WRAPPER_1(Settings, setInputChannel);
 	API_VOID_METHOD_WRAPPER_1(Settings, setOutputChannel);
 	API_METHOD_WRAPPER_0(Settings, getAvailableBufferSizes);
 	API_METHOD_WRAPPER_0(Settings, getCurrentBufferSize);
@@ -1694,8 +1697,11 @@ ScriptingApi::Settings::Settings(ProcessorWithScriptingContent* s) :
 	ADD_API_METHOD_0(getAvailableDeviceNames);
 	ADD_API_METHOD_0(getCurrentAudioDevice);
 	ADD_API_METHOD_1(setAudioDevice);
+	ADD_API_METHOD_0(getAvailableInputChannels);
 	ADD_API_METHOD_0(getAvailableOutputChannels);
+	ADD_API_METHOD_0(getCurrentInputChannel);
 	ADD_API_METHOD_0(getCurrentOutputChannel);
+	ADD_API_METHOD_1(setInputChannel);
 	ADD_API_METHOD_1(setOutputChannel);
 	ADD_API_METHOD_0(getAvailableBufferSizes);
 	ADD_API_METHOD_0(getCurrentBufferSize);
@@ -1812,6 +1818,22 @@ var ScriptingApi::Settings::getAvailableOutputChannels()
 	return result;
 }
 
+var ScriptingApi::Settings::getAvailableInputChannels()
+{
+	AudioIODevice* currentDevice = driver->deviceManager->getCurrentAudioDevice();
+	Array<var> result;	
+	
+	if (currentDevice != nullptr) 
+	{
+		StringArray inputPairs = HiseSettings::ConversionHelpers::getInputChannelPairs(currentDevice);
+
+		for (auto x : inputPairs)
+			result.add(x);
+	}
+
+	return result;
+}
+
 int ScriptingApi::Settings::getCurrentOutputChannel()
 {
 	AudioIODevice* currentDevice = driver->deviceManager->getCurrentAudioDevice();
@@ -1822,9 +1844,24 @@ int ScriptingApi::Settings::getCurrentOutputChannel()
 	return 0;
 }
 
+int ScriptingApi::Settings::getCurrentInputChannel()
+{
+	AudioIODevice* currentDevice = driver->deviceManager->getCurrentAudioDevice();
+	
+	if (currentDevice != nullptr)
+		return (currentDevice->getActiveInputChannels().getHighestBit() - 1) / 2;
+	
+	return 0;
+}
+
 void ScriptingApi::Settings::setOutputChannel(int index)
 {
 	CustomSettingsWindow::flipOutputEnablement(driver->deviceManager, index);
+}
+
+void ScriptingApi::Settings::setInputChannel(int index)
+{
+	CustomSettingsWindow::flipInputEnablement(driver->deviceManager, index);
 }
 
 var ScriptingApi::Settings::getAvailableBufferSizes()
