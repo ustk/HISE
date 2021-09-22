@@ -123,7 +123,7 @@
 #endif
 
 #ifndef    USE_VDSP_FFT
- //#define USE_VDSP_FFT 0
+ //#define USE_VDSP_FFT 1
 #endif
 
 #ifndef    FRONTEND_IS_PLUGIN
@@ -293,6 +293,10 @@
  //#define HISE_INCLUDE_SNEX 0
 #endif
 
+#ifndef    SNEX_INCLUDE_MEMORY_ADDRESS_IN_DUMP
+ //#define SNEX_INCLUDE_MEMORY_ADDRESS_IN_DUMP 0
+#endif
+
 //==============================================================================
 // hi_streaming flags:
 
@@ -305,6 +309,14 @@
 
 #ifndef    HISE_NO_GUI_TOOLS
  //#define HISE_NO_GUI_TOOLS 0
+#endif
+
+#ifndef    HISE_USE_NEW_CODE_EDITOR
+ //#define HISE_USE_NEW_CODE_EDITOR 1
+#endif
+
+#ifndef    IS_MARKDOWN_EDITOR
+ //#define IS_MARKDOWN_EDITOR 0
 #endif
 
 //==============================================================================

@@ -1592,7 +1592,7 @@ public:
 		void setLoadingCallback(var loadingCallback);
 
 		/** Disables the paint routine and just uses the given (clipped) image. */
-		void setImage(String imageName, int xOffset, int yOffset);
+		void setImage(String imageName, bool isHorizontal, int offset);
 
 		/** Loads a image which can be drawn with the paint function later on. */
 		void loadImage(String imageName, String prettyName);
@@ -2086,6 +2086,12 @@ public:
 
 	/** Sets the height of the content. */
 	void setWidth(int newWidth) noexcept;
+
+	/** Gets the height of the interface. */
+	int getHeight() const;
+
+	/** Gets the width of the interface. */
+	int getWidth() const;
 
 	/** Creates a screenshot of the area relative to the content's origin. */
 	void createScreenshot(var area, var directory, String name);

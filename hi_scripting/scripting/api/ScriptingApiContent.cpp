@@ -3177,7 +3177,7 @@ void ScriptingApi::Content::ScriptPanel::setValueWithUndo(var oldValue, var newV
     
 }
 
-void ScriptingApi::Content::ScriptPanel::setImage(String imageName, int xOffset, int yOffset)
+void ScriptingApi::Content::ScriptPanel::setImage(String imageName, bool isHorizontal, int offset)
 {
 	jassert_locked_script_thread(getScriptProcessor()->getMainController_());
 
@@ -3187,30 +3187,30 @@ void ScriptingApi::Content::ScriptPanel::setImage(String imageName, int xOffset,
 	Image toUse = getLoadedImage(imageName);
 
 	auto b = getPosition().withPosition(0, 0);
-		
+
+	auto img = toUse;
+
 	int w = 0;
 	int h = 0;
 
-	if (xOffset == 0)
+	if (isHorizontal)
+	{
+		double ratio = (double)b.getWidth() / (double)b.getHeight();
+		h = toUse.getHeight();
+		w = (int)((double)h * ratio);
+		offset = jmin<int>(offset, toUse.getWidth() - w);
+
+		img = toUse.getClippedImage(Rectangle<int>(offset, 0, w, h));
+	}
+	else
 	{
 		double ratio = (double)b.getHeight() / (double)b.getWidth();
 		w = toUse.getWidth();
 		h = (int)((double)w * ratio);
-		yOffset = jmin<int>(yOffset, toUse.getHeight() - h);
-	}
-	else if (yOffset == 0)
-	{
-		double ratio = (double)b.getHeight() / (double)b.getWidth();
-		h = toUse.getHeight();
-		w = (int)((double)h * ratio);
-		xOffset = jmin<int>(xOffset, toUse.getWidth() - xOffset);
-	}
-	else
-	{
-		logErrorAndContinue("Can't offset both dimensions. Either x or y must be 0");
-	}
+		offset = jmin<int>(offset, toUse.getHeight() - h);
 
-	auto img = toUse.getClippedImage(Rectangle<int>(0, yOffset, w, h));
+		img = toUse.getClippedImage(Rectangle<int>(0, offset, w, h));
+	}
 
 	if (auto drawHandler = getDrawActionHandler())
 	{
@@ -3948,6 +3948,8 @@ colour(Colour(0xff777777))
 	setMethod("setToolbarProperties", Wrapper::setToolbarProperties);
 	setMethod("setHeight", Wrapper::setHeight);
 	setMethod("setWidth", Wrapper::setWidth);
+	setMethod("getHeight", Wrapper::getHeight);
+	setMethod("getWidth", Wrapper::getWidth);
 	setMethod("createScreenshot", Wrapper::createScreenshot);
 	setMethod("addVisualGuide", Wrapper::addVisualGuide);
     setMethod("makeFrontInterface", Wrapper::makeFrontInterface);
@@ -4190,6 +4192,16 @@ void ScriptingApi::Content::setWidth(int newWidth) noexcept
 	width = newWidth;
 	
 };
+
+int ScriptingApi::Content::getHeight() const
+{
+	return (int)height;
+}
+
+int ScriptingApi::Content::getWidth() const
+{
+	return (int)width;
+}
 
 void ScriptingApi::Content::makeFrontInterface(int newWidth, int newHeight)
 {

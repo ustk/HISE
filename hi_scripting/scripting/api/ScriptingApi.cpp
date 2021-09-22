@@ -914,6 +914,7 @@ struct ScriptingApi::Engine::Wrapper
 	API_METHOD_WRAPPER_2(Engine, getDspNetworkReference);
 	API_METHOD_WRAPPER_1(Engine, getSystemTime);
 	API_METHOD_WRAPPER_1(Engine, loadAudioFileIntoBufferArray);
+	API_VOID_METHOD_WRAPPER_1(Engine, copyTextToClipboard);
 };
 
 ScriptingApi::Engine::Engine(ProcessorWithScriptingContent *p) :
@@ -1024,6 +1025,7 @@ parentMidiProcessor(dynamic_cast<ScriptBaseMidiProcessor*>(p))
 	ADD_API_METHOD_0(createExpansionHandler);
 	ADD_API_METHOD_3(showYesNoWindow);
 	ADD_API_METHOD_1(getSystemTime);
+	ADD_API_METHOD_1(copyTextToClipboard);
 }
 
 
@@ -1036,6 +1038,11 @@ void ScriptingApi::Engine::allNotesOff()
 {
 	getProcessor()->getMainController()->allNotesOff();
 };
+
+void ScriptingApi::Engine::copyTextToClipboard(String text)
+{
+	SystemClipboard::copyTextToClipboard(text);
+}
 
 void ScriptingApi::Engine::addModuleStateToUserPreset(var moduleId)
 {
@@ -4531,7 +4538,7 @@ int ScriptingApi::Synth::internalAddNoteOn(int channel, int noteNumber, int velo
 {
 	if (channel > 0 && channel <= 16)
 	{
-		if (noteNumber >= 0 && noteNumber < 127)
+		if (noteNumber >= 0 && noteNumber <= 127)
 		{
 			if (velocity >= 0 && velocity <= 127)
 			{
@@ -4602,7 +4609,7 @@ void ScriptingApi::Synth::addNoteOff(int channel, int noteNumber, int timeStampS
 {
 	if (channel > 0 && channel <= 16)
 	{
-		if (noteNumber >= 0 && noteNumber < 127)
+		if (noteNumber >= 0 && noteNumber <= 127)
 		{
 			if (timeStampSamples >= 0)
 			{
