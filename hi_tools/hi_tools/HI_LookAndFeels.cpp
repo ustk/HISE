@@ -351,6 +351,17 @@ void GlobalHiseLookAndFeel::fillPathHiStyle(Graphics &g, const Path &p, int, int
 	d.drawForPath(g, p);
 }
 
+void GlobalHiseLookAndFeel::setTextEditorColours(TextEditor& ed)
+{
+	ed.setColour(TextEditor::ColourIds::textColourId, Colours::black);
+	ed.setColour(TextEditor::ColourIds::backgroundColourId, Colours::white.withAlpha(0.4f));
+	ed.setColour(TextEditor::ColourIds::focusedOutlineColourId, Colour(SIGNAL_COLOUR));
+	ed.setColour(Label::ColourIds::outlineWhenEditingColourId, Colour(SIGNAL_COLOUR));
+	ed.setColour(TextEditor::ColourIds::highlightColourId, Colour(SIGNAL_COLOUR));
+	ed.setFont(GLOBAL_BOLD_FONT());
+	ed.setSelectAllWhenFocused(true);
+}
+
 void GlobalHiseLookAndFeel::drawVectorRotaryKnob(Graphics& g, Rectangle<float> area, double value, bool bipolar, bool hover, bool down, bool enabled, float modValue)
 {
 	// Routine
@@ -459,9 +470,53 @@ void MacroKnobLookAndFeel::drawRotarySlider(Graphics &g, int /*x*/, int /*y*/, i
 	const double normalizedValue = (value - s.getMinimum()) / (s.getMaximum() - s.getMinimum());
 	const double proportion = pow(normalizedValue, s.getSkewFactor());
 
+    
+    
+    Rectangle<float> area(0.0f, 0.0f, 48.0f, 48.0f);
+    
+    
+    
+    Path p1, p2;
+    
+    float start = JUCE_LIVE_CONSTANT_OFF(-2.4f);
+    
+    float end = -1.0f * start;
+    
+    auto length = -2.0f * start;
+    
+    
+    
+    p1.addPieSegment(area, start, end, JUCE_LIVE_CONSTANT_OFF(0.75));
+    
+    p2.addPieSegment(area, start, start + proportion * length, JUCE_LIVE_CONSTANT_OFF(0.75));
+    
+    float bgAlpha = 0.1f;
+    float fAlpha = 0.7f;
+    
+    if(s.isEnabled())
+    {
+        bgAlpha += 0.1f;
+    
+        if(s.isMouseOver(true))
+        {
+            fAlpha += 0.1f;
+            bgAlpha += 0.1f;
+        }
+        
+        if(s.isMouseButtonDown(true))
+        {
+            bgAlpha += 0.1f;
+            fAlpha += 0.1f;
+        }
+    }
+    
+    g.setColour(Colours::white.withAlpha(bgAlpha));
+    g.fillPath(p1);
+    
+    g.setColour(Colour(SIGNAL_COLOUR).withAlpha(fAlpha));
+    g.fillPath(p2);
 
-
-
+#if 0
 	const int stripIndex = (int)(proportion * 127);
 
 	const int filmstripHeight = cachedImage_macroKnob_png.getHeight() / 128;
@@ -483,7 +538,7 @@ void MacroKnobLookAndFeel::drawRotarySlider(Graphics &g, int /*x*/, int /*y*/, i
 	g.setColour(Colours::black.withAlpha(s.isEnabled() ? 1.0f : 0.5f));
 	g.drawImage(clipRing, 0, 0, 48, 48, 0, 0, filmstripHeight, filmstripHeight);
 
-
+#endif
 	g.setColour(Colours::white.withAlpha(0.3f));
 
 	g.setFont(GLOBAL_BOLD_FONT());

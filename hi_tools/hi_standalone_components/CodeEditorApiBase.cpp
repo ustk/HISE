@@ -111,18 +111,18 @@ String ValueTreeApiHelpers::createCodeToInsert(const ValueTree &method, const St
 	}
 	else if (name == "setPaintRoutine")
 	{
-		const String argumentName = "g";
-		String functionDef = className;
-		functionDef << "." << name + "(function(" << argumentName << ")\n";
-		functionDef << "{\n\t\n});\n";
+	const String argumentName = "g";
+	String functionDef = className;
+	functionDef << "." << name + "(function(" << argumentName << ")\n";
+	functionDef << "{\n\t\n});\n";
 
-		return functionDef;
+	return functionDef;
 	}
 	else
 	{
-		const String arguments = method.getProperty(Identifier("arguments")).toString();
+	const String arguments = method.getProperty(Identifier("arguments")).toString();
 
-		return String(className + "." + name + arguments);
+	return String(className + "." + name + arguments);
 	}
 }
 
@@ -140,6 +140,7 @@ void ValueTreeApiHelpers::getColourAndCharForType(int type, char &c, Colour &col
 	case (int)4:			c = 'G'; break;
 	case (int)5:			c = 'F'; break;
 	case (int)6:			c = 'A'; break;
+	case (int)7:		c = 'F'; break;
 	case (int)8:		c = 'N'; break;
 	default:											c = 'V'; break;
 	}
@@ -201,6 +202,16 @@ void ApiProviderBase::Holder::rebuild()
 	{
 		if (c != nullptr)
 			c->providerWasRebuilt();
+	}
+}
+
+void DebugableObjectBase::updateLocation(Location& l, var possibleObject)
+{
+	if (auto obj = dynamic_cast<DebugableObjectBase*>(possibleObject.getObject()))
+	{
+		auto newLocation = obj->getLocation();
+		if (newLocation.charNumber != 0)
+			l = newLocation;
 	}
 }
 

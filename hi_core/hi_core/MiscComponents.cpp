@@ -535,6 +535,7 @@ void MouseCallbackComponent::sendFileMessage(Action a, const String& f, Point<in
 	case Action::FileEnter:
 	case Action::FileExit: requiredLevel = FileCallbackLevel::DropHover; break;
 	case Action::FileMove: requiredLevel = FileCallbackLevel::AllCallbacks; break;
+    default: break;
 	}
 
 	if (fileCallbackLevel < requiredLevel)
@@ -784,13 +785,14 @@ void BorderPanel::paint(Graphics &g)
 		UnblurryGraphics ug(g, *this);
 
 		auto sf = ug.getTotalScaleFactor();
-		auto sf2 = UnblurryGraphics::getScaleFactorForComponent(this, false);
 		auto st = AffineTransform::scale(jmin<double>(2.0, sf));
 		auto st2 = AffineTransform::scale(sf);
 
-		auto gb = getLocalArea(getTopLevelComponent(), getLocalBounds()).transformed(st2);
+		auto tc = getTopLevelComponent();
+
+		auto gb = getLocalArea(tc, getLocalBounds()).transformed(st2);
 		
-		drawHandler->setGlobalBounds(gb, sf);
+		drawHandler->setGlobalBounds(gb, tc->getLocalBounds(), sf);
 
 		DrawActions::Handler::Iterator it(drawHandler.get());
 
@@ -798,8 +800,6 @@ void BorderPanel::paint(Graphics &g)
 		{
 			// We are creating one master image before the loop
 			Image cachedImg;
-			
-			
 			
 			if (!isOpaque() && (getParentComponent() != nullptr && it.wantsToDrawOnParent()))
 			{
@@ -831,18 +831,15 @@ void BorderPanel::paint(Graphics &g)
 
 					Graphics g3(actionImage);
 					g3.addTransform(st);
+					action->setScaleFactor(sf);
 					action->setCachedImage(actionImage);
 					action->perform(g3);
 
 					if (!action->wantsToDrawOnParent())
-					{
 						GraphicHelpers::quickDraw(cachedImg, actionImage);
-					}
 				}
 				else
-				{
 					action->perform(g2);
-				}
 			}
 			
 			g.drawImageTransformed(cachedImg, st.inverted());
@@ -1070,6 +1067,21 @@ bool DrawActions::Handler::beginBlendLayer(const Identifier& blendMode, float al
 	addDrawAction(newLayer);
 	layerStack.insert(-1, newLayer);
 	return true;
+}
+
+juce::Rectangle<int> DrawActions::Handler::getScreenshotBounds(Rectangle<int> shaderBounds) const
+{
+	shaderBounds = shaderBounds.transformedBy(AffineTransform::scale(scaleFactor));
+
+	auto x = shaderBounds.getX() -1 * globalBounds.getX();
+	
+	auto y = topLevelBounds.getHeight() + globalBounds.getY() - shaderBounds.getHeight() - shaderBounds.getY();
+
+	shaderBounds.setX(x);
+	shaderBounds.setY(y);
+
+	return shaderBounds;
+
 }
 
 void DrawActions::BlendingLayer::perform(Graphics& g)

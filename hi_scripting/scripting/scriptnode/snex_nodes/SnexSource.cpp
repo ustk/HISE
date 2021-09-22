@@ -57,6 +57,8 @@ void SnexSource::recompiled(WorkbenchData::Ptr wb)
 	{
 		objPtr->initialiseObjectStorage(object);
 
+		wb->getLastResultReference().setDataPtrForDebugging(object.getObjectPtr());
+
 #if 0
 		String s;
 		int l = 0;
@@ -189,6 +191,70 @@ void SnexSource::addDummyProcessFunctions(String& s)
 	}
 	else
 		jassertfalse;
+}
+
+void SnexSource::ParameterHandler::updateParameters(ValueTree v, bool wasAdded)
+{
+	if (wasAdded)
+	{
+		auto newP = new SnexParameter(&parent, getNode(), v);
+		getNode()->addParameter(newP);
+	}
+	else
+	{
+		for (int i = 0; i < getNode()->getNumParameters(); i++)
+		{
+			if (auto sn = dynamic_cast<SnexParameter*>(getNode()->getParameter(i)))
+			{
+				if (sn->data[PropertyIds::ID].toString() == v[PropertyIds::ID].toString())
+				{
+					removeSnexParameter(sn);
+					break;
+				}
+			}
+		}
+	}
+}
+
+void SnexSource::ParameterHandler::updateParametersForWorkbench(bool shouldAdd)
+{
+	for (int i = 0; i < getNode()->getNumParameters(); i++)
+	{
+		if (auto sn = dynamic_cast<SnexParameter*>(getNode()->getParameter(i)))
+		{
+			removeSnexParameter(sn);
+			i--;
+		}
+	}
+
+	if (shouldAdd)
+	{
+		parameterTree = getNode()->getRootNetwork()->codeManager.getParameterTree(parent.getTypeId(), parent.classId.getValue());
+		parameterListener.setCallback(parameterTree, valuetree::AsyncMode::Synchronously, BIND_MEMBER_FUNCTION_2(ParameterHandler::updateParameters));
+	}
+}
+
+void SnexSource::ParameterHandler::removeSnexParameter(SnexParameter* p)
+{
+	p->data.getParent().removeChild(p->data, getNode()->getUndoManager());
+
+	for (int i = 0; i < getNode()->getNumParameters(); i++)
+	{
+		if (getNode()->getParameter(i) == p)
+		{
+			getNode()->removeParameter(i);
+			break;
+		}
+	}
+}
+
+void SnexSource::ParameterHandler::addNewParameter(parameter::data p)
+{
+	if (auto existing = getNode()->getParameter(p.info.getId()))
+		return;
+
+	auto newTree = p.createValueTree();
+	parameterTree.addChild(newTree, -1, getNode()->getUndoManager());
 }
 
 void SnexSource::ParameterHandler::addParameterCode(String& code)
@@ -328,6 +394,7 @@ int SnexSource::ComplexDataHandler::getNumDataObjects(ExternalData::DataType t) 
 	case snex::ExternalData::DataType::SliderPack:			return sliderPacks.size();
 	case snex::ExternalData::DataType::DisplayBuffer:		return displayBuffers.size();
 	case snex::ExternalData::DataType::FilterCoefficients:  return 0;
+    default: return 0;
 	}
 
 	return 0;
@@ -465,6 +532,7 @@ bool SnexSource::ComplexDataHandler::removeDataObject(ExternalData::DataType t, 
 		case ExternalData::DataType::SliderPack: pendingDelete = sliderPacks.removeAndReturn(index); break;
 		case ExternalData::DataType::AudioFile: pendingDelete = audioFiles.removeAndReturn(index); break;
 		case ExternalData::DataType::DisplayBuffer: pendingDelete = displayBuffers.removeAndReturn(index); break;
+        default: break;
 		}
 	}
 
@@ -481,16 +549,21 @@ snex::ExternalDataHolder* SnexSource::ComplexDataHandler::getDynamicDataHolder(s
 	case snex::ExternalData::DataType::SliderPack: return sliderPacks[index];
 	case snex::ExternalData::DataType::AudioFile: return audioFiles[index];
 	case snex::ExternalData::DataType::DisplayBuffer: return displayBuffers[index];
+    default: break;
 	}
 
 	return nullptr;
 }
 
 SnexSource::SnexParameter::SnexParameter(SnexSource* n, NodeBase* parent, ValueTree dataTree) :
-	Parameter(parent, dataTree),
+	Parameter(parent, getTreeInNetwork(parent, dataTree)),
 	pIndex(dataTree.getParent().indexOf(dataTree)),
-	snexSource(n)
+	snexSource(n),
+	treeInCodeMetadata(dataTree)
 {
+	// Let's be very clear about this.
+	jassert(!treeInCodeMetadata.isAChildOf(parent->getRootNetwork()->getValueTree()));
+
 	auto& pHandler = n->getParameterHandler();
 
 	switch (pIndex)
@@ -507,32 +580,29 @@ SnexSource::SnexParameter::SnexParameter(SnexSource* n, NodeBase* parent, ValueT
 	}
 
 	auto ndb = new parameter::dynamic_base(p);
-	ndb->dataTree = dataTree;
+	ndb->dataTree = data;
 	setCallbackNew(ndb);
-
-	for (auto pTree : parent->getParameterTree())
-	{
-		if (pTree[PropertyIds::ID] == dataTree[PropertyIds::ID])
-		{
-			treeInNetwork = pTree;
-			break;
-		}
-	}
-
-	if (!treeInNetwork.isValid())
-	{
-		treeInNetwork = dataTree.createCopy();
-		parent->getParameterTree().addChild(treeInNetwork, -1, parent->getUndoManager());
-	}
-
-	setTreeWithValue(treeInNetwork);
 
 	auto ids = RangeHelpers::getRangeIds();
 	ids.add(PropertyIds::ID);
 
-	syncer.setPropertiesToSync(dataTree, treeInNetwork, ids, parent->getUndoManager());
+	syncer.setPropertiesToSync(dataTree, data, ids, parent->getUndoManager());
 
-	parentValueUpdater.setCallback(treeInNetwork, { PropertyIds::Value }, valuetree::AsyncMode::Synchronously, BIND_MEMBER_FUNCTION_2(SnexSource::SnexParameter::sendValueChangeToParentListeners));
+	parentValueUpdater.setCallback(data, { PropertyIds::Value }, valuetree::AsyncMode::Synchronously, BIND_MEMBER_FUNCTION_2(SnexSource::SnexParameter::sendValueChangeToParentListeners));
+}
+
+juce::ValueTree SnexSource::SnexParameter::getTreeInNetwork(NodeBase* parent, ValueTree dataTree)
+{
+	for (auto pTree : parent->getParameterTree())
+	{
+		if (pTree[PropertyIds::ID] == dataTree[PropertyIds::ID])
+			return pTree;
+	}
+
+	auto treeInNetwork = dataTree.createCopy();
+	parent->getParameterTree().addChild(treeInNetwork, -1, parent->getUndoManager());
+
+	return treeInNetwork;
 }
 
 void SnexSource::SnexParameter::sendValueChangeToParentListeners(Identifier id, var newValue)
@@ -597,11 +667,9 @@ juce::Result SnexSource::ParameterHandlerLight::recompiledOk(snex::jit::ComplexT
 
 	for (int index = 0; index < matches.size(); index++)
 	{
-		auto& object = parent.object;
 		auto objPtr = parent.wb->getLastResult().mainClassPtr;
 		String s;
-		int l = 0;
-
+		
 		pFunctions[index] = matches[index];
 
 		if (pFunctions[index].templateParameters[0].constant != index)
@@ -632,8 +700,7 @@ SnexComplexDataDisplay::~SnexComplexDataDisplay()
 void SnexComplexDataDisplay::rebuildEditors()
 {
 	auto updater = source->getParentNode()->getScriptProcessor()->getMainController_()->getGlobalUIUpdater();
-	auto undoManager = source->getParentNode()->getScriptProcessor()->getMainController_()->getControlUndoManager();
-
+	
 	auto& dataHandler = source->getComplexDataHandler();
 
 	auto t = snex::ExternalData::DataType::Table;

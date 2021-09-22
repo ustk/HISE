@@ -55,7 +55,7 @@ X(rightShiftUnsigned, ">>>") X(rightShiftEquals, ">>=") X(rightShift,   ">>")   
     X(typeof_,  "typeof")	X(switch_, "switch") X(case_, "case")	 X(default_,  "default")  X(register_var, "reg") \
 	X(in, 		"in")		X(inline_, "inline") X(const_, "const")	 X(global_,   "global")	  X(local_,	   "local") \
 	X(include_,  "include") X(rLock_,   "readLock") X(wLock_,"writeLock") 	X(extern_, "extern") X(namespace_, "namespace") \
-	X(isDefined_, "isDefined"); X(snex_, "snex")
+	X(isDefined_, "isDefined");
 
 namespace TokenTypes
 {
@@ -128,7 +128,7 @@ struct HiseJavascriptEngine::RootObject::CodeLocation
 	CodeLocation(const String& code, const String &externalFile_) noexcept        : program(code), location(program.getCharPointer()), externalFile(externalFile_) {}
 	CodeLocation(const CodeLocation& other) noexcept : program(other.program), location(other.location), externalFile(other.externalFile) {}
 
-	String getCallbackName() const
+	String getCallbackName(bool returnExternalFileName=false) const
 	{
 		if (program.startsWith("function"))
 		{
@@ -138,7 +138,10 @@ struct HiseJavascriptEngine::RootObject::CodeLocation
 		{
 			if (externalFile.isNotEmpty())
 			{
-				return "";
+				if (returnExternalFileName)
+					return externalFile.replaceCharacter('\\', '/').fromLastOccurrenceOf("/", false, false);
+				else
+					return {};
 			}
 			else
 			{
@@ -384,31 +387,57 @@ void DebugableObject::Helpers::gotoLocation(ModulatorSynthChain* mainSynthChain,
 	{
 		auto encodedState = matches[1];
 
-		auto pId = HiseJavascriptEngine::RootObject::CodeLocation::Helpers::getProcessorId(encodedState);
-		DebugableObject::Location loc;
-
-		loc.charNumber = HiseJavascriptEngine::RootObject::CodeLocation::Helpers::getCharNumberFromBase64String(encodedState);
-
-		auto fileReference = HiseJavascriptEngine::RootObject::CodeLocation::Helpers::getFileName(encodedState);
-
-		if (fileReference.contains("()"))
+		if (encodedState.startsWith("{GLSL"))
 		{
-			loc.fileName = fileReference;
-		}
-		else if (fileReference.isNotEmpty())
-		{
-			loc.fileName = GET_PROJECT_HANDLER(mainSynthChain).getFilePath(fileReference, ProjectHandler::SubDirectories::Scripts);
-		}
+			auto s = StringArray::fromTokens(encodedState.removeCharacters("{}"), ":", "");
+			s.removeEmptyStrings();
 
-		auto p = dynamic_cast<JavascriptProcessor*>(ProcessorHelpers::getFirstProcessorWithName(mainSynthChain, pId));
+			auto lineNumber = line.fromFirstOccurrenceOf("(", false, false).getIntValue() - 1;
 
-		if (p != nullptr)
-		{
-			gotoLocation(nullptr, p, loc);
+			if (auto p = dynamic_cast<JavascriptProcessor*>(ProcessorHelpers::getFirstProcessorWithName(mainSynthChain, s[1])))
+			{
+				for (int i = 0; i < p->getNumWatchedFiles(); i++)
+				{
+					if (p->getWatchedFile(i).getFileNameWithoutExtension() == s[2])
+					{
+						CodeDocument::Position pos(p->getWatchedFileDocument(i), lineNumber, 0);
+						DebugableObject::Location loc;
+						loc.charNumber = pos.getPosition();
+						loc.fileName = p->getWatchedFile(i).getFullPathName();
+						gotoLocation(nullptr, p, loc);
+						return;
+					}
+				}
+			}
 		}
 		else
 		{
-			PresetHandler::showMessageWindow("Can't find location", "The location is not valid", PresetHandler::IconType::Error);
+			auto pId = HiseJavascriptEngine::RootObject::CodeLocation::Helpers::getProcessorId(encodedState);
+			DebugableObject::Location loc;
+
+			loc.charNumber = HiseJavascriptEngine::RootObject::CodeLocation::Helpers::getCharNumberFromBase64String(encodedState);
+
+			auto fileReference = HiseJavascriptEngine::RootObject::CodeLocation::Helpers::getFileName(encodedState);
+
+			if (fileReference.contains("()"))
+			{
+				loc.fileName = fileReference;
+			}
+			else if (fileReference.isNotEmpty())
+			{
+				loc.fileName = GET_PROJECT_HANDLER(mainSynthChain).getFilePath(fileReference, ProjectHandler::SubDirectories::Scripts);
+			}
+
+			auto p = dynamic_cast<JavascriptProcessor*>(ProcessorHelpers::getFirstProcessorWithName(mainSynthChain, pId));
+
+			if (p != nullptr)
+			{
+				gotoLocation(nullptr, p, loc);
+			}
+			else
+			{
+				PresetHandler::showMessageWindow("Can't find location", "The location is not valid", PresetHandler::IconType::Error);
+			}
 		}
 	}
 #endif
@@ -678,7 +707,7 @@ var HiseJavascriptEngine::RootObject::eval(Args a)
 	return var::undefined();
 }
 
-Result HiseJavascriptEngine::execute(const String& javascriptCode, bool allowConstDeclarations/*=true*/)
+Result HiseJavascriptEngine::execute(const String& javascriptCode, bool allowConstDeclarations/*=true*/, const Identifier& callbackId)
 {
 #if JUCE_DEBUG
 	auto mc = dynamic_cast<Processor*>(root->hiseSpecialData.processor)->getMainController();
@@ -686,6 +715,10 @@ Result HiseJavascriptEngine::execute(const String& javascriptCode, bool allowCon
 #endif
 
 	static const Identifier onInit("onInit");
+
+	Identifier callbackIdTouse = callbackId;
+	if (callbackIdTouse.isNull())
+		callbackIdTouse = onInit;
 
 	try
 	{
@@ -705,8 +738,10 @@ Result HiseJavascriptEngine::execute(const String& javascriptCode, bool allowCon
 		DBG(e.errorMessage);
 		return Result::fail(e.errorMessage);
 #endif
+		if(e.externalLocation.isEmpty())
+			e.externalLocation = callbackIdTouse.toString() + "()";
 
-		return Result::fail(root->dumpCallStack(e, onInit));
+		return Result::fail(root->dumpCallStack(e, callbackIdTouse));
 	}
 	catch (Breakpoint& bp)
 	{
@@ -714,7 +749,7 @@ Result HiseJavascriptEngine::execute(const String& javascriptCode, bool allowCon
 			bp.copyLocalScopeToRoot(*root);
 
 		sendBreakpointMessage(bp.index);
-		return Result::fail(root->dumpCallStack(RootObject::Error::fromBreakpoint(bp), onInit));
+		return Result::fail(root->dumpCallStack(RootObject::Error::fromBreakpoint(bp), callbackIdTouse));
 	}
 
 	return Result::ok();
@@ -846,7 +881,7 @@ void HiseJavascriptEngine::setCallbackParameter(int callbackIndex, int parameter
 	root->hiseSpecialData.callbackNEW[callbackIndex]->setParameterValue(parameterIndex, newValue);
 }
 
-DebugInformationBase* HiseJavascriptEngine::getDebugInformation(int index)
+DebugInformationBase::Ptr HiseJavascriptEngine::getDebugInformation(int index)
 {
 	return root->hiseSpecialData.getDebugInformation(index);
 }
@@ -1042,11 +1077,14 @@ hise::DebugableObjectBase* HiseJavascriptEngine::getDebugObject(const String& to
 			return ApiProviderBase::getDebugObject("Array");
 		if (r.isString())
 			return ApiProviderBase::getDebugObject("String");
-
-
-
+		
 		if (auto s = dynamic_cast<DebugableObjectBase*>(r.getObject()))
 			return s;
+
+		if (auto dyn = r.getDynamicObject())
+		{
+			return new DynamicDebugableObjectWrapper(dyn, token, token);
+		}
 	}
 	catch (...)
 	{
@@ -1092,86 +1130,550 @@ numArgs(numArgs_)
 	}
 }
 
-
-
-#if INCLUDE_NATIVE_JIT
-NativeJITScope* HiseJavascriptEngine::RootObject::HiseSpecialData::getNativeJITScope(const Identifier& id)
+hise::DebugInformation* HiseJavascriptEngine::RootObject::Callback::getChildElement(int index)
 {
-	for (int i = 0; i < jitScopes.size(); i++)
+	WeakReference<Callback> safeThis(this);
+
+	if (index < getNumArgs())
 	{
-		if (jitScopes[i]->getName() == id)
+		auto vf = [safeThis, index]()
 		{
-			return jitScopes[i];
-		}
+			if (safeThis != nullptr)
+				return safeThis->parameterValues[index];
+
+			return var();
+		};
+
+		String mid = "%PARENT%." + parameters[index].toString();
+
+		return new LambdaValueInformation(vf, mid, {}, DebugInformation::Type::Callback, getLocation());
+	}
+	else
+	{
+	index -= numArgs;
+
+	auto id = safeThis->localProperties.getName(index);
+
+	auto vf = [safeThis, id]()
+	{
+		if (safeThis != nullptr)
+			return safeThis->localProperties[id];
+
+		return var();
+	};
+
+	String mid = "%PARENT%." + id.toString();
+
+	return new LambdaValueInformation(vf, mid, {}, DebugInformation::Type::Callback, getLocation());
 	}
 
-	return nullptr;
 }
 
-NativeJITCompiler* HiseJavascriptEngine::RootObject::HiseSpecialData::getNativeCompiler(const Identifier& id)
+struct TokenWithDot : public mcl::TokenCollection::Token
 {
-	for (int i = 0; i < jitModules.size(); i++)
+	TokenWithDot(const String& token, const String& classId_) :
+		Token(token),
+		classId(classId_)
+	{};
+
+	String getCodeToInsert(const String& input) const override
 	{
-		if (jitModules[i]->getModuleName() == id)
+		if (classId.isEmpty())
+			return Token::getCodeToInsert(input);
+
+		if (input.containsChar('.'))
+			return tokenContent.fromLastOccurrenceOf(".", false, false);
+		else
+			return tokenContent;
+	}
+
+	bool matches(const String& input, const String& previousToken, int lineNumber) const override
+	{
+		if (classId.isEmpty())
 		{
-			return jitModules[i];
+			if (previousToken.isNotEmpty())
+				return false;
+
+			return Token::matches(input, previousToken, lineNumber);
 		}
+
+		if (previousToken.isNotEmpty() && !previousToken.startsWith(classId))
+			return false;
+
+		return matchesInput(previousToken + input, tokenContent);
 	}
 
-	return nullptr;
-}
-#endif
+	String classId;
+};
 
-#if HISE_INCLUDE_SNEX
-var HiseJavascriptEngine::RootObject::JavascriptNamespace::createSnexInstance(const Identifier& sId, const var::NativeFunctionArgs& args)
+struct ObjectConstantToken : public TokenWithDot
 {
-	for (auto s : snexClasses)
+	ObjectConstantToken(DebugInformation::Ptr parent, const Identifier& id, const var& value):
+		TokenWithDot(parent->getTextForName() + "." + id.toString(), parent->getTextForName())
 	{
-		if (s->classId == sId)
-			return s->create(args);
+		priority = 99;
+		c = Colour(0xFF88EECC);
+		markdownDescription << "Constant value: `" << value.toString() << "`";
+	}
+};
+
+struct HiseJavascriptEngine::TokenProvider::ObjectMethodToken : public TokenWithDot
+{
+	ObjectMethodToken(ValueTree methodTree, DebugInformation::Ptr parent_) :
+		TokenWithDot(getContent(methodTree, parent_->getTextForName()),
+			parent_->getTextForName()),
+		data(methodTree),
+		parent(parent_)
+	{
+		priority = 100;
+		c = Colour(0xFFEE88CC);
+		markdownDescription = methodTree["description"].toString();
+
+		String s;
+		s << "scripting/scripting-api/";
+		s << MarkdownLink::Helpers::getSanitizedFilename(methodTree.getParent().getType().toString());
+		s << "#";
+		s << MarkdownLink::Helpers::getSanitizedFilename(methodTree["name"].toString()) << "/";
+
+		link = { File(), s };
 	}
 
-	String e;
+	static bool hasCallbackArgument(const ValueTree& method)
+	{
+		auto s = method["name"].toString();
 
-	e << "Can't find SNEX struct ";
+		return s.contains("Callback") || s.contains("setPaintRoutine") || s.contains("setErrorFunction") || s.contains("setOn");
+	}
 
-	if (id.isValid())
-		e << id << ".";
+	Array<Range<int>> getSelectionRangeAfterInsert(const String& input) const override
+	{
+		auto code = getCodeToInsert(input);
 
-	e << sId.toString();
+		if (code.contains("\t \n"))
+		{
+			auto brIndex = code.indexOf("\t \n");
 
-	throw e;
-}
+			Array<Range<int>> ranges;
 
-bool HiseJavascriptEngine::RootObject::JavascriptNamespace::hasSnexClass(const Identifier& sId) const
+			ranges.add({ brIndex + 1, brIndex + 2 });
+			return ranges;
+		}
+
+		return TokenWithDot::getSelectionRangeAfterInsert(input);
+	}
+
+	static String getContent(const ValueTree& method, const Identifier objectId)
+	{
+		String s;
+		s << objectId << "." << method["name"].toString();
+		
+		if (hasCallbackArgument(method))
+		{
+			auto args = method["arguments"].toString();
+			static const String body = "\n{\n\t \n}";
+
+			auto replaceArgs = [&](const String& varName, const String& newArgs)
+			{
+				if (args.contains(varName))
+				{
+					String newF;
+					newF << "function(" << newArgs << ")" << body;
+
+					args = args.replace("var " + varName, newF);
+				}
+			};
+
+			auto replaceFCallback = [&](const String& methodName, const String& newArgs)
+			{
+				if (s.contains(methodName))
+				{
+					String func;
+					func << "function(" << newArgs << ")" << body;
+					args = args.replace("var f", func);
+				}
+			};
+
+			replaceArgs("timerCallback", "");
+			replaceArgs("paintFunction", "g");
+			replaceArgs("mouseCallbackFunction", "event");
+			replaceArgs("loadingCallback", "isPreloading");
+			
+			replaceArgs("presetPreCallback", "presetData");
+			replaceArgs("presetPostCallback", "presetFile");
+
+			replaceFCallback("setOnBeatChange", "beatIndex, isNewBar");
+			replaceFCallback("setOnSignatureChange", "nom, denom");
+			replaceFCallback("setOnTempoChange", "newTempo");
+			replaceFCallback("setOnTransportChange", "isPlaying");
+			
+			s << args;
+			s << ";";
+		}
+		else
+		{
+			s << method["arguments"].toString().replace("var callback", "function()\n{\t \n}");
+		}
+
+		return s;
+	}
+
+
+	MarkdownLink getLink() const override
+	{
+		return link;
+	}
+	
+
+	MarkdownLink link;
+	ValueTree data;
+	DebugInformationBase::Ptr parent;
+};
+
+struct TemplateToken : public TokenWithDot
 {
-	for (auto s : snexClasses)
-		if (s->classId == sId)
-			return true;
+	TemplateToken(const String& expression, const ValueTree& mTree) :
+		TokenWithDot(expression + "." + mTree["name"].toString() + mTree["arguments"].toString(), expression)
+	{
+		priority = expression == "g" ? 100 : 110;
+		c = Colour(0xFFAAAA66);
+		markdownDescription = mTree["description"].toString();
+	}
+};
 
-	return false;
-}
-
-void HiseJavascriptEngine::RootObject::JavascriptNamespace::addSnexClass(HiseJavascriptEngine::RootObject* root, const String& code, const Identifier& classId)
+struct HiseJavascriptEngine::TokenProvider::ApiToken : public TokenWithDot
 {
-	using namespace snex::jit;
+	ApiToken(const Identifier& id, const ValueTree& mTree) :
+		TokenWithDot(getContent(id, mTree), id.toString())
+	{
+		priority = 100;
+		c = Colour(0xFF66AACC);
+		markdownDescription = mTree["description"].toString();
 
-	SnexStructSriptingWrapper::Ptr p = new SnexStructSriptingWrapper(root->snexGlobalScope, code, classId);
+		String s;
+		s << "scripting/scripting-api/";
+		s << MarkdownLink::Helpers::getSanitizedFilename(classId);
+		s << "#";
+		s << MarkdownLink::Helpers::getSanitizedFilename(mTree["name"].toString()) << "/";
 
-	if (p->r.failed())
-		throw p->r.getErrorMessage();
+		link = { File(), s };
+	}
 
-	snexClasses.add(p);
-}
+	MarkdownLink getLink() const override
+	{
+		return link;
+	}
 
-snex::jit::SnexStructSriptingWrapper::Ptr HiseJavascriptEngine::RootObject::JavascriptNamespace::getSnexStruct(const Identifier& classId)
+	static String getContent(const Identifier& id, const ValueTree& c) 
+	{
+		String s;
+		s << id << "." << c["name"].toString() << c["arguments"].toString();
+		return s;
+	}
+
+	String classId;
+	MarkdownLink link;
+
+};
+
+struct HiseJavascriptEngine::TokenProvider::KeywordToken : public mcl::TokenCollection::Token
 {
-	for (auto s : snexClasses)
-		if (s->classId == classId)
-			return s;
+	KeywordToken(String n) :
+		Token(n)
+	{
+		priority = 50;
+		c = Colour(0x88EE55CC);
+		markdownDescription = "HiseScript keyword";
+	}
 
-	return nullptr;
+	bool matches(const String& input, const String& previousToken, int lineNumber) const override
+	{
+		if (previousToken.isNotEmpty())
+		{
+			return false;
+		}
+
+		return matchesInput(input, tokenContent);
+	}
+};
+
+
+struct HiseJavascriptEngine::TokenProvider::DebugInformationToken : public TokenWithDot
+{
+	DebugInformationToken(DebugInformationBase::Ptr i, ValueTree apiTree_, Colour c_, DebugInformationBase::Ptr parent=nullptr) :
+		TokenWithDot(i->getCodeToInsert(), parent != nullptr ? parent->getTextForName() : ""),
+		info(i),
+		apiTree(apiTree_)
+	{
+		if(parent != nullptr)
+			tokenContent = DebugInformationBase::replaceParentWildcard(tokenContent, parent->getTextForName());
+
+		bool isGlobalClass = false;
+
+		auto s = i->getTextForDataType();
+
+		if (s.isNotEmpty())
+		{
+			
+
+			auto cId = Identifier(s);
+			isGlobalClass = ApiHelpers::getGlobalApiClasses().contains(cId);
+
+			String ml = "/scripting/scripting-api";
+			ml << MarkdownLink::Helpers::getSanitizedURL(s);
+
+			link = MarkdownLink(File(), ml);
+		}
+		
+		priority = isGlobalClass ? 110 : 90;;
+		c = c_;
+
+		if (isGlobalClass)
+		{
+			markdownDescription << "Global API class `" << s << "`  \n> Press F1 to open the documentation";
+		}
+		else
+		{
+			markdownDescription << "**Type:** `" << i->getTextForType() << "`  \n";
+			markdownDescription << "**Value:** " << i->getTextForValue();
+		}
+
+		
+	};
+
+	MarkdownLink getLink() const override { return link; }
+
+	MarkdownLink link;
+
+	DebugInformationBase::Ptr info;
+	ValueTree apiTree;
+};
+
+
+HiseJavascriptEngine::TokenProvider::TokenProvider(JavascriptProcessor* jp_) :
+	jp(jp_)
+{
+	if (auto pr = dynamic_cast<Processor*>(jp.get()))
+		pr->getMainController()->addScriptListener(this);
 }
-#endif
+
+HiseJavascriptEngine::TokenProvider::~TokenProvider()
+{
+	if (auto pr = dynamic_cast<Processor*>(jp.get()))
+		pr->getMainController()->removeScriptListener(this);
+}
+
+struct LookAndFeelToken : public TokenWithDot
+{
+	LookAndFeelToken(const Identifier& oid, const Identifier& fid) :
+		TokenWithDot(getContent(oid, fid), oid.toString())
+	{
+		c = Colours::seashell;
+		markdownDescription << "Override the paint routine for `" << fid << "`.  \n> Press F1 for additional information.";
+
+		String s;
+
+		s << "/glossary/custom_lookandfeel#";
+		s << MarkdownLink::Helpers::getSanitizedFilename(fid.toString());
+
+		link = MarkdownLink(File(), s);
+	};
+
+	MarkdownLink link;
+
+	MarkdownLink getLink() const override
+	{
+		return link;
+	}
+
+	Array<Range<int>> getSelectionRangeAfterInsert(const String& input) const override
+	{
+		auto code = getCodeToInsert(input);
+		auto brIndex = code.indexOf("\t \n");
+		Array<Range<int>> ranges;
+		ranges.add({ brIndex + 1, brIndex + 2 });
+		return ranges;
+	}
+
+	static String getContent(const Identifier& oid, const Identifier& fid)
+	{
+		String s;
+		s << oid << ".registerFunction(\"" << fid << "\", function(g, obj)\n{\n\t \n});";
+		return s;
+	}
+};
+
+static void addRecursive(JavascriptProcessor* jp, mcl::TokenCollection::List& tokens, DebugInformationBase::Ptr ptr, Colour c2, ValueTree v)
+{
+	if (!ptr->isAutocompleteable())
+		return;
+
+	int numChildren = ptr->getNumChildElements();
+
+	for (int j = 0; j < numChildren; j++)
+	{
+		if (Thread::currentThreadShouldExit() || jp->shouldReleaseDebugLock())
+			return;
+
+		auto c = ptr->getChildElement(j);
+        
+        if(c == nullptr)
+            break;
+        
+		char s;
+
+		jp->getProviderBase()->getColourAndLetterForType(c->getType(), c2, s);
+
+		Colour childColour = c2;
+
+		if (ptr->getTextForName() == "Colours")
+		{
+			auto vs = c->getTextForValue();
+            childColour = ScriptingApi::Content::Helpers::getCleanedObjectColour(vs);
+		}
+
+		tokens.add(new HiseJavascriptEngine::TokenProvider::DebugInformationToken(c, v, childColour, ptr));
+
+		addRecursive(jp, tokens, c, childColour, v);
+	}
+}
+
+void HiseJavascriptEngine::TokenProvider::addTokens(mcl::TokenCollection::List& tokens)
+{
+	if (jp != nullptr)
+	{
+		ScopedReadLock sl(jp->getDebugLock());
+
+		auto holder = dynamic_cast<ApiProviderBase::Holder*>(jp.get());
+
+		auto v = holder->createApiTree();
+
+		auto copy = jp->autoCompleteTemplates;
+
+		copy.add({ "g", Identifier("Graphics") });
+
+		for (const auto& t : copy)
+		{
+			auto cTree = v.getChildWithName(t.classId);
+
+			for (auto m : cTree)
+			{
+				tokens.add(new TemplateToken(t.expression, m));
+			}
+		}
+
+		if (WeakReference<HiseJavascriptEngine> e = jp->getScriptEngine())
+		{
+			auto numObjects = e->getNumDebugObjects();
+
+			if (true)
+			{
+				auto classTree = v.getChildWithName("Content");
+
+				for (auto methodTree : classTree)
+				{
+					if (Thread::currentThreadShouldExit() || jp->shouldReleaseDebugLock())
+						return;
+
+					tokens.add(new ApiToken("Content", methodTree));
+				}
+
+			}
+
+			for (int i = 0; i < numObjects; i++)
+			{
+				if (Thread::currentThreadShouldExit() || jp->shouldReleaseDebugLock())
+					return;
+
+				if (e == nullptr)
+				{
+					tokens.clear();
+					return;
+				}
+
+				auto ptr = e->getDebugInformation(i);
+
+				if (ptr == nullptr)
+					return;
+
+				Colour c2;
+				char s;
+
+				holder->getProviderBase()->getColourAndLetterForType(ptr->getType(), c2, s);
+
+				tokens.add(new DebugInformationToken(ptr, v, c2));
+
+				Identifier cid(ptr->getTextForDataType());
+
+				if (ApiHelpers::getGlobalApiClasses().contains(cid))
+				{
+					auto classTree = v.getChildWithName(cid);
+
+					for (auto methodTree : classTree)
+					{
+						if (Thread::currentThreadShouldExit() || jp->shouldReleaseDebugLock())
+							return;
+
+						tokens.add(new ApiToken(cid, methodTree));
+					}
+						
+				}
+				else
+				{
+					Identifier oid(ptr->getTextForType());
+
+					auto classTree = v.getChildWithName(oid);
+
+					
+
+					if (classTree.isValid())
+					{
+						for (auto method : classTree)
+						{
+							if (Thread::currentThreadShouldExit() || jp->shouldReleaseDebugLock())
+								return;
+
+							tokens.add(new ObjectMethodToken(method, ptr));
+						}
+
+						if (auto a = dynamic_cast<ApiClass*>(ptr->getObject()))
+						{
+							Array<Identifier> ids;
+							a->getAllConstants(ids);
+
+							int i = 0;
+							for (const auto& id : ids)
+							{
+								tokens.add(new ObjectConstantToken(ptr, id, a->getConstantValue(i++)));
+							}
+						}
+					}
+
+					if (auto slaf = dynamic_cast<ScriptingObjects::ScriptedLookAndFeel*>(ptr->getObject()))
+					{
+						auto l = ScriptingObjects::ScriptedLookAndFeel::getAllFunctionNames();
+
+						for (auto id : l)
+							tokens.add(new LookAndFeelToken(ptr->getTextForName(), id));
+					}
+				}
+
+				addRecursive(jp, tokens, ptr, c2, v);
+
+			}
+		}
+
+#define X(unused, name) tokens.add(new KeywordToken(name));
+
+		X(var, "var")      X(if_, "if")     X(else_, "else")   X(do_, "do")       X(null_, "null") 
+		X(while_, "while")    X(for_, "for")    X(break_, "break")  X(continue_, "continue") X(undefined, "undefined") 
+		X(function, "function") X(return_, "return") X(true_, "true")   X(false_, "false")    X(new_, "new") 
+		X(typeof_, "typeof")	X(switch_, "switch") X(case_, "case")	 X(default_, "default")  X(register_var, "reg") 
+		X(in, "in")		X(inline_, "inline") X(const_, "const")	 X(global_, "global")	  X(local_, "local") 
+		X(include_, "include") X(rLock_, "readLock") X(wLock_, "writeLock") 	X(extern_, "extern") X(namespace_, "namespace") 
+		X(isDefined_, "isDefined");
+
+#undef X
+	}
+}
 
 } // namespace hise

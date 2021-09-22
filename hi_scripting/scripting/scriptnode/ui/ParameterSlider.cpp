@@ -450,25 +450,8 @@ struct ParameterSlider::RangeComponent : public Component,
 		UnblurryGraphics ug(g, *this, true);
 
 		auto sf = 1.0f / UnblurryGraphics::getScaleFactorForComponent(this);
-
-		//g.fillAll(Colour(0xFF333336));
-
-		auto bg = Colour(0xFF262626);
-
-		auto on = temporary && ((Time::currentTimeMillis() % 1000) > 500);
-
-		auto wh = Colours::white.withAlpha(on ? 0.08f : 0.05f);
-
 		
-
-		auto w1 = Colours::white;
-		auto w2 = Colours::white.withAlpha(0.2f);
-
 		ScriptnodeComboBoxLookAndFeel::drawScriptnodeDarkBackground(g, getTotalArea(), false);
-
-		//g.setColour(Colours::black.withAlpha(0.3f));
-		//g.fillRoundedRectangle(getTotalArea(), 2.0f);
-		//g.drawRoundedRectangle(getTotalArea().reduced(0.5f), 2.0f, 1.0f);
 
 		auto inner = getRangeArea(true);
 		
@@ -582,6 +565,7 @@ struct ParameterSlider::RangeComponent : public Component,
 			{
 				break;
 			}
+            default: break;
 			}
 		}
 
@@ -622,6 +606,7 @@ struct ParameterSlider::RangeComponent : public Component,
 		case Left: 
 		case Right: return getParent().getTextFromValue(newStart) + " - " + getParent().getTextFromValue(newEnd);
 		case Inside: return "Mid: " + String(getParentRange().convertFrom0to1(0.5));
+        default: break;
 		}
 
 		return {};
@@ -653,6 +638,7 @@ struct ParameterSlider::RangeComponent : public Component,
 			case Right:  t = getParent().getTextFromValue(getParent().getMaximum()); break;
 			case Inside: t = String(getParentRange().convertFrom0to1(0.5)); break;
 			case Outside: t = getParent().getTextFromValue(getParent().getValue()); break;
+            default: break;
 			}
 
 			editor->setColour(Label::textColourId, Colours::white);
@@ -743,6 +729,7 @@ struct ParameterSlider::RangeComponent : public Component,
 		case Right:   setMouseCursor(MouseCursor::RightEdgeResizeCursor); break;
 		case Outside: setMouseCursor(MouseCursor::NormalCursor); break;
 		case Inside:  setMouseCursor(MouseCursor::UpDownResizeCursor); break;
+        default: break;
 		}
 
 		repaint();
@@ -868,8 +855,6 @@ struct ParameterSlider::RangeComponent : public Component,
 		if (e.mods.isRightButtonDown() || e.mods.isShiftDown())
 			return;
 
-		auto& s = getParent();
-
 		setNewRange(sendNotification);
 
 		if (dragPos == Left || dragPos == Right)
@@ -952,15 +937,15 @@ ParameterSlider::ParameterSlider(NodeBase* node_, int index_) :
 	SimpleTimer(node_->getScriptProcessor()->getMainController_()->getGlobalUIUpdater()),
 	parameterToControl(node_->getParameter(index_)),
 	node(node_),
-	pTree(node_->getParameter(index_)->getTreeWithValue()),
+	pTree(node_->getParameter(index_)->data),
 	index(index_)
 {
 	addAndMakeVisible(rangeButton);
 
 	setName(pTree[PropertyIds::ID].toString());
 
-	connectionListener.setTypesToWatch({ PropertyIds::Connections, PropertyIds::ModulationTargets });
-	connectionListener.setCallback(pTree.getRoot(), valuetree::AsyncMode::Asynchronously,
+	connectionListener.setTypesToWatch({ PropertyIds::Connections, PropertyIds::ModulationTargets, PropertyIds::Nodes });
+	connectionListener.setCallback(pTree.getRoot(), valuetree::AsyncMode::Synchronously,
 		BIND_MEMBER_FUNCTION_2(ParameterSlider::updateOnConnectionChange));
 
 	rangeListener.setCallback(pTree, RangeHelpers::getRangeIds(),
@@ -999,6 +984,9 @@ ParameterSlider::~ParameterSlider()
 
 void ParameterSlider::updateOnConnectionChange(ValueTree p, bool wasAdded)
 {
+	if (p.hasType(PropertyIds::Node) && wasAdded)
+		return;
+
 	if (!matchesConnection(p))
 		return;
 
@@ -1014,7 +1002,10 @@ void ParameterSlider::checkEnabledState()
 	if (modulationActive)
 		start();
 	else
+	{
 		stop();
+		parameterToControl->getDynamicParameterAsHolder()->setDisplaySource(nullptr);
+	}
 
 	if (auto g = findParentComponentOfClass<DspNetworkGraph>())
 		g->repaint();
@@ -1253,7 +1244,7 @@ void ParameterSlider::sliderValueChanged(Slider*)
 			n->getCurrentParameterHandler()->setParameter(index, getValue());
 		}
 		
-		parameterToControl->getTreeWithValue().setProperty(PropertyIds::Value, getValue(), parameterToControl->parent->getUndoManager());
+		parameterToControl->data.setProperty(PropertyIds::Value, getValue(), parameterToControl->parent->getUndoManager());
 	}
 
 	if (auto nl = dynamic_cast<ParameterKnobLookAndFeel::SliderLabel*>(getTextBox()))
@@ -1366,75 +1357,19 @@ juce::Label* ParameterKnobLookAndFeel::createSliderTextBox(Slider& slider)
 
 void ParameterKnobLookAndFeel::drawRotarySlider(Graphics& g, int , int , int width, int height, float , float , float , Slider& s)
 {
-	
-
-	const double value = s.getValue();
-	const double normalizedValue = (value - s.getMinimum()) / (s.getMaximum() - s.getMinimum());
-	const double proportion = pow(normalizedValue, s.getSkewFactor());
-
 	auto ps = dynamic_cast<ParameterSlider*>(&s);
-
-	auto modValue = ps->getValueToDisplay();
-
-	
-	const double normalisedModValue = (modValue - s.getMinimum()) / (s.getMaximum() - s.getMinimum());
+    auto modValue = ps->getValueToDisplay();
+    const double normalisedModValue = (modValue - s.getMinimum()) / (s.getMaximum() - s.getMinimum());
 	float modProportion = jlimit<float>(0.0f, 1.0f, pow((float)normalisedModValue, (float)s.getSkewFactor()));
 
 	modProportion = FloatSanitizers::sanitizeFloatNumber(modProportion);
 
 	bool isBipolar = -1.0 * s.getMinimum() == s.getMaximum();
-
-	auto b = s.getLocalBounds();
+    auto b = s.getLocalBounds();
 	b = b.removeFromTop(48);
 	b = b.withSizeKeepingCentre(48, 48).translated(0.0f, 3.0f);
 
 	drawVectorRotaryKnob(g, b.toFloat(), modProportion, isBipolar, s.isMouseOverOrDragging(true), s.isMouseButtonDown(), s.isEnabled(), modProportion);
-
-
-#if 0
-	height = s.getHeight();
-	width = s.getWidth();
-
-	int xOffset = (s.getWidth() - 48) / 2;
-
-	const int filmstripHeight = cachedImage_smalliKnob_png.getHeight() / 128;
-
-	
-	if (!s.isEnabled())
-	{
-		g.drawImageWithin(withoutArrow, xOffset, 3, 48, 48, RectanglePlacement::fillDestination);
-	}
-	else
-	{
-		const double value = s.getValue();
-		const double normalizedValue = (value - s.getMinimum()) / (s.getMaximum() - s.getMinimum());
-		const double proportion = pow(normalizedValue, s.getSkewFactor());
-		const int stripIndex = (int)(proportion * 127);
-
-
-		const int offset = stripIndex * filmstripHeight;
-
-		Image clip = cachedImage_smalliKnob_png.getClippedImage(Rectangle<int>(0, offset, filmstripHeight, filmstripHeight));
-
-		g.setColour(Colours::black.withAlpha(s.isEnabled() ? 1.0f : 0.5f));
-		g.drawImage(clip, xOffset, 3, 48, 48, 0, 0, filmstripHeight, filmstripHeight);
-	}
-
-	{
-		auto ps = dynamic_cast<ParameterSlider*>(&s);
-		auto value = ps->parameterToControl->getValue();
-		const double normalizedValue = (value - s.getMinimum()) / (s.getMaximum() - s.getMinimum());
-		const double proportion = jlimit(0.0, 1.0, pow(normalizedValue, s.getSkewFactor()));
-		const int stripIndex = (int)(proportion * 127);
-
-		Image *imageToUse = &cachedImage_knobRing_png;
-
-		Image clipRing = imageToUse->getClippedImage(Rectangle<int>(0, (int)(stripIndex * filmstripHeight), filmstripHeight, filmstripHeight));
-
-		//g.setColour(Colours::black.withAlpha(s.isEnabled() ? 1.0f : 0.5f));
-		g.drawImage(clipRing, xOffset, 3, 48, 48, 0, 0, filmstripHeight, filmstripHeight);
-	}
-#endif
 }
 
 MacroParameterSlider::MacroParameterSlider(NodeBase* node, int index) :

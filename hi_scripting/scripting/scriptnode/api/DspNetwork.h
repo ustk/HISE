@@ -46,7 +46,7 @@ using namespace hise;
 
 
 
-class NodeFactory;
+struct NodeFactory;
 
 struct DeprecationChecker
 {
@@ -128,7 +128,9 @@ public:
 			auto e = items[i].error.error;
 
 			auto isErrorCode = e == errorToRemove ||
-				(errorToRemove == Error::numErrorCodes && e != Error::ErrorCode::DeprecatedNode);
+				(errorToRemove == Error::numErrorCodes && 
+				  e != Error::ErrorCode::DeprecatedNode &&
+				  e != Error::ErrorCode::IllegalBypassConnection);
 
 			if ((n == nullptr || (items[i].node == n)) && isErrorCode)
 				items.remove(i--);
@@ -551,8 +553,7 @@ public:
 
 	String getDebugName() const override { return "DspNetwork"; }
 	String getDebugValue() const override { return getId(); }
-	void rightClickCallback(const MouseEvent& e, Component* c) override;
-
+	
 	NodeBase* getNodeForValueTree(const ValueTree& v);
 	NodeBase::List getListOfUnconnectedNodes() const;
 
@@ -1272,6 +1273,8 @@ struct DspNetworkListeners
 			if (v.hasProperty(definedId))
 				v.removeProperty(id, nullptr);
 		}
+
+	public:
 
 		static bool stripValueTree(ValueTree& v)
 		{

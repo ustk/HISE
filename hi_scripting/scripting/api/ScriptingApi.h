@@ -159,6 +159,9 @@ public:
 		/** Checks if the event was created by a script earlier. */
 		bool isArtificial() const;
 
+		/** Sets a callback that will be performed when an all notes off message is received. */
+		void setAllNotesOffCallback(var onAllNotesOffCallback);
+
 		// ============================================================================================================
 
 		void setHiseEvent(HiseEvent &m);
@@ -168,7 +171,19 @@ public:
 
 		struct Wrapper;
 
+		void pushArtificialNoteOn(const HiseEvent& e)
+		{
+			jassert(e.isArtificial());
+			artificialNoteOnIds[e.getNoteNumber()] = e.getEventId();
+		}
+
+		void onAllNotesOff();
+
 	private:
+
+		WeakCallbackHolder allNotesOffCallback;
+
+		friend class Synth;
 
 		friend class JavascriptMidiProcessor;
 		friend class HardcodedScriptProcessor;
@@ -179,6 +194,7 @@ public:
 		uint16 artificialNoteOnIds[128];
 
 		JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(Message);
+		JUCE_DECLARE_WEAK_REFERENCEABLE(Message);
 	};
 
 	/** All scripting methods related to the main engine can be accessed here.
@@ -288,6 +304,9 @@ public:
 		/** Creates (and activates) the expansion handler. */
 		var createExpansionHandler();
 
+		/** Creates an user preset handler. */
+		var createUserPresetHandler();
+
 		/** Creates a reference to the DSP network of another script processor. */
 		var getDspNetworkReference(String processorId, String id);
 
@@ -318,8 +337,8 @@ public:
 		/** Returns the millisecond value for the supplied tempo (HINT: Use "TempoSync" mode from Slider!) */
 		double getMilliSecondsForTempo(int tempoIndex) const;;
 
-        /** launches the given URL in the system's web browser. */
-        void openWebsite(String url);
+    /** launches the given URL in the system's web browser. */
+    void openWebsite(String url);
 
 		/** Creates a list of all available expansions. */
 		var getExpansionList();
@@ -699,6 +718,9 @@ public:
 		/** Returns an array with all samples from the index data (can be either int or array of int, -1 selects all.). */
 		var createSelectionFromIndexes(var indexData);
 
+		/** Returns an array with all samples that match the filter function. */
+		var createSelectionWithFilter(var filterFunction);
+
 		/** Returns a list of the sounds selected by the selectSounds() method. */
 		var createListFromScriptSelection();
 
@@ -786,8 +808,8 @@ public:
 
 		// ============================================================================================================
 
-		Synth(ProcessorWithScriptingContent *p, ModulatorSynth *ownerSynth);
-		~Synth() { artificialNoteOns.clear(); }
+		Synth(ProcessorWithScriptingContent *p, Message* messageObject, ModulatorSynth *ownerSynth);
+		~Synth() {}
 
 		Identifier getObjectName() const override { RETURN_STATIC_IDENTIFIER("Synth"); };
 
@@ -797,6 +819,7 @@ public:
 		typedef ScriptingObjects::ScriptingSynth ScriptSynth;
 		typedef ScriptingObjects::ScriptingAudioSampleProcessor ScriptAudioSampleProcessor;
 		typedef ScriptingObjects::ScriptingTableProcessor ScriptTableProcessor;
+		typedef ScriptingObjects::ScriptSliderPackProcessor ScriptSliderPackProcessor;
 		typedef ScriptingObjects::ScriptingSlotFX ScriptSlotFX;
 		typedef ScriptingObjects::ScriptedMidiPlayer ScriptMidiPlayer;
 		typedef ScriptingObjects::ScriptRoutingMatrix ScriptRoutingMatrix;
@@ -953,6 +976,9 @@ public:
 		/** Returns the table processor with the given name. */
 		ScriptTableProcessor *getTableProcessor(const String &name);
 
+		/** Returns the sliderpack processor with the given name. */
+		ScriptSliderPackProcessor* getSliderPackProcessor(const String& name);
+
 		/** Returns a reference to a processor that holds a display buffer. */
 		ScriptingObjects::ScriptDisplayBufferSource* getDisplayBufferSource(const String& name);
 
@@ -976,29 +1002,28 @@ public:
 
 		// ============================================================================================================
 
-		void clearNoteCounter()
-		{
-			keyDown.clear();
-			numPressedKeys.set(0);
-		}
-
-		void handleNoteCounter(const HiseEvent& e, bool inc) noexcept
+		void handleNoteCounter(const HiseEvent& e) noexcept
 		{
 			if (e.isArtificial())
 				return;
 
-			if (inc)
+			if (e.isNoteOn())
 			{
 				++numPressedKeys;
 				keyDown.setBit(e.getNoteNumber(), true);
 			}
-			else
+			else if (e.isNoteOff())
 			{
 				--numPressedKeys; 
 				if (numPressedKeys.get() < 0) 
 					numPressedKeys.set(0);
 
 				keyDown.setBit(e.getNoteNumber(), false);
+			}
+			else if (e.isAllNotesOff())
+			{
+				numPressedKeys = 0;
+				keyDown.clear();
 			}
 		}
 
@@ -1012,7 +1037,9 @@ public:
 
 		friend class ModuleHandler;
 
-		OwnedArray<Message> artificialNoteOns;
+		
+		WeakReference<Message> messageObject;
+
 		ModulatorSynth * const owner;
 		Atomic<int> numPressedKeys;
 		BigInteger keyDown;
@@ -1054,10 +1081,16 @@ public:
 		void print(var debug);
 
 		/** Starts the benchmark. You can give it a name that will be displayed with the result if desired. */
-		void start() { startTime = Time::highResolutionTicksToSeconds(Time::getHighResolutionTicks()); };
+		void startBenchmark() { startTime = Time::highResolutionTicksToSeconds(Time::getHighResolutionTicks()); };
 
 		/** Stops the benchmark and prints the result. */
-		void stop();
+		void stopBenchmark();
+
+		/** Causes the execution to stop(). */
+		void stop(bool condition);
+
+		/** Sends a blink message to the current editor. */
+		void blink();
 
 		/** Clears the console. */
 		void clear();
@@ -1082,9 +1115,20 @@ public:
 
 		struct Wrapper;
 
+		void setDebugLocation(const Identifier& id_, int lineNumber_)
+		{
+			id = id_;
+			lineNumber = lineNumber_;
+		}
+
 	private:
 
+		Identifier id;
+		int lineNumber;
+
 		double startTime;
+
+
 
 		JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(Console)
 	};
@@ -1300,6 +1344,9 @@ public:
 		/** This function will be called whenever there is server activity. */
 		void setServerCallback(var callback);
 
+		/** Checks if given email address is valid - not fool proof. */
+    bool isEmailAddress(String email);
+		
 		void queueChanged(int numItems) override
 		{
 			if (serverCallback)

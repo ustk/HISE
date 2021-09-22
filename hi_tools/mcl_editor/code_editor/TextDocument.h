@@ -19,8 +19,11 @@ using namespace juce;
 
 class BreakpointManager
 {
+    virtual ~BreakpointManager() {};
+    
 	struct Listener
 	{
+        virtual ~Listener() {};
 		virtual void breakpointsChanged() = 0;
 
 		JUCE_DECLARE_WEAK_REFERENCEABLE(Listener);
@@ -65,6 +68,11 @@ private:
 	JUCE_DECLARE_WEAK_REFERENCEABLE(BreakpointManager);
 };
 
+struct Bookmark
+{
+	String name;
+	int lineNumber;
+};
 
 class FoldableLineRange : public ReferenceCountedObject
 {
@@ -139,6 +147,7 @@ public:
 	{
 	public:
 
+        virtual ~Listener() {};
 		virtual void foldStateChanged(WeakPtr rangeThatHasChanged) = 0;
 		virtual void rootWasRebuilt(WeakPtr newRoot) {};
 
@@ -169,9 +178,7 @@ public:
 		{
 			if (auto r = getRangeWithStartAtLine(lineNumber))
 			{
-				auto type = getLineType(lineNumber);
 				r->folded = !r->folded;
-
 				updateFoldState(r);
 			}
 		}
@@ -223,6 +230,19 @@ public:
 			return nullptr;
 		}
 
+		int getNearestLineStartOfAnyRange(int lineNumber)
+		{
+			for (auto r : all)
+			{
+				auto n = r->getNearestLineStart(lineNumber);
+
+				if (n != -1)
+					return n;
+			}
+
+			return lineNumber;
+		}
+
 		WeakPtr getRangeContainingLine(int lineNumber) const
 		{
 			for (auto r : all)
@@ -250,9 +270,7 @@ public:
 		LineType getLineType(int lineNumber) const
 		{
 			bool isBetween = false;
-			bool isEnd = false;
-			bool isStart = false;
-
+			
 			for (auto l : all)
 			{
 				auto lineRange = l->getLineRange();
@@ -384,6 +402,8 @@ public:
 		return { start.getLineNumber(), end.getLineNumber() +1};
 	}
 
+	Bookmark getBookmark() const;
+	
 	void setFolded(bool shouldBeFolded)
 	{
 		folded = shouldBeFolded;
@@ -402,6 +422,23 @@ public:
 		end.setPosition(charPos);
 	}
 
+	int getNearestLineStart(int lineNumber)
+	{
+		if (getLineRange().contains(lineNumber))
+		{
+			for (auto c : children)
+			{
+				auto n = c->getNearestLineStart(lineNumber);
+				if (n != -1)
+					return n;
+			}
+
+			return start.getLineNumber();
+		}
+
+		return -1;
+	}
+
 private:
 
 	CodeDocument::Position start, end;
@@ -415,8 +452,8 @@ private:
 
 
 //==============================================================================
-class mcl::TextDocument : public CoallescatedCodeDocumentListener,
-						  public FoldableLineRange::Listener
+class TextDocument : public CoallescatedCodeDocumentListener,
+                     public FoldableLineRange::Listener
 {
 public:
 	enum class Metric
@@ -440,11 +477,13 @@ public:
 		character,
 		subword,
 		cppToken,
+		commandTokenNav, // used for all keypresses with cmd
 		subwordWithPoint,
 		word,
 		firstnonwhitespace,
 		token,
 		line,
+		lineUntilBreak,
 		paragraph,
 		scope,
 		document,
@@ -484,23 +523,9 @@ public:
 		juce::RectangleList<float> bounds;
 	};
 
-	class Iterator
-	{
-	public:
-		Iterator(const TextDocument& document, juce::Point<int> index) noexcept : document(&document), index(index) { t = get(); }
-		juce::juce_wchar nextChar() noexcept { if (isEOF()) return 0; auto s = t; document->next(index); t = get(); return s; }
-		juce::juce_wchar peekNextChar() noexcept { return t; }
-		void skip() noexcept { if (!isEOF()) { document->next(index); t = get(); } }
-		void skipWhitespace() noexcept { while (!isEOF() && juce::CharacterFunctions::isWhitespace(t)) skip(); }
-		void skipToEndOfLine() noexcept { while (t != '\r' && t != '\n' && t != 0) skip(); }
-		bool isEOF() const noexcept { return index == document->getEnd(); }
-		const juce::Point<int>& getIndex() const noexcept { return index; }
-	private:
-		juce::juce_wchar get() { return document->getCharacter(index); }
-		juce::juce_wchar t;
-		const TextDocument* document;
-		juce::Point<int> index;
-	};
+	
+
+	Array<Bookmark> getBookmarks() const;
 
 	TextDocument(CodeDocument& doc_);;
 
@@ -527,18 +552,7 @@ public:
 	void replaceAll(const juce::String& content);
 
 	/** Replace the list of selections with a new one. */
-	void setSelections(const juce::Array<Selection>& newSelections, bool useUndo)
-	{
-		if (useUndo)
-		{
-			viewUndoManager.perform(new SelectionAction(*this, newSelections));
-		}
-		else
-		{
-			selections = newSelections; 
-			sendSelectionChangeMessage();
-		}
-	}
+	void setSelections(const juce::Array<Selection>& newSelections, bool useUndo);
 
 	/** Add a selection to the list. */
 	void addSelection(Selection selection) 
@@ -576,8 +590,7 @@ public:
 
 	void foldStateChanged(FoldableLineRange::WeakPtr rangeThatHasChanged)
 	{
-		if(rangeThatHasChanged != nullptr)
-			rebuildRowPositions();
+		rebuildRowPositions();
 	}
 
 	void rootWasRebuilt(FoldableLineRange::WeakPtr newRoot)
@@ -630,6 +643,8 @@ public:
 	 */
 	juce::GlyphArrangement findGlyphsIntersecting(juce::Rectangle<float> area, int token = -1) const;
 
+	void drawWhitespaceRectangles(int row, Graphics& g);
+
 	/** Return the range of rows intersecting the given rectangle. */
 	juce::Range<int> getRangeOfRowsIntersecting(juce::Rectangle<float> area) const;
 
@@ -646,23 +661,14 @@ public:
 	/** Return an index pointing to one-past-the-end. */
 	juce::Point<int> getEnd() const;
 
-	/** Advance the given index by a single character, moving to the next
-		line if at the end. Return false if the index cannot be advanced
-		further.
-	 */
-	bool next(juce::Point<int>& index) const;
+	bool navigateLeftRight(juce::Point<int>& index, bool right) const;
 
-	/** Move the given index back by a single character, moving to the previous
-		line if at the end. Return false if the index cannot be advanced
-		further.
-	 */
-	bool prev(juce::Point<int>& index) const;
+	bool navigateUpDown(juce::Point<int>& index, bool down) const;
 
-	/** Move the given index to the next row if possible. */
-	bool nextRow(juce::Point<int>& index) const;
-
-	/** Move the given index to the previous row if possible. */
-	bool prevRow(juce::Point<int>& index) const;
+	int getColumnIndexAccountingTabs(juce::Point<int>& index) const;
+	
+	/** Ensures that the y-position of the index equals the positionToMaintain column. */
+	void applyTabsToPosition(juce::Point<int>& index, int positionToMaintain) const;
 
 	/** Navigate an index to the first character of the given categaory.
 	 */
@@ -761,31 +767,52 @@ public:
 			if(!foldManager.isFolded(i))
 				yPos += l->height + gap;
 		}
+
+		rowPositions.add(yPos);
 	}
 
-	void codeChanged(bool wasInserted, int startIndex, int endIndex)
+	void lineRangeChanged(Range<int> r, bool wasAdded) override
 	{
-		CodeDocument::Position start(getCodeDocument(), startIndex);
-		CodeDocument::Position end(getCodeDocument(), endIndex);
-
-		auto sameLine = start.getLineNumber() == end.getLineNumber();
-		auto existingLine = isPositiveAndBelow(start.getLineNumber(), lines.size());
-
-		auto b = getCodeDocument().getTextBetween(start, end);
-
-		lines.lines.clearQuick();
-		lines.lines.ensureStorageAllocated(doc.getNumLines());
-
-		for (int i = 0; i < doc.getNumLines(); i++)
+		if (!wasAdded)
 		{
-			auto l = doc.getLine(i).removeCharacters("\r");
-            
-            if(l.endsWith("\n"))
-                lines.add(l.substring(0, l.length()-1));
-            else
-                lines.add(l);
+			auto rangeToInvalidate = r;
+			rangeToInvalidate.setLength(jmax(1, r.getLength()));
+			invalidate(rangeToInvalidate);
+		}
+			
+		if (!wasAdded && r.getLength() > 0)
+		{
+			lines.removeRange(r);
+			lines.set(r.getStart(), doc.getLine(r.getStart()));
+			return;
 		}
 
+		if (r.getLength() > 1)
+		{
+			lines.set(r.getStart(), doc.getLine(r.getStart()));
+
+			for (int i = r.getStart() + 1; i < r.getEnd(); i++)
+				lines.insert(i, doc.getLine(i));
+		}
+		else
+		{
+			auto lineNumber = r.getStart();
+			lines.set(lineNumber, doc.getLine(lineNumber));
+		}
+
+		if (wasAdded && r.getEnd() > getNumRows())
+		{
+			lines.set(r.getEnd(), "");
+			
+			
+		}
+
+
+		
+	}
+
+	void codeChanged(bool wasInserted, int startIndex, int endIndex) override
+	{
 		CodeDocument::Position pos(getCodeDocument(), wasInserted ? endIndex : startIndex);
 
 		if (getNumSelections() == 1)
@@ -797,7 +824,10 @@ public:
 	/** returns the amount of lines occupied by the row. This can be > 1 when the line-break is active. */
 	int getNumLinesForRow(int rowIndex) const
 	{
-		return roundToInt(lines.lines[rowIndex]->height / font.getHeight());
+		if(isPositiveAndBelow(rowIndex, lines.lines.size()))
+			return roundToInt(lines.lines[rowIndex]->height / font.getHeight());
+
+		return 1;
 	}
 
 	float getFontHeight() const { return font.getHeight(); };
@@ -805,6 +835,7 @@ public:
 	void addSelectionListener(Selection::Listener* l)
 	{
 		selectionListeners.addIfNotAlreadyThere(l);
+		l->displayedLineRangeChanged(currentlyDisplayedLineRange);
 	}
 
 	void removeSelectionListener(Selection::Listener* l)
@@ -843,7 +874,14 @@ public:
 
 			Selection ss(sourceLine, sourceLine);
 
+			auto newRange = currentlyDisplayedLineRange.movedToStartAt(lineNumber - currentlyDisplayedLineRange.getLength() / 2 - 4);
+
+			setDisplayedLineRange(newRange);
+
 			setSelections({ ss }, true);
+
+
+
 			return true;
 		}
 
@@ -887,6 +925,8 @@ public:
 
 private:
 
+	mutable int columnTryingToMaintain = -1;
+
 	UndoManager viewUndoManager;
 
 	Array<Selection> searchResults;
@@ -918,5 +958,9 @@ private:
 
 	juce::Array<Selection> selections;
 };
+
+struct TokenCollection;
+struct LanguageManager;
+
 
 }

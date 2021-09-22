@@ -97,6 +97,13 @@ Set to 0 to disable SNEX compilation (default on iOS).
 #endif
 #endif
 
+/** Config: SNEX_INCLUDE_MEMORY_ADDRESS_IN_DUMP
+
+Set to 1 if you want the memory address to be included in the data dump string. 
+*/
+#ifndef SNEX_INCLUDE_MEMORY_ADDRESS_IN_DUMP
+#define SNEX_INCLUDE_MEMORY_ADDRESS_IN_DUMP 0
+#endif
 
 #include "../hi_lac/hi_lac.h"
 #include "../hi_dsp_library/hi_dsp_library.h"
@@ -120,6 +127,7 @@ namespace snex
             DECLARE_ID(AsmOptimisation)
             DECLARE_ID(NoSafeChecks);
 
+#if HISE_INCLUDE_SNEX
             static StringArray getDefaultIds()
             {
                 return { BinaryOpOptimisation, ConstantFolding, DeadCodeElimination, Inlining, LoopOptimisation, AsmOptimisation, NoSafeChecks };
@@ -129,6 +137,7 @@ namespace snex
             {
                 return { BinaryOpOptimisation, ConstantFolding, DeadCodeElimination, Inlining, LoopOptimisation, AsmOptimisation, NoSafeChecks };
             }
+#endif
         }
 
 #undef DECLARE_ID

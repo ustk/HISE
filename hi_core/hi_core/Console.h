@@ -65,11 +65,15 @@ public:
     void mouseMove(const MouseEvent &e) override;
 	void mouseDoubleClick(const MouseEvent& event) override;
 
+	void mouseWheelMove(const MouseEvent& event, const MouseWheelDetails& wheel) override;
+
 	void resized() override;
 
 	void codeDocumentTextInserted(const String &/*newText*/, int /*insertIndex*/) override
 	{
-		int numLinesVisible = jmax<int>(0, newTextConsole->getDocument().getNumLines() - (int)((float)newTextConsole->getHeight() / GLOBAL_MONOSPACE_FONT().getHeight()));
+		auto fh = newTextConsole->getFont().getHeight();
+
+		int numLinesVisible = jmax<int>(0, newTextConsole->getDocument().getNumLines() - (int)((float)newTextConsole->getHeight() / fh));
 
 		newTextConsole->scrollToLine(numLinesVisible);
 	}
@@ -89,6 +93,11 @@ public:
 		tokeniser = newTokeniser;
 		addAndMakeVisible(newTextConsole = new ConsoleEditorComponent(*mc->getConsoleHandler().getConsoleData(), tokeniser.get()));
 		newTextConsole->addMouseListener(this, true);
+	}
+
+	static void updateFontSize(Console& c, float newSize)
+	{
+		c.newTextConsole->setFont(GLOBAL_MONOSPACE_FONT().withHeight(newSize));
 	}
 
 private:
@@ -122,14 +131,11 @@ private:
 		void addPopupMenuItems(PopupMenu &/*menuToAddTo*/, const MouseEvent *) override {};
 	};
 
-	friend class WeakReference<Console>;
-	WeakReference<Console>::Master masterReference;
-	
 	ScopedPointer<ConsoleEditorComponent> newTextConsole;
 	ScopedPointer<CodeTokeniser> tokeniser;
 
 	MainController* mc;
-
+	JUCE_DECLARE_WEAK_REFERENCEABLE(Console);
 };
 
 #else

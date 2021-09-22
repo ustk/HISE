@@ -50,6 +50,13 @@ CodeEditorPanel::~CodeEditorPanel()
 
 Component* CodeEditorPanel::createContentComponent(int index)
 {
+#if HISE_USE_NEW_CODE_EDITOR
+	if (auto pe = getContent<PopupIncludeEditor>())
+	{
+		scaleFactor = pe->getEditor()->editor.transform.getScaleFactor();
+	}
+#endif
+
 	auto p = dynamic_cast<JavascriptProcessor*>(getProcessor());
 
 	int numSnippets = p->getNumSnippets();
@@ -57,13 +64,19 @@ Component* CodeEditorPanel::createContentComponent(int index)
 
 	const bool isCallback = index < numSnippets;
 	const bool isExternalFile = index >= numSnippets && (index-numSnippets) < numFiles;
-	const bool isJitNodeCode = !isExternalFile && !isCallback;
-
+	
 	if (isCallback)
 	{
 		auto pe = new PopupIncludeEditor(p, p->getSnippet(index)->getCallbackName());
+
+#if HISE_USE_NEW_CODE_EDITOR
+		if(scaleFactor != -1.0f)
+			pe->getEditor()->editor.setScaleFactor(scaleFactor);
+#endif
+
 		pe->addMouseListener(this, true);
 		getProcessor()->getMainController()->setLastActiveEditor(pe->getEditor(), CodeDocument::Position());
+		pe->grabKeyboardFocusAsync();
 		return pe;
 	}
 	else if (isExternalFile)
@@ -82,26 +95,17 @@ Component* CodeEditorPanel::createContentComponent(int index)
 		auto pe = new PopupIncludeEditor(p, f);
 		pe->addMouseListener(this, true);
 
+#if HISE_USE_NEW_CODE_EDITOR
+        if(scaleFactor != -1.0f)
+            pe->getEditor()->editor.setScaleFactor(scaleFactor);
+#endif
+        
 		if(auto ed = pe->getEditor())
 			getProcessor()->getMainController()->setLastActiveEditor(pe->getEditor(), CodeDocument::Position());
 
+		pe->grabKeyboardFocusAsync();
+
 		return pe;
-	}
-	else
-	{
-#if HISE_INCLUDE_SNEX
-		int jitNodeIndex = index - numSnippets - numFiles;
-
-		if (auto h = dynamic_cast<scriptnode::DspNetwork::Holder*>(p))
-		{
-			if (auto network = h->getActiveNetwork())
-			{
-				// Use the codemanager here...
-				jassertfalse;
-
-			}
-		}
-#endif
 	}
 
 	return nullptr;
@@ -121,6 +125,16 @@ void CodeEditorPanel::fillModuleList(StringArray& moduleList)
 	}
 }
 
+
+void CodeEditorPanel::fromDynamicObject(const var& object)
+{
+	PanelWithProcessorConnection::fromDynamicObject(object);
+}
+
+var CodeEditorPanel::toDynamicObject() const
+{
+	return PanelWithProcessorConnection::toDynamicObject();
+}
 
 void CodeEditorPanel::scriptWasCompiled(JavascriptProcessor *processor)
 {
@@ -150,12 +164,12 @@ var CodeEditorPanel::getAdditionalUndoInformation() const
 {
 	auto pe = getContent<PopupIncludeEditor>();
 
+#if HISE_USE_NEW_CODE_EDITOR
 	if (pe != nullptr && pe->getEditor() != nullptr)
 	{
-		
-
-		return var(pe->getEditor()->getFirstLineOnScreen());
+		return var(pe->getEditor()->editor.getFirstLineOnScreen());
 	}
+#endif
 
 	return var(0);
 }
@@ -173,7 +187,7 @@ void CodeEditorPanel::performAdditionalUndoInformation(const var& undoInformatio
 
 		if (lineIndex > 0)
 		{
-			pe->getEditor()->scrollToLine(lineIndex);
+			//pe->getEditor()->scrollToLine(lineIndex);
 		}
 	}
 }
@@ -216,23 +230,20 @@ void CodeEditorPanel::fillIndexList(StringArray& indexList)
 
 void CodeEditorPanel::gotoLocation(Processor* p, const String& fileName, int charNumber)
 {
-	if (fileName.isEmpty())
+	if (fileName.isEmpty() || fileName == "onInit")
 	{
-		setContentWithUndo(p, 0);
+		changeContentWithUndo(0);
 	}
 	else if (fileName.contains("()"))
 	{
 		auto jp = dynamic_cast<JavascriptProcessor*>(p);
-
 		auto snippetId = Identifier(fileName.upToFirstOccurrenceOf("()", false, false));
-
-		
 
 		for (int i = 0; i < jp->getNumSnippets(); i++)
 		{
 			if (jp->getSnippet(i)->getCallbackName() == snippetId)
 			{
-				setContentWithUndo(p, i);
+				changeContentWithUndo(i);
 				break;
 			}
 		}
@@ -254,16 +265,28 @@ void CodeEditorPanel::gotoLocation(Processor* p, const String& fileName, int cha
 
 		if (fileIndex != -1)
 		{
-			setContentWithUndo(p, jp->getNumSnippets() + fileIndex);
+			changeContentWithUndo(jp->getNumSnippets() + fileIndex);
 		}
 		else
 			return;
 	}
 
-	auto editor = getContent<PopupIncludeEditor>()->getEditor();
+	if (auto c = getContent<PopupIncludeEditor>())
+	{
+		PopupIncludeEditor::EditorType* editor = c->getEditor();
 
-	CodeDocument::Position pos(editor->getDocument(), charNumber);
-	editor->scrollToLine(jmax<int>(0, pos.getLineNumber()));
+#if HISE_USE_NEW_CODE_EDITOR
+
+		CodeDocument::Position pos(editor->editor.getDocument(), charNumber);
+
+		editor->editor.scrollToLine(pos.getLineNumber(), true);
+		mcl::Selection newSelection(pos.getLineNumber(), pos.getIndexInLine(), pos.getLineNumber(), pos.getIndexInLine());
+		editor->editor.getTextDocument().setSelection(0, newSelection, true);
+#else
+		CodeDocument::Position pos(editor->getDocument(), charNumber);
+		editor->scrollToLine(jmax<int>(0, pos.getLineNumber()));
+#endif
+	}
 }
 
 ConsolePanel::ConsolePanel(FloatingTile* parent) :
@@ -368,11 +391,11 @@ public:
 
 	virtual ScriptingContentOverlay* getScriptEditHandlerOverlay() { return overlay; }
 
-	virtual JavascriptCodeEditor* getScriptEditHandlerEditor()
+	CommonEditorFunctions::EditorType* getScriptEditHandlerEditor() override
 	{
 		if (processor.get())
 		{
-			return dynamic_cast<JavascriptCodeEditor*>(processor->getMainController()->getLastActiveEditor());
+			return dynamic_cast<CommonEditorFunctions::EditorType*>(processor->getMainController()->getLastActiveEditor());
 		}
 
 		return nullptr;
@@ -503,7 +526,10 @@ ScriptContentPanel::Editor::Editor(Canvas* c):
 	zoomSelector->setSize(100, 24);
 	klaf.setDefaultColours(*zoomSelector);
 
-	canvas.setScrollOnDragEnabled(!canvas.getContent<Canvas>()->overlay->isEditModeEnabled());
+	auto shouldDrag = !canvas.getContent<Canvas>()->overlay->isEditModeEnabled();
+
+	canvas.setScrollOnDragEnabled(shouldDrag);
+	canvas.setMouseWheelScrollEnabled(!shouldDrag);
 	canvas.setColour(ZoomableViewport::ColourIds::backgroundColourId, Colour(0xff262626));
 
 	rebuildAfterContentChange();
@@ -832,7 +858,11 @@ bool ScriptContentPanel::Editor::Actions::zoomOut(Editor& e)
 bool ScriptContentPanel::Editor::Actions::toggleEditMode(Editor& e)
 {
 	e.canvas.getContent<Canvas>()->overlay->toggleEditMode();
-	e.canvas.setScrollOnDragEnabled(!e.canvas.getContent<Canvas>()->overlay->isEditModeEnabled());
+
+	auto shouldDrag = !e.canvas.getContent<Canvas>()->overlay->isEditModeEnabled();
+
+	e.canvas.setScrollOnDragEnabled(shouldDrag);
+	e.canvas.setMouseWheelScrollEnabled(!shouldDrag);
 
 	return true;
 }
@@ -1244,6 +1274,7 @@ struct ServerController: public Component,
 					g.drawEllipse(circle, 1.0f);
 					break;
 				}
+                default: break;
 				}
 			}
 		}
@@ -1397,6 +1428,7 @@ struct ServerController: public Component,
 					g.drawEllipse(circle, 1.0f);
 					break;
 				}
+                default: break;
 				}
 			}
 		}
@@ -1732,11 +1764,56 @@ Component* ScriptWatchTablePanel::createContentComponent(int /*index*/)
 
 	auto swt = new ScriptWatchTable();
 
+	auto f = [this](Component* p, Component* c, Point<int> s)
+	{
+		findParentComponentOfClass<FloatingTile>()->getRootFloatingTile()->showComponentInRootPopup(p, c, s);
+	};
+
+	swt->setPopupFunction(f);
+	 
+	getMainController()->getFontSizeChangeBroadcaster().addListener(*swt, ScriptWatchTable::updateFontSize);
+
+	Array<int> typeIds =
+	{
+		(int)DebugInformation::Type::Callback,
+		(int)DebugInformation::Type::Constant,
+		(int)DebugInformation::Type::ExternalFunction,
+		(int)DebugInformation::Type::Globals,
+		(int)DebugInformation::Type::InlineFunction,
+		(int)DebugInformation::Type::Namespace,
+		(int)DebugInformation::Type::RegisterVariable,
+		(int)DebugInformation::Type::Variables
+	};
+	
+	StringArray sa =
+	{
+		"Callbacks",
+		"Constants",
+		"Functions",
+		"Globals",
+		"Inline Functions",
+		"Namespaces",
+		"Register Variables",
+		"Variables"
+	};
+
+	swt->setViewDataTypes(sa, typeIds);
+
+
+	WeakReference<Processor> c = getConnectedProcessor();
+
+	swt->setLogFunction([c](const String& m)
+	{
+		if (c != nullptr)
+		{
+			debugToConsole(c, m);
+		}		
+	});
+
 	swt->setHolder(dynamic_cast<JavascriptProcessor*>(getConnectedProcessor()));
 
 	return swt;
 }
-
 
 Array<PathFactory::KeyMapping> ScriptContentPanel::Factory::getKeyMapping() const
 {
@@ -1859,6 +1936,7 @@ struct ComplexDataViewer : public Component,
 			currentComponent = te;
 			break;
 		}
+        default: break;
 		}
 
 		dynamic_cast<ComplexDataUIBase::EditorBase*>(currentComponent.get())->setComplexDataUIBase(c);

@@ -179,6 +179,8 @@ public:
         */
         String getLineText() const;
 
+		const CodeDocument* getOwner() const { return owner; }
+
     private:
         CodeDocument* owner = nullptr;
         int characterPos = 0, line = 0, indexInLine = 0;
@@ -328,6 +330,8 @@ public:
 
 	String getLineWithoutLinebreak(int lineIndex) const noexcept;
 
+	
+
     //==============================================================================
     /** An object that receives callbacks from the CodeDocument when its text changes.
         @see CodeDocument::addListener, CodeDocument::removeListener
@@ -343,6 +347,11 @@ public:
 
         /** Called by a CodeDocument when text is deleted. */
         virtual void codeDocumentTextDeleted (int startIndex, int endIndex) = 0;
+
+		virtual void lineRangeChanged(Range<int> range, bool wasAdded) 
+		{
+			ignoreUnused(range, wasAdded);
+		};
     };
 
     /** Registers a listener object to receive callbacks when the document changes.
@@ -355,6 +364,8 @@ public:
         @see addListener
     */
     void removeListener (Listener* listener);
+
+	int getNumListeners() const;
 
     //==============================================================================
     /** Iterates the text in a CodeDocument.
@@ -415,6 +426,8 @@ public:
 
         /** Returns the line number of the next character. */
         int getLine() const noexcept            { return line; }
+
+		int getIndexInLine() const;
 
         /** Returns true if the iterator has reached the end of the document. */
         bool isEOF() const noexcept;

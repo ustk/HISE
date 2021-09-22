@@ -56,6 +56,11 @@ public:
 		refreshIndexList();
 	}
 
+	void fromDynamicObject(const var& object) override;
+
+	var toDynamicObject() const override;
+
+
 	void scriptWasCompiled(JavascriptProcessor *processor) override;
 
 	void mouseDown(const MouseEvent& event) override;
@@ -71,6 +76,8 @@ public:
 	void fillIndexList(StringArray& indexList) override;
 
 	void gotoLocation(Processor* p, const String& fileName, int charNumber);
+
+	float scaleFactor = -1.0f;
 
 private:
 
@@ -335,7 +342,6 @@ public:
 private:
 
 	const Identifier showConnectionBar;
-
 };
 
 

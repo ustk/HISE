@@ -62,7 +62,7 @@ void SimpleSampleMapDisplay::setComplexDataUIBase(ComplexDataUIBase* newData)
 	if (currentBuffer != nullptr)
 		currentBuffer->getUpdater().removeEventListener(this);
 
-	if (currentBuffer = dynamic_cast<MultiChannelAudioBuffer*>(newData))
+	if ((currentBuffer = dynamic_cast<MultiChannelAudioBuffer*>(newData)))
 		currentBuffer->getUpdater().addEventListener(this);
 }
 
@@ -161,7 +161,7 @@ hise::MultiChannelAudioBuffer::SampleReference::Ptr XYZSampleMapProvider::Monoli
 				if (afs != nullptr)
 				{
 					if (sampleRange.isEmpty())
-						sampleRange = Range<int>(0, afs->lengthInSamples);
+						sampleRange = Range<int>(0, (int)afs->lengthInSamples);
 
 					lr->buffer.setSize(afs->numChannels, sampleRange.getLength());
 					afs->read(&lr->buffer, 0, jmin(sampleRange.getLength(), (int)afs->lengthInSamples), sampleRange.getStart(), true, true);
@@ -351,9 +351,9 @@ bool XYZSampleMapProvider::parse(const String& v, MultiChannelAudioBuffer::XYZIt
 	SampleMapPool::ManagedPtr p;
 
 	if (auto e = getMainController()->getExpansionHandler().getExpansionForWildcardReference(v))
-		p = e->pool->getSampleMapPool().loadFromReference(r, PoolHelpers::DontCreateNewEntry);
+		p = e->pool->getSampleMapPool().loadFromReference(r, PoolHelpers::LoadAndCacheWeak);
 	else
-		p = getMainController()->getActiveFileHandler()->pool->getSampleMapPool().loadFromReference(r, PoolHelpers::DontCreateNewEntry);
+		p = getMainController()->getActiveFileHandler()->pool->getSampleMapPool().loadFromReference(r, PoolHelpers::LoadAndCacheWeak);
 
 	if (p.get() != nullptr)
 	{
@@ -391,7 +391,7 @@ void XYZSampleMapProvider::Editor::setComplexDataUIBase(ComplexDataUIBase* newDa
 	if (currentBuffer != nullptr)
 		currentBuffer->getUpdater().removeEventListener(this);
 
-	if (currentBuffer = dynamic_cast<MultiChannelAudioBuffer*>(newData))
+	if ((currentBuffer = dynamic_cast<MultiChannelAudioBuffer*>(newData)))
 		currentBuffer->getUpdater().addEventListener(this);
 
 	updateComboBoxItem();

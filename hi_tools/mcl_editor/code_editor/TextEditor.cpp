@@ -25,6 +25,7 @@ mcl::TextEditor::TextEditor(TextDocument& codeDoc)
 , highlight (document)
 , docRef(codeDoc.getCodeDocument())
 , scrollBar(true)
+, horizontalScrollBar(false)
 , tokenCollection()
 , tooltipManager(*this)
 , autocompleteTimer(*this)
@@ -58,6 +59,9 @@ mcl::TextEditor::TextEditor(TextDocument& codeDoc)
     addAndMakeVisible (highlight);
     addAndMakeVisible (caret);
     addAndMakeVisible (gutter);
+	addAndMakeVisible(horizontalScrollBar);
+	horizontalScrollBar.setColour(ScrollBar::ColourIds::thumbColourId, Colours::white.withAlpha(0.05f));
+	horizontalScrollBar.addListener(this);
 
 	setOpaque(true);
 
@@ -96,6 +100,9 @@ mcl::TextEditor::TextEditor(TextDocument& codeDoc)
 	setColour(juce::CaretComponent::ColourIds::caretColourId, Colours::white);
 	setColour(CodeEditorComponent::ColourIds::defaultTextColourId, Colour(0xFFBBBBBB));
 
+	tokenCollection.setEnabled(false);
+
+	updateAfterTextChange();
 }
 
 mcl::TextEditor::~TextEditor()
@@ -117,7 +124,6 @@ void mcl::TextEditor::setText (const String& text)
 
 void TextEditor::scrollToLine(float centerLine, bool scrollToLine)
 {
-	auto W = document.getBounds().getWidth();
 	auto H = document.getBounds().getHeight();
 
 	centerLine -= (float)getNumDisplayedRows() / 2.0f;
@@ -140,18 +146,228 @@ int TextEditor::getNumDisplayedRows() const
 	return roundToInt((float)getHeight() / viewScaleFactor / document.getRowHeight());
 }
 
+bool TextEditor::shouldSkipInactiveUpdate() const
+{
+	auto docHasMultipleEditors = document.getCodeDocument().getNumListeners() > 10;
+
+	if (!docHasMultipleEditors)
+		return false;
+
+	auto isBig = document.getNumRows() > 2000;
+
+	if (!isBig)
+		return false;
+	
+	if (!isShowing())
+		return true;
+
+	return false;
+}
+
 void TextEditor::scrollBarMoved(ScrollBar* scrollBarThatHasMoved, double newRangeStart)
 {
+	if (scrollBarRecursion)
+		return;
+
 	auto b = document.getBounds();
 	
 	auto pos = newRangeStart;
 
-	translation.y = jlimit<float>(-b.getHeight() * viewScaleFactor, 0.0f, -pos * viewScaleFactor);
+	if (scrollBarThatHasMoved == &scrollBar)
+		translation.y = jlimit<float>(-b.getHeight() * viewScaleFactor, 0.0f, -pos * viewScaleFactor);
+	else
+	{
+		translation.x = -pos * viewScaleFactor;
+
+		if (translation.x == 0)
+			translation.x = gutter.getGutterWidth();
+
+		xPos = translation.x;
+	}
+
 	updateViewTransform();
+}
+
+hise::MarkdownLink TextEditor::getLink() const
+{
+	if (currentAutoComplete != nullptr)
+	{
+		if (auto it = currentAutoComplete->items[currentAutoComplete->viewIndex])
+		{
+			return it->token->getLink();
+		}
+	}
+	else
+	{
+
+	}
+
+	return MarkdownLink();
+}
+
+void TextEditor::updateAutocomplete(bool forceShow /*= false*/)
+{
+	if (!autocompleteEnabled)
+		return;
+
+	if (document.getSelections().size() != 1)
+	{
+		closeAutocomplete(true, {}, {});
+		return;
+	}
+
+	const auto o = document.getSelections().getFirst().oriented().tail;
+
+	if (o.isOrigin())
+	{
+		return;
+	}
+
+	auto p = o;
+	auto s = p;
+
+	document.navigate(s, mcl::TextDocument::Target::subword, mcl::TextDocument::Direction::backwardCol);
+	document.navigate(p, mcl::TextDocument::Target::subword, mcl::TextDocument::Direction::forwardCol);
+
+
+	auto lineStart = o;
+	document.navigate(lineStart, mcl::TextDocument::Target::firstnonwhitespace, mcl::TextDocument::Direction::backwardCol);
+
+	auto lineContent = document.getSelectionContent({ lineStart, o });
+
+	auto isCommentLine = lineContent.contains("//") || lineContent.startsWith("/*");
+
+	if (isCommentLine)
+	{
+		closeAutocomplete(true, {}, {});
+		return;
+	}
+
+	autocompleteSelection = { s.x, s.y, p.x, p.y };
+	auto input = document.getSelectionContent(autocompleteSelection);
+
+	auto te = s;
+	auto ts = s;
+
+	document.navigate(ts, TextDocument::Target::cppToken, TextDocument::Direction::backwardCol);
+
+	Selection beforeToken = { ts.x, ts.y, te.x, te.y };
+
+	auto tokenBefore = document.getSelectionContent(beforeToken);
+
+	auto hasDotAndNotFloat = !CharacterFunctions::isDigit(tokenBefore[0]) && tokenBefore.endsWith(".");
+
+	auto lineNumber = o.x;
+
+	auto parent = TopLevelWindowWithOptionalOpenGL::findRoot(this); 
+
+	if (parent == nullptr)
+		parent = this;
+
+	if (forceShow || ((input.isNotEmpty() && tokenCollection.hasEntries(input, tokenBefore, lineNumber)) || hasDotAndNotFloat))
+	{
+		if (!hasKeyboardFocus(true))
+		{
+			currentAutoComplete = nullptr;
+			return;
+		}
+
+		if (currentAutoComplete != nullptr)
+			currentAutoComplete->setInput(input, tokenBefore, lineNumber);
+		else
+		{
+			parent->addAndMakeVisible(currentAutoComplete = new Autocomplete(tokenCollection, input, tokenBefore, lineNumber, this));
+			addKeyListener(currentAutoComplete);
+		}
+
+        if(currentAutoComplete == nullptr)
+            return;
+        
+		auto sToUse = input.isEmpty() ? o.translated(0, 1) : s;
+
+		auto cBounds = document.getBoundsOnRow(sToUse.x, { sToUse.y, sToUse.y + 1 }, GlyphArrangementArray::ReturnLastCharacter).getRectangle(0);
+		auto topLeft = cBounds.getBottomLeft();
+
+		auto ltl = topLeft.roundToInt().transformedBy(transform);
+
+		ltl = getTopLevelComponent()->getLocalPoint(this, ltl);
+		
+		currentAutoComplete->setTopLeftPosition(ltl);
+
+		if (currentAutoComplete->getBoundsInParent().getBottom() > parent->getHeight())
+		{
+			ltl = ltl.translated(0, -currentAutoComplete->getHeight() - cBounds.getHeight() * viewScaleFactor);
+			currentAutoComplete->setTopLeftPosition(ltl);
+		}
+	}
+	else
+		closeAutocomplete(false, {}, {});
+}
+
+void TextEditor::codeDocumentTextInserted(const String& newText, int insertIndex)
+{
+	if (shouldSkipInactiveUpdate())
+		return;
+
+	CodeDocument::Position start(document.getCodeDocument(), insertIndex);
+	auto end = start.movedBy(newText.length());
+	Range<int> r(start.getLineNumber(), end.getLineNumber() + 1);
+	updateAfterTextChange(r);
+}
+
+void TextEditor::codeDocumentTextDeleted(int startIndex, int endIndex)
+{
+	if (shouldSkipInactiveUpdate())
+		return;
+
+	CodeDocument::Position start(document.getCodeDocument(), startIndex);
+	CodeDocument::Position end(document.getCodeDocument(), endIndex);
+	
+	Range<int> r(start.getLineNumber(), end.getLineNumber() + 1);
+
+	updateAfterTextChange(r);
+}
+
+
+
+void TextEditor::setScaleFactor(float newFactor)
+{
+	auto currentLine = document.getSelection(0).head;
+
+	Range<int> r(getFirstLineOnScreen(), getFirstLineOnScreen() + getNumDisplayedRows());
+
+	if (!r.contains(currentLine.x))
+		currentLine.x = r.getStart();
+
+	auto pos = document.getPosition(currentLine, TextDocument::Metric::baseline);
+
+	auto posOnScreen = pos.transformedBy(transform);
+
+	viewScaleFactor = newFactor;
+
+	refreshLineWidth();
+
+	updateViewTransform();
+
+    Point<float> newPos;
+    
+    if(!linebreakEnabled)
+        newPos = pos.transformedBy(transform);
+    else
+    {
+        newPos = document.getPosition(currentLine, TextDocument::Metric::baseline);
+        newPos = newPos.transformedBy(transform);
+    }
+    
+    auto dy = newPos.y - posOnScreen.y;
+    translateView(0.0f, -dy);
 }
 
 void TextEditor::closeAutocomplete(bool async, const String& textToInsert, Array<Range<int>> selectRanges)
 {
+	if (!autocompleteEnabled)
+		return;
+
 	if (currentAutoComplete != nullptr)
 	{
 		auto f = [this, textToInsert, selectRanges]()
@@ -159,6 +375,13 @@ void TextEditor::closeAutocomplete(bool async, const String& textToInsert, Array
 			removeKeyListener(currentAutoComplete);
 
 			Desktop::getInstance().getAnimator().fadeOut(currentAutoComplete, 300);
+
+			Component* parent = TopLevelWindowWithOptionalOpenGL::findRoot(this);
+			
+			if (parent == nullptr)
+				parent = this;
+
+			parent->removeChildComponent(currentAutoComplete);
 
 			currentAutoComplete = nullptr;
 
@@ -172,7 +395,12 @@ void TextEditor::closeAutocomplete(bool async, const String& textToInsert, Array
 				auto s = document.getSelection(0).oriented();
 				CodeDocument::Position insertStart(document.getCodeDocument(), s.tail.x, s.tail.y);
 
-				
+				refreshLineWidth();
+
+				document.rebuildRowPositions();
+
+				updateViewTransform();
+				translateView(0.0f, 0.0f);
 
 				auto l = textToInsert.length();
 
@@ -224,6 +452,15 @@ void TextEditor::closeAutocomplete(bool async, const String& textToInsert, Array
 	repaint();
 }
 
+void TextEditor::grabKeyboardFocusAndActivateTokenBuilding()
+{
+	if (shouldSkipInactiveUpdate())
+		updateAfterTextChange();
+
+	tokenCollection.setEnabled(true);
+	grabKeyboardFocus();
+}
+
 bool TextEditor::cut()
 {
 	auto s = document.getSelections().getFirst();
@@ -239,7 +476,10 @@ bool TextEditor::cut()
 		move = true;
 	}
 
-	SystemClipboard::copyTextToClipboard(document.getSelectionContent(s));
+	auto content = document.getSelectionContent(s);
+
+	if(content.containsNonWhitespaceChars())
+		SystemClipboard::copyTextToClipboard(content);
 
 	insert("");
 
@@ -254,12 +494,44 @@ bool TextEditor::cut()
 
 bool TextEditor::copy()
 {
+    if(document.getNumSelections() != 1)
+    {
+        multiSelection.clear();
+        
+        for(int i = 0; i < document.getNumSelections(); i++)
+        {
+            multiSelection.add(document.getSelectionContent(document.getSelection(i)));
+        }
+    }
+    
 	SystemClipboard::copyTextToClipboard(document.getSelectionContent(document.getSelections().getFirst()));
 	return true;
 }
 
 bool TextEditor::paste()
 {
+    if(document.getNumSelections() == multiSelection.size())
+    {
+        for(int i = 0; i < multiSelection.size(); i++)
+        {
+            Transaction t;
+            t.content = multiSelection[i];
+            t.selection = document.getSelection (i);
+            
+            auto callback = [this] (const Transaction& r)
+            {
+                translateToEnsureCaretIsVisible();
+                updateSelections();
+            };
+
+            ScopedPointer<UndoableAction> op = t.on(document, callback);
+            op->perform();
+        }
+        
+        repaint();
+        return true;
+    }
+    
 	auto insertText = SystemClipboard::getTextFromClipboard();
 	auto sel = document.getSelection(0);
 	Point<int> p = sel.head;
@@ -287,9 +559,6 @@ bool TextEditor::paste()
 
 		auto whitespaceToRemove = getWhitespaceAtBeginning(sa[0]);
 
-		if (whitespaceToRemove.isEmpty() && sa.size() > 1)
-			whitespaceToRemove = getWhitespaceAtBeginning(sa[1]);
-
 		bool first = true;
 
 		for (auto& l : sa)
@@ -306,9 +575,12 @@ bool TextEditor::paste()
 		}
 
 		insertText = sa.joinIntoString("\n");
+		DBG(insertText);
 	}
 
-	return insert(insertText);
+	auto ok = insert(insertText);
+    abortAutocomplete();
+    return ok;
 }
 
 void TextEditor::displayedLineRangeChanged(Range<int> newRange)
@@ -316,6 +588,22 @@ void TextEditor::displayedLineRangeChanged(Range<int> newRange)
 	if (!scrollRecursion)
 	{
 		scrollToLine(newRange.getStart() + newRange.getLength() / 2, true);
+	}
+}
+
+void TextEditor::setLanguageManager(LanguageManager* ownedLanguageManager)
+{
+	languageManager = ownedLanguageManager;
+
+	if (languageManager != nullptr)
+	{
+		tokenCollection.clearTokenProviders();
+        tokenCollection.addTokenProvider(new SimpleDocumentTokenProvider(document.getCodeDocument()));
+		ownedLanguageManager->addTokenProviders(&tokenCollection);
+		setCodeTokeniser(languageManager->createCodeTokeniser());
+		ownedLanguageManager->setupEditor(this);
+		tokenCollection.signalRebuild();
+        updateLineRanges();
 	}
 }
 
@@ -375,34 +663,43 @@ void TextEditor::selectionChanged()
 
 	translateToEnsureCaretIsVisible();
 
-	if(isShowing() || isOnDesktop())
-		grabKeyboardFocus();
+	
 }
 
 void mcl::TextEditor::translateView (float dx, float dy)
 {
-    auto W = viewScaleFactor * document.getBounds().getWidth();
     auto H = viewScaleFactor * document.getBounds().getHeight();
 
 	gutter.setViewTransform(AffineTransform::scale(viewScaleFactor));
 
-	translation.x = gutter.getGutterWidth();//jlimit (jmin (gutter.getGutterWidth(), -W + getWidth()), gutter.getGutterWidth(), translation.x + dx);
+	translation.x = gutter.getGutterWidth() + xPos;
     translation.y = jlimit (jmin (-0.f, -H + getHeight()), 0.0f, translation.y + dy);
 
     updateViewTransform();
 }
 
+
+
 void mcl::TextEditor::scaleView (float scaleFactorMultiplier, float verticalCenter)
 {
-    viewScaleFactor = jlimit(0.5f, 4.0f, viewScaleFactor * scaleFactorMultiplier);
+	closeAutocomplete(true, {}, {});
 
-	refreshLineWidth();
-	//translateView(0.0f, 0.0f);
+	setScaleFactor(jlimit(0.5f, 4.0f, viewScaleFactor * scaleFactorMultiplier));
+
+	
 	
 }
 
 void mcl::TextEditor::updateViewTransform()
 {
+	auto thisGutterWidth = gutter.getGutterWidth();
+
+	// Ensure that there is no weird gap
+	if (translation.x > 0.0)
+		translation.x = thisGutterWidth;
+
+	closeAutocomplete(true, {}, {});
+
 	transform = AffineTransform::scale(viewScaleFactor).translated(translation.x, translation.y);
 	highlight.setViewTransform(transform);
 	caret.setViewTransform(transform);
@@ -410,110 +707,113 @@ void mcl::TextEditor::updateViewTransform()
 	linebreakDisplay.setViewTransform(transform);
 	
 	auto b = document.getBounds();
-	scrollBar.setRangeLimits({ b.getY(), b.getBottom()});
 
-	if (currentAutoComplete != nullptr)
 	{
-		currentAutoComplete->setTransform(transform);
-
-		if (currentAutoComplete->helpPopup != nullptr)
-			currentAutoComplete->helpPopup->setTransform(transform);
+		ScopedValueSetter<bool> svs(scrollBarRecursion, true);
+		scrollBar.setRangeLimits({ b.getY(), b.getBottom() });
+		auto visibleRange = getLocalBounds().toFloat().transformed(transform.inverted());
+		scrollBar.setCurrentRange({ visibleRange.getY(), visibleRange.getBottom() }, sendNotificationSync);
 	}
 
-	auto dy = transform.getTranslationY();
-	auto sc = transform.getScaleFactor();
-
-	auto visibleRange = getLocalBounds().toFloat().transformed(transform.inverted());
-	scrollBar.setCurrentRange({ visibleRange.getY(), visibleRange.getBottom() }, dontSendNotification);
-
-	
-	
+	if (!linebreakEnabled)
+	{
+		ScopedValueSetter<bool> svs(scrollBarRecursion, true);
+		horizontalScrollBar.setRangeLimits({ b.getX(), b.getRight() });
+		auto visibleRange = getLocalBounds().toFloat().transformed(transform.inverted());
+		horizontalScrollBar.setCurrentRange({ visibleRange.getX(), visibleRange.getRight() }, sendNotificationSync);
+	}
 
 	auto rows = document.getRangeOfRowsIntersecting(getLocalBounds().toFloat().transformed(transform.inverted()));
-	
 	ScopedValueSetter<bool> svs(scrollRecursion, true);
-
 	document.setDisplayedLineRange(rows);
-
     repaint();
 }
 
 void mcl::TextEditor::updateSelections()
 {
-    
+    tokenSelection.clear();
 }
 
 void mcl::TextEditor::translateToEnsureCaretIsVisible()
 {
+	if (getLocalBounds().isEmpty())
+		return;
+
     auto i = document.getSelections().getLast().head;
     auto t = Point<float> (0.f, document.getVerticalPosition (i.x, TextDocument::Metric::top))   .transformedBy (transform);
     auto b = Point<float> (0.f, document.getVerticalPosition (i.x, TextDocument::Metric::bottom)).transformedBy (transform);
 
+	auto c = document.getBoundsOnRow(i.x, Range<int>(i.y, i.y + 1), GlyphArrangementArray::OutOfBoundsMode::ReturnBeyondLastCharacter).getRectangle(0);
+	c = c.transformedBy(transform);
+	
+	auto gw = gutter.getGutterWidth();
+
+	if (c.getRight() > getWidth())
+	{
+		xPos -= (float)(c.getRight() - getWidth());
+		translateView(0.0f, 0.0f);
+	}
+	else if (gw > 0.0f && c.getX() < gw)
+	{
+		xPos -= (c.getX() - gw);
+		translateView(0.0f, 0.0f);
+	}
+	
     if (t.y < 0.f)
-    {
         translateView (0.f, -t.y);
-    }
     else if (b.y > getHeight())
-    {
         translateView (0.f, -b.y + getHeight());
-    }
-    
 
 	if (document.getFoldableLineRangeHolder().isFolded(i.x))
-	{
 		document.getFoldableLineRangeHolder().unfold(i.x);
-	}
 }
 
 
 void mcl::TextEditor::resized()
 {
 	auto b = getLocalBounds();
+	caret.setBounds(b);
 	
-	
+    
+    
 	scrollBar.setBounds(b.removeFromRight(14));
 
-	linebreakDisplay.setBounds(b.removeFromRight(15));
+	if(linebreakEnabled)
+		linebreakDisplay.setBounds(b.removeFromRight(15));
 
 	maxLinesToShow = b.getWidth() - TEXT_INDENT - 10;
 
 	refreshLineWidth();
 	
+	
+
     highlight.setBounds (b);
-    caret.setBounds (b);
+	highlight.updateSelections();
+    
+    horizontalScrollBar.setVisible(!linebreakEnabled);
+    
+    auto b2 = getLocalBounds();
+    b2.removeFromLeft(gutter.getGutterWidth());
+    horizontalScrollBar.setBounds(b2.removeFromBottom(14));
     gutter.setBounds (b);
-    resetProfilingData();
 }
 
 void mcl::TextEditor::paint (Graphics& g)
 {
-    auto start = Time::getMillisecondCounterHiRes();
-    
+	if (shouldSkipInactiveUpdate())
+	{
+		g.setFont(GLOBAL_BOLD_FONT());
+		g.setColour(Colours::white.withAlpha(0.4f));
+		g.drawText("Editor is inactive. Click to activate", getLocalBounds().toFloat(), Justification::centred);
+		return;
+	}
 
+	
+
+    auto start = Time::getMillisecondCounterHiRes();
     String renderSchemeString;
 
 	renderTextUsingGlyphArrangement(g);
-
-    lastTimeInPaint = Time::getMillisecondCounterHiRes() - start;
-    accumulatedTimeInPaint += lastTimeInPaint;
-    numPaintCalls += 1;
-
-    if (drawProfilingInfo)
-    {
-        String info;
-        info += "paint mode         : " + renderSchemeString + "\n";
-        info += "cache glyph bounds : " + String (document.lines.cacheGlyphArrangement ? "yes" : "no") + "\n";
-        info += "core graphics      : " + String (allowCoreGraphics ? "yes" : "no") + "\n";
-        info += "opengl             : " + String (useOpenGLRendering ? "yes" : "no") + "\n";
-        info += "syntax highlight   : " + String (enableSyntaxHighlighting ? "yes" : "no") + "\n";
-        info += "mean render time   : " + String (accumulatedTimeInPaint / numPaintCalls) + " ms\n";
-        info += "last render time   : " + String (lastTimeInPaint) + " ms\n";
-        info += "tokeniser time     : " + String (lastTokeniserTime) + " ms\n";
-
-        g.setColour (findColour (CodeEditorComponent::defaultTextColourId));
-        g.setFont (Font ("Courier New", 12, 0));
-        g.drawMultiLineText (info, getWidth() - 280, 10, 280);
-    }
 
 	g.setColour(Colours::blue.withAlpha(0.8f));
 
@@ -548,39 +848,83 @@ void mcl::TextEditor::paint (Graphics& g)
 		}
 	}
 
+    for(auto b: tokenSelection)
+    {
+        auto ra = document.getSelectionRegion(b);
+        
+        g.setColour(Colours::white.withAlpha(0.5f));
+        
+        auto ar = ra.getBounds();
+        
+        auto area = ar.withHeight(document.getRowHeight())
+                      .reduced(0.0f, 0.8f)
+                      .transformedBy(transform);
+        
+        g.drawRoundedRectangle(area, 3.0f, 1.0f);
+        
+    }
+    
 	if (currentError != nullptr)
+	{
 		currentError->paintLines(g, transform, Colours::red);
+		g.setColour(Colours::red.withAlpha(0.08f));
+		auto b = currentError->area.transformedBy(transform).withLeft(gutter.getGutterWidth()).withRight(getWidth());;
+		g.fillRect(b);
+	}
+    
+    Array<LanguageManager::InplaceDebugValue> inplaceDebugValues;
+    
+    if(languageManager != nullptr && languageManager->getInplaceDebugValues(inplaceDebugValues))
+    {
+        for(const auto& ip: inplaceDebugValues)
+        {
+			auto line = ip.location.getLineNumber();
+			auto col = ip.location.getIndexInLine();
 
+            auto b = document.getBoundsOnRow(line, {col, col+1}, GlyphArrangementArray::ReturnBeyondLastCharacter).getRectangle(0);
+            
+            b = b.translated(document.getCharacterRectangle().getWidth() * 1.0f, 0.0f);
+            
+            auto area = b.transformed(transform).withRight(getWidth());
+            auto vf = document.getFont().withHeight(document.getFontHeight() * viewScaleFactor * 0.7f);
+            g.setFont(vf);
+            g.setColour(Colours::white.withAlpha(0.05f));
+            
+            auto r = area;
+            r = r.removeFromLeft(vf.getStringWidthFloat(ip.value) + 20.0f);
+            
+            g.fillRoundedRectangle(r, r.getHeight() / 2.0f);
+            
+            g.setColour(Colour(SIGNAL_COLOUR).withAlpha(0.5f));
+            g.drawText(ip.value, area.reduced(10.0f, 0.0f), Justification::left);
+        }
+    }
+    
 	for (auto w : warnings)
 		w->paintLines(g, transform, w->isWarning ? Colours::yellow : Colours::red);
 
-	if (currentAutoComplete != nullptr)
+	if (xPos < -10.0f * transform.getScaleFactor())
 	{
-		auto area = currentAutoComplete->getBounds().toFloat();
-		area = area.transformed(transform).expanded(2.0f);
-		
-		g.setColour(Colours::black.withAlpha(0.1f));
-		area = area.translated(0.3f, 1.0f);
-		g.fillRect(area);
-		area = area.translated(0.3f, 1.0f);
-		g.fillRect(area);
-		area = area.translated(0.3f, 1.0f);
-		g.fillRect(area);
-		area = area.translated(0.3f, 1.0f);
-		g.fillRect(area);
-	}
+		auto b = getLocalBounds().toFloat();
+		b.removeFromLeft(gutter.getGutterWidth());
+		b = b.removeFromLeft(30);
 
-#if PROFILE_PAINTS
-    std::cout << "[TextEditor::paint] " << lastTimeInPaint << std::endl;
-#endif
+		auto c = Helpers::getEditorColour(Helpers::EditorBackgroundColour);
+
+		g.setGradientFill(ColourGradient(c.withAlpha(0.6f), b.getX(), 0.0f, c.withAlpha(0.0f), b.getRight(), 0.0f, false));
+		g.fillRect(b);
+	}
 }
 
 void mcl::TextEditor::paintOverChildren (Graphics& g)
 {
+	
 }
 
 void mcl::TextEditor::mouseDown (const MouseEvent& e)
 {
+    tokenSelection.clear();
+    
 	if (readOnly)
 		return;
 
@@ -602,8 +946,73 @@ void mcl::TextEditor::mouseDown (const MouseEvent& e)
     {
         return;
     }
-    else if (e.mods.isRightButtonDown())
+    else if (e.mods.isRightButtonDown() || e.mods.isMiddleButtonDown())
     {
+		PopupLookAndFeel pplaf;
+		PopupMenu menu;
+		menu.setLookAndFeel(&pplaf);
+
+		if (e.mods.isMiddleButtonDown() || e.mods.isShiftDown())
+		{
+			auto bm = document.getBookmarks();
+
+			if (!bm.isEmpty())
+			{
+				menu.addSectionHeader("Custom Bookmarks");
+
+				for (auto b : bm)
+				{
+					menu.addItem(b.lineNumber + 1, b.name);
+				}
+			}
+			
+			menu.addSeparator();
+			menu.addItem(-1, "Add custom bookmark");
+			
+			auto& holder = document.getFoldableLineRangeHolder();
+
+			if (!holder.roots.isEmpty())
+			{
+				menu.addSeparator();
+				menu.addSectionHeader("Automatic bookmarks");
+
+				for (auto r : holder.roots)
+				{
+					auto b = r->getBookmark();
+					menu.addItem(b.lineNumber + 1, b.name);
+
+					for (auto c : r->children)
+					{
+						auto b = c->getBookmark();
+						menu.addItem(b.lineNumber + 1, "   " + b.name);
+					}
+				}
+			}
+
+			auto r = menu.show();
+
+			if (r == -1)
+			{
+				document.navigateSelections(mcl::TextDocument::Target::firstnonwhitespace, TextDocument::Direction::backwardCol, Selection::Part::both);
+
+				insert("//! Enter bookmark title\n");
+				auto s = document.getSelection(0);
+				
+				for (int i = 0; i < 21; i++)
+					document.navigateLeftRight(s.tail, false);
+
+				document.navigateLeftRight(s.head, false);
+				
+				document.setSelection(0, s, true);
+				return;
+			}
+
+			if (r != 0)
+				setFirstLineOnScreen(r - 1);
+
+			return;
+		}
+
 		enum Commands
 		{
 			Cut=1,
@@ -618,13 +1027,14 @@ void mcl::TextEditor::mouseDown (const MouseEvent& e)
 			UnfoldAll,
 			Goto,
 			LineBreaks,
+            AutoAutocomplete,
 			BackgroundParsing,
+            FixWeirdTab,
 			Preprocessor,
 			numCommands
 		};
 
-        PopupMenu menu;
-		menu.setLookAndFeel(plaf);
+		
 
 
 		menu.addSeparator();
@@ -647,17 +1057,21 @@ void mcl::TextEditor::mouseDown (const MouseEvent& e)
 		menu.addItem(Forward, "Forward", document.viewUndoManager.canRedo());
 		menu.addItem(FoldAll, "Fold all", true, false);
 		menu.addItem(UnfoldAll, "Unfold all", true, false);
-		menu.addItem(Goto, "Goto definition", true, false);
-
+		menu.addItem(LineBreaks, "Enable line breaks", true, linebreakEnabled);
+        menu.addItem(AutoAutocomplete, "Autoshow Autocomplete", true, showAutocompleteAfterDelay);
+        
 		menu.addSeparator();
 
-		menu.addItem(LineBreaks, "Enable line breaks", true, linebreakEnabled);
-
-		menu.addSectionHeader("Language options");
-		menu.addItem(BackgroundParsing, "Background C++ parsing", true, enableLiveParsing);
-		menu.addItem(Preprocessor, "Parse preprocessor conditions", true, enablePreprocessorParsing);
+		for (const auto& pf : popupMenuFunctions)
+			pf(*this, menu, e);
 
 		auto result = menu.show();
+
+		for (const auto& rf : popupMenuResultFunctions)
+		{
+			if (rf(*this, result))
+				return;
+		}
 
         switch (result)
         {
@@ -673,18 +1087,20 @@ void mcl::TextEditor::mouseDown (const MouseEvent& e)
 			case UnfoldAll: 
 			{
 				for (auto l : document.getFoldableLineRangeHolder().all)
-					l->setFolded(result == 8);
+					l->setFolded(result == FoldAll);
 
 				document.getFoldableLineRangeHolder().updateFoldState(nullptr);
 				break;
 			}
-			case Goto: gotoDefinition({index, index}); break;
-			case LineBreaks: linebreakEnabled = !linebreakEnabled; refreshLineWidth(); break;
-			case BackgroundParsing: enableLiveParsing = !enableLiveParsing; break;
-			case Preprocessor: enablePreprocessorParsing = !enablePreprocessorParsing; break;
+			case LineBreaks: 
+				FullEditor::saveSetting(this, TextEditorSettings::LineBreaks, !linebreakEnabled);
+				break;
+            case AutoAutocomplete:
+				FullEditor::saveSetting(this, TextEditorSettings::AutoAutocomplete, !showAutocompleteAfterDelay);
+                break;
         }
 
-        resetProfilingData();
+      
         repaint();
         return;
     }
@@ -694,7 +1110,11 @@ void mcl::TextEditor::mouseDown (const MouseEvent& e)
 
 	if (e.mods.isShiftDown())
 	{
-		auto s = document.getSelection(0).head;
+		auto sel = document.getSelection(0).oriented();
+
+		auto midX = (sel.head.x + sel.tail.x) / 2;
+
+		auto s = index.x > midX ? sel.head : sel.tail;
 
 		Selection ns(index, s);
 
@@ -707,13 +1127,15 @@ void mcl::TextEditor::mouseDown (const MouseEvent& e)
     {
         return;
     }
-    if (! e.mods.isCommandDown() || ! TEST_MULTI_CARET_EDITING)
+    if (!e.mods.isCommandDown())
     {
         selections.clear();
     }
 
     selections.add (index);
     document.setSelections (selections, true);
+
+	grabKeyboardFocusAndActivateTokenBuilding();
 }
 
 void mcl::TextEditor::mouseDrag (const MouseEvent& e)
@@ -737,14 +1159,18 @@ void mcl::TextEditor::mouseDrag (const MouseEvent& e)
 				multiLineSelections.add({ i, current.y, i, start.y});
 			}
 
-			document.setSelections(multiLineSelections, false);
+			document.setSelections(multiLineSelections, true);
 			updateSelections();
 		}
 		else
 		{
 			auto selection = document.getSelections().getFirst();
-			selection.head = document.findIndexNearestPosition(e.position.transformedBy(transform.inverted()));
-			document.setSelections({ selection }, false);
+
+			auto pos = e.position;
+			pos.x = jmax(pos.x, gutter.getGutterWidth() + 5);
+
+			selection.head = document.findIndexNearestPosition(pos.transformedBy(transform.inverted()));
+			document.setSelections({ selection }, true);
 			translateToEnsureCaretIsVisible();
 			updateSelections();
 		}
@@ -761,6 +1187,63 @@ void mcl::TextEditor::mouseDoubleClick (const MouseEvent& e)
         document.navigateSelections (TextDocument::Target::subword, TextDocument::Direction::backwardCol, Selection::Part::head);
         document.navigateSelections (TextDocument::Target::subword, TextDocument::Direction::forwardCol,  Selection::Part::tail);
         updateSelections();
+        
+        auto currentToken = document.getSelectionContent(document.getSelection(0));
+        
+        tokenSelection.clear();
+        
+        CodeDocument::Position p(document.getCodeDocument(), 0);
+        auto firstChar = currentToken[0];
+        auto maxIndex = currentToken.length();
+        
+        while (p.getPosition() < document.getCodeDocument().getNumCharacters())
+        {
+            if (p.getCharacter() == firstChar)
+            {
+                auto prev = p.movedBy(-1).getCharacter();
+                
+                
+                
+                auto e = p.movedBy(maxIndex);
+
+                auto after = e.getCharacter();
+                
+                
+                
+                auto t = document.getCodeDocument().getTextBetween(p, e);
+
+                if (currentToken == t)
+                {
+                    if(CharacterFunctions::isDigit(after) ||
+                       CharacterFunctions::isLetter(after))
+                    {
+                        p.moveBy(1);
+                        continue;
+                    }
+                    
+                    if(CharacterFunctions::isDigit(prev) ||
+                       CharacterFunctions::isLetter(prev))
+                    {
+                        p.moveBy(1);
+                        continue;
+                    }
+                    
+                    Point<int> ps(p.getLineNumber(), p.getIndexInLine());
+                    Point<int> pe(e.getLineNumber(), e.getIndexInLine());
+
+                    
+                    
+                    tokenSelection.add({ ps, pe });
+                }
+            }
+
+            p.moveBy(1);
+        }
+        
+        tokenSelection.removeAllInstancesOf(document.getSelection(0));
+        
+        repaint();
+        return;
     }
     else if (e.getNumberOfClicks() == 3)
     {
@@ -771,9 +1254,9 @@ void mcl::TextEditor::mouseDoubleClick (const MouseEvent& e)
     updateSelections();
 }
 
-void mcl::TextEditor::mouseWheelMove (const MouseEvent& e, const MouseWheelDetails& d)
+void mcl::TextEditor::mouseWheelMove(const MouseEvent& e, const MouseWheelDetails& d)
 {
-	float dx = d.deltaX;
+
 
 	if (e.mods.isCommandDown())
 	{
@@ -783,20 +1266,32 @@ void mcl::TextEditor::mouseWheelMove (const MouseEvent& e, const MouseWheelDetai
 		return;
 	}
 
-#if JUCE_WINDOWS
-
-	translateView(dx * 80, d.deltaY * 160);
-
+#if JUCE_MAC
+	float factors[2] = { 400.0f, 800.0f };
 #else
-    /*
-     make scrolling away from the gutter just a little "sticky"
-     */
-    if (translation.x == gutter.getGutterWidth() && -0.01f < dx && dx < 0.f)
-    {
-        dx = 0.f;
-    }
-    translateView (dx * 400, d.deltaY * 800);
+	float factors[2] = { 80.0f, 160.0f };
 #endif
+
+    bool handleXScroll = !linebreakEnabled && (e.mods.isShiftDown() || d.deltaX != 0.0);
+    
+    
+	if (handleXScroll)
+	{
+        auto vToUse = e.mods.isShiftDown() ? d.deltaY : d.deltaX;
+        
+		if(vToUse < 0.0f)
+			xPos = jmin(-gutter.getGutterWidth(), xPos);
+
+		xPos += vToUse * factors[1];
+
+		auto maxWidth = document.getBounds().getWidth() * viewScaleFactor;
+		xPos = jmax(xPos, -maxWidth);
+
+	}
+	
+    auto yToUse = e.mods.isShiftDown() ? 0.0f : d.deltaY;
+    
+    translateView(0.0f, yToUse * factors[1]);
 }
 
 void mcl::TextEditor::mouseMagnify (const MouseEvent& e, float scaleFactor)
@@ -811,13 +1306,17 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
 
 	tooltipManager.clearDisplay();
 
+	for (const auto& kf : keyPressFunctions)
+	{
+		if (kf(key))
+			return true;
+	}
+
     // =======================================================================================
     using Target     = TextDocument::Target;
     using Direction  = TextDocument::Direction;
     auto mods        = key.getModifiers();
     auto isTab       = tabKeyUsed && (key.getTextCharacter() == '\t');
-
-    
 
 	auto skipIfClosure = [this](juce_wchar c)
 	{
@@ -828,9 +1327,40 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
 			
 			if (e == c)
 			{
-				document.navigateSelections(Target::character, Direction::forwardCol, Selection::Part::both);
-				updateSelections();
-				return true;
+                auto line = document.getLine(s.head.x);
+                
+                
+                
+                auto lineBefore = line.substring(0, s.head.y);
+                auto lineAfter = line.substring(s.head.y);
+
+				int delta = 0;
+
+				for (int i = 0; i < lineBefore.length(); i++)
+				{
+					auto thisC = lineBefore[i];
+
+					if (ActionHelpers::isMatchingClosure(thisC, c))
+						delta++;
+					if (ActionHelpers::isRightClosure(thisC))
+						delta--;
+				}
+                for (int i = 0; i < lineAfter.length(); i++)
+                {
+                    auto thisC = lineAfter[i];
+
+                    if (ActionHelpers::isMatchingClosure(thisC, c))
+                        delta++;
+                    if (ActionHelpers::isRightClosure(thisC))
+                        delta--;
+                }
+
+				if (delta <= 1)
+				{
+					document.navigateSelections(Target::character, Direction::forwardCol, Selection::Part::both);
+					updateSelections();
+					return true;
+				}
 			}
 		}
 
@@ -852,9 +1382,9 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
 
 		while (sPos.getPosition() < document.getCodeDocument().getNumCharacters())
 		{
-			sPos = sPos.movedBy(1);
-
 			auto c = sPos.getCharacter();
+
+			sPos = sPos.movedBy(1);
 
 			if (c == openChar)
 				numBefore++;
@@ -864,6 +1394,8 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
 
 		auto ePos = pos;
 		int numAfter = 0;
+
+		
 
 		while (ePos.getPosition() > 0)
 		{
@@ -877,11 +1409,17 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
 				numAfter++;
 		}
 		
+		//numAfter = jmax(numAfter, 0);
+
 
 		juce::String text;
 		text << openChar;
 
 		auto both = numBefore == numAfter;
+
+
+		if (closeChar == '"')
+			both |= (numAfter % 2 == 0);
 
 		if (both)
 		{
@@ -913,18 +1451,12 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
 
 		if (both)
 		{
-			auto s = document.getSelection(0);
 			document.navigateSelections(Target::character, Direction::backwardCol, Selection::Part::both);
-			auto s2 = document.getSelection(0);
 			updateSelections();
 		}
 
-		
-
 		return true;
 	};
-
-   
 
 	auto insertTabAfterBracket = [this, mods]()
 	{
@@ -967,20 +1499,21 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
 
 		if (l == '{')
 		{
-			int numChars = s.head.y-1;
-
 			juce::String ws = "\n\t";
 			juce::String t = "\n";
 
 			Point<int> end = s.head;
 			Point<int> start = end;
+            end.y++;
 			document.navigate(start, Target::line, Direction::backwardCol);
-			document.navigate(end, Target::character, Direction::backwardCol);
+			document.navigate(end, Target::firstnonwhitespace, Direction::backwardCol);
 
 			Selection emptyBeforeText(end, start);
 
 			auto s = document.getSelectionContent(emptyBeforeText);
 
+            
+            
 			ws << s;
 			t << s;
 
@@ -1019,11 +1552,19 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
 
 	auto addNextTokenToSelection = [this]()
 	{
-		auto s = document.getSelections().getLast().oriented();
+        auto s = document.getSelections().getLast();
 		
+        bool isOriented = s.isOriented();
+        
+        s = s.oriented();
+        
 		CodeDocument::Position start(document.getCodeDocument(), s.head.x, s.head.y);
 		CodeDocument::Position end(document.getCodeDocument(), s.tail.x, s.tail.y);
 
+        
+        
+        //document.setSelection(document.getNumSelections()-1, s, true);
+        
 		auto t = document.getCodeDocument().getTextBetween(start, end);
 
 		while (start.getPosition() < document.getCodeDocument().getNumCharacters())
@@ -1037,16 +1578,17 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
 			{
 				Selection s(start.getLineNumber(), start.getIndexInLine(), end.getLineNumber(), end.getIndexInLine());
 
-				
+                
+                
+				if(isOriented != s.isOriented())
+                    s = s.swapped();
 
-				document.addSelection(s.swapped());
+				document.addSelection(s);
 				translateToEnsureCaretIsVisible();
 				updateSelections();
 				return true;
 			}
-				
 		}
-
 		
 		return true;
 	};
@@ -1151,13 +1693,18 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
     }
     if (mods.isCtrlDown())
     {
-        if (key.isKeyCode (KeyPress::rightKey)) return nav (mods, Target::whitespace, Direction::forwardCol)  && nav (mods, Target::word, Direction::forwardCol);
-        if (key.isKeyCode (KeyPress::leftKey )) return nav (mods, Target::whitespace, Direction::backwardCol) && nav (mods, Target::word, Direction::backwardCol);
+		if (key.isKeyCode(KeyPress::rightKey)) return nav(mods, Target::commandTokenNav, Direction::forwardCol);
+		if (key.isKeyCode(KeyPress::leftKey))  return nav(mods, Target::commandTokenNav, Direction::backwardCol);
         if (key.isKeyCode (KeyPress::downKey )) return nav (mods, Target::word, Direction::forwardCol)  && nav (mods, Target::paragraph, Direction::forwardRow);
         if (key.isKeyCode (KeyPress::upKey   )) return nav (mods, Target::word, Direction::backwardCol) && nav (mods, Target::paragraph, Direction::backwardRow);
 
-        if (key.isKeyCode (KeyPress::backspaceKey)) return (   expandBack (Target::whitespace, Direction::backwardCol)
-                                                            && expandBack (Target::word, Direction::backwardCol)
+		if (key.isKeyCode(KeyPress::deleteKey) && document.getSelection(0).isSingular())
+		{
+			document.navigateSelections(Target::commandTokenNav, Direction::forwardCol, Selection::Part::head);
+			return insert("");
+		}
+
+        if (key.isKeyCode (KeyPress::backspaceKey)) return (   expandBack (Target::commandTokenNav, Direction::backwardCol)
                                                             && insert (""));
 
 		if (key == KeyPress('e', ModifierKeys::ctrlModifier, 0) ||
@@ -1195,7 +1742,7 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
 
 		auto s = document.getSelections().getFirst();
 
-		if (s.head.x != s.tail.x)
+		if (!s.isSingular())
 		{
 			CodeDocument::Position start(document.getCodeDocument(), s.head.x, s.head.y);
 			CodeDocument::Position end(document.getCodeDocument(), s.tail.x, s.tail.y);
@@ -1210,12 +1757,34 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
 			Array<Selection> lineStarts;
 
 			for (int i = rows.getStart(); i < rows.getEnd(); i++)
-			{
 				lineStarts.add(Selection(i, 0, i, 0));
-			}
 
 			if (mods.isShiftDown())
 			{
+                if (s.head.y == 0)
+                {
+                    document.navigateSelections(Target::firstnonwhitespace, Direction::forwardCol, Selection::Part::head);
+                    s = document.getSelection(0);
+                }
+                
+                // Do not delete if there is no whitespace
+                if(s.head.y == 0)
+                    return true;
+                
+                
+					
+				Selection prevFirstLine;
+				prevFirstLine.tail = s.head;
+				prevFirstLine.head = s.head;
+				prevFirstLine.head.y = 0;
+
+				auto prevText = document.getSelectionContent(prevFirstLine);
+
+				bool hasWhiteSpaceCharAtStart = prevText[0] == ' ' || prevText[0] == '\t';
+
+				if(!hasWhiteSpaceCharAtStart)
+					return true;
+
 				document.setSelections(lineStarts, false);
 				document.navigateSelections(Target::character, Direction::forwardCol, Selection::Part::both);
 
@@ -1267,23 +1836,47 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
 	if (key.isKeyCode(KeyPress::backspaceKey)) return remove(Target::character, Direction::backwardCol);
 	if (key.isKeyCode(KeyPress::deleteKey))	   return remove(Target::character, Direction::forwardCol);
 
-#if JUCE_WINDOWS
+#if JUCE_WINDOWS || JUCE_LINUX
     // Home/End: End / start of line
 	if (key.isKeyCode(KeyPress::homeKey)) return nav(mods, Target::firstnonwhitespace, Direction::backwardCol);
-	if (key.isKeyCode(KeyPress::endKey))  return nav(mods, Target::line, Direction::forwardCol);
+	if (key.isKeyCode(KeyPress::endKey))  return nav(mods, Target::lineUntilBreak, Direction::forwardCol);
 #else
     // Home/End: Scroll to beginning
     if (key.isKeyCode(KeyPress::homeKey)) return nav (mods, Target::document, Direction::forwardRow);
     if (key.isKeyCode(KeyPress::endKey))  return nav (mods, Target::document, Direction::backwardRow);
 #endif
 
+	if (key == KeyPress('+', ModifierKeys::commandModifier, 0)) { scaleView(1.1f, false); return true; }
+	if (key == KeyPress('-', ModifierKeys::commandModifier, 0)) { scaleView(0.9f, false); return true; }
+
     if (key == KeyPress ('a', ModifierKeys::commandModifier, 0)) return expand (Target::document);
 	if (key == KeyPress('d', ModifierKeys::commandModifier, 0))  return addNextTokenToSelection();
     if (key == KeyPress ('l', ModifierKeys::commandModifier, 0)) return expand (Target::line);
-    if (key == KeyPress ('u', ModifierKeys::commandModifier, 0)) return addSelectionAtNextMatch();
-    if (key == KeyPress ('z', ModifierKeys::commandModifier, 0)) return document.getCodeDocument().getUndoManager().undo();
-    if (key == KeyPress ('r', ModifierKeys::commandModifier, 0)) return document.getCodeDocument().getUndoManager().redo();
-
+    if (key == KeyPress ('u', ModifierKeys::commandModifier, 0))
+    {
+        return document.viewUndoManager.undo();
+    }
+    if (key == KeyPress ('u', ModifierKeys::commandModifier | ModifierKeys::shiftModifier, 0))
+    {
+        return document.viewUndoManager.redo();
+    }
+    if (key == KeyPress ('z', ModifierKeys::commandModifier, 0))
+    {
+        return document.getCodeDocument().getUndoManager().undo();
+    }
+    if (key == KeyPress ('z', ModifierKeys::commandModifier | ModifierKeys::shiftModifier, 0))
+    {
+        return document.getCodeDocument().getUndoManager().redo();
+    }
+    if (key == KeyPress ('t', ModifierKeys::commandModifier, 0))
+    {
+        document.navigateSelections (TextDocument::Target::subword, TextDocument::Direction::backwardCol, Selection::Part::head);
+        document.navigateSelections (TextDocument::Target::subword, TextDocument::Direction::forwardCol,  Selection::Part::tail);
+        updateSelections();
+        
+        return true;
+    }
+    
 	if (key.isKeyCode(KeyPress::F4Key))
 	{
 		auto isComment = [this](Selection s)
@@ -1356,6 +1949,12 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
 		currentSearchBox->addListener(this);
 		currentSearchBox->setBounds(getLocalBounds().removeFromBottom(document.getRowHeight() * transform.getScaleFactor() * 1.2f + 5));
 
+		auto s = document.getSelections().getFirst();
+		auto sel = document.getSelectionContent(s);
+
+		if(sel.isNotEmpty())
+			currentSearchBox->searchField.setText(sel, sendNotificationSync);
+
 		currentSearchBox->grabKeyboardFocus();
 
 		return true;
@@ -1373,9 +1972,17 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
 
 bool mcl::TextEditor::insert (const juce::String& content)
 {
+    
+    
+    tokenSelection.clear();
+    
+	if (isShowing())
+		tokenCollection.setEnabled(true);
+
+
 	ScopedValueSetter<bool> scrollDisabler(scrollRecursion, true);
 
-    double now = Time::getApproximateMillisecondCounter();
+	double now = Time::getApproximateMillisecondCounter();
 
 	if (currentParameter == nullptr)
 	{
@@ -1404,7 +2011,7 @@ bool mcl::TextEditor::insert (const juce::String& content)
 
             if (! r.affectedArea.isEmpty())
             {
-                repaint (r.affectedArea.transformedBy (transform).getSmallestIntegerContainer());
+				repaint();
             }
         };
 
@@ -1413,12 +2020,19 @@ bool mcl::TextEditor::insert (const juce::String& content)
 
     }
 	
-	updateViewTransform();
+	//refreshLineWidth();
+	//updateViewTransform();
 	translateToEnsureCaretIsVisible();
     updateSelections();
 
 	lastInsertWasDouble = false;
 
+    // Do not open the autocomplete if we delete a character
+    if(content.isEmpty() && currentAutoComplete == nullptr)
+    {
+        abortAutocomplete();
+    }
+    
     return true;
 }
 
@@ -1439,32 +2053,53 @@ void mcl::TextEditor::renderTextUsingGlyphArrangement (juce::Graphics& g)
 
 	highlight.paintHighlight(g);
 
-    if (enableSyntaxHighlighting)
-    {
-        auto rows = document.getRangeOfRowsIntersecting (g.getClipBounds().toFloat());
+	if (enableSyntaxHighlighting)
+	{
+		auto rows = document.getRangeOfRowsIntersecting(g.getClipBounds().toFloat());
 
-		rows.setStart(jmax(0, rows.getStart() - 20));
+		auto realStart = document.getFoldableLineRangeHolder().getNearestLineStartOfAnyRange(rows.getStart());
 
-        auto index = Point<int> (rows.getStart(), 0);
-        auto it = TextDocument::Iterator (document, index);
-        auto previous = it.getIndex();
-        auto zones = Array<Selection>();
+		rows.setStart(realStart);
 
-        while (it.getIndex().x < rows.getEnd() && ! it.isEOF())
-        {
-            auto tokenType = CppTokeniserFunctions::readNextToken (it);
-            zones.add (Selection (previous, it.getIndex()).withStyle (tokenType));
-            previous = it.getIndex();
-        }
+		auto index = Point<int>(rows.getStart(), 0);
+
+		auto zones = Array<Selection>();
+
+		CodeDocument::Position pos(document.getCodeDocument(), rows.getStart(), 0);
+		CodeDocument::Iterator it(pos);
+
+		Point<int> previous(it.getLine(), it.getIndexInLine());
+
+		while (it.getLine() < rows.getEnd() && !it.isEOF())
+		{
+			int tokenType;
+
+			if (tokeniser != nullptr)
+				tokenType = tokeniser->readNextToken(it);
+			else
+				tokenType = JavascriptTokeniserFunctions::readNextToken(it);
+
+			Point<int> now(it.getLine(), it.getIndexInLine());
+
+			if (previous != now)
+				zones.add(Selection(previous, now).withStyle(tokenType));
+			else
+				break;
+
+			previous = now;
+		}
 
 		for (auto& z : zones)
 		{
-			if (deactivatesLines.contains(z.tail.x+1))
+			if (deactivatesLines.contains(z.tail.x + 1))
 				z.token = colourScheme.types.size() - 1;
 		}
 
-        document.clearTokens (rows);
-        document.applyTokens (rows, zones);
+		document.clearTokens(rows);
+		document.applyTokens(rows, zones);
+
+        for (int i = rows.getStart(); i < rows.getEnd(); i++)
+            document.drawWhitespaceRectangles(i, g);
 
         for (int n = 0; n < colourScheme.types.size(); ++n)
         {
@@ -1474,17 +2109,9 @@ void mcl::TextEditor::renderTextUsingGlyphArrangement (juce::Graphics& g)
     }
     else
     {
-        lastTokeniserTime = 0.f;
         document.findGlyphsIntersecting (g.getClipBounds().toFloat()).draw (g);
     }
     g.restoreState();
 }
-
-void mcl::TextEditor::resetProfilingData()
-{
-    accumulatedTimeInPaint = 0.f;
-    numPaintCalls = 0;
-}
-
 
 }

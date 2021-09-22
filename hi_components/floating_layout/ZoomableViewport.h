@@ -442,8 +442,15 @@ struct ZoomableViewport : public Component,
 		}
 	}
 
+	void setMouseWheelScrollEnabled(bool shouldBeEnabled)
+	{
+		mouseWheelScroll = shouldBeEnabled;
+	}
+
 private:
 	
+
+
 	struct ScrollbarFader : public Timer
 	{
 		ScrollbarFader(ZoomableViewport& p) :
@@ -460,6 +467,7 @@ private:
 	} sf;
 
 	bool dragToScroll = false;
+	bool mouseWheelScroll = true;
 
 	Point<double> normDragStart;
 	Point<double> scrollPosDragStart;
@@ -481,6 +489,7 @@ struct WrapperWithMenuBarBase : public Component,
 {
 	struct ButtonWithStateFunction
 	{
+        virtual ~ButtonWithStateFunction() {};
 		virtual bool hasChanged() = 0;
 	};
 

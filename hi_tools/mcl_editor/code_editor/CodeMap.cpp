@@ -41,7 +41,7 @@ void LinebreakDisplay::paint(Graphics& g)
 		yPos = document.getVerticalPosition(i, mcl::TextDocument::Metric::top);
 		int numLines = document.getNumLinesForRow(i) - 1;
 
-		g.setColour(Colours::grey);
+		g.setColour(Colours::white.withAlpha(0.1f));
 
 		for (int i = 0; i < numLines; i++)
 		{
@@ -61,26 +61,18 @@ void LinebreakDisplay::paint(Graphics& g)
 
 void mcl::CodeMap::mouseEnter(const MouseEvent& e)
 {
-	auto yNormalised = e.position.getY() / (float)getHeight();
-	auto lineNumber = surrounding.getStart() + yNormalised * surrounding.getLength();
-	auto editor = findParentComponentOfClass<TextEditor>();
-
-#if 0
-	editor->addChildComponent(preview = new HoverPreview(doc, lineNumber));
-
-	preview->colourScheme = editor->colourScheme;
-	preview->scale = editor->transform.getScaleFactor();
-	preview->repaint();
-
-	Desktop::getInstance().getAnimator().fadeIn(preview, 200);
-
-	preview->setBounds(getPreviewBounds(e));
-#endif
 }
 
 void mcl::CodeMap::mouseExit(const MouseEvent& e)
 {
 	hoveredLine = -1;
+
+	if (preview != nullptr)
+	{
+		Desktop::getInstance().getAnimator().fadeOut(preview, 200);
+		preview = nullptr;
+	}
+
 	repaint();
 
 #if 0
@@ -99,19 +91,54 @@ void mcl::CodeMap::mouseExit(const MouseEvent& e)
 
 void mcl::CodeMap::mouseMove(const MouseEvent& e)
 {
-	if (preview != nullptr)
+	hoveredLine = getLineNumberFromEvent(e);
+
+	if (allowHover && preview == nullptr)
 	{
-		preview->setCenterRow(getLineNumberFromEvent(e));
-		preview->setBounds(getPreviewBounds(e));
+		getParentComponent()->addChildComponent(preview = new HoverPreview(*this, hoveredLine));
+		Desktop::getInstance().getAnimator().fadeIn(preview, 600);
 	}
 
-	hoveredLine = getLineNumberFromEvent(e);
+	if (preview != nullptr)
+	{
+		preview->setBounds(getPreviewBounds(e));
+		preview->setCenterRow(getLineNumberFromEvent(e));
+	}
 
 	repaint();
 }
 
 void mcl::CodeMap::mouseDown(const MouseEvent& e)
 {
+	if (e.mods.isRightButtonDown())
+	{
+		PopupLookAndFeel plaf;
+		PopupMenu m;
+		m.setLookAndFeel(&plaf);
+		m.addItem(1, "Small Width", true, getWidth() < 100);
+		m.addItem(2, "Normal Width", true, getWidth() > 100);
+		m.addItem(3, "Enable Hover Preview", true, allowHover);
+
+		auto r = m.show();
+
+		if (r == 1)
+			FullEditor::saveSetting(this, TextEditorSettings::MapWidth, 75);
+		if (r == 2)
+			FullEditor::saveSetting(this, TextEditorSettings::MapWidth, 150);
+		if (r == 3)
+			FullEditor::saveSetting(this, TextEditorSettings::EnableHover, !allowHover);
+			
+
+		return;
+	}
+
+	if (preview != nullptr)
+	{
+		Desktop::getInstance().getAnimator().fadeOut(preview, 200);
+		preview = nullptr;
+	}
+	
+
 	currentAnimatedLine = displayedLines.getStart() + displayedLines.getLength() / 2;
 	targetAnimatedLine = getLineNumberFromEvent(e);
 
@@ -129,14 +156,16 @@ float mcl::CodeMap::getLineNumberFromEvent(const MouseEvent& e) const
 
 juce::Rectangle<int> mcl::CodeMap::getPreviewBounds(const MouseEvent& e)
 {
-	auto editor = findParentComponentOfClass<TextEditor>();
+	auto editor = findParentComponentOfClass<FullEditor>();
 
 
 
 	auto b = editor->getBounds();
 	b.removeFromRight(getWidth());
 
-	auto slice = b.removeFromRight(editor->getWidth() / 3).toFloat();
+	auto sliceWidth = jmin(600, editor->getWidth() / 3);
+
+	auto slice = b.removeFromRight(sliceWidth).toFloat();
 
 	auto yNormalised = e.position.getY() / (float)getHeight();
 
@@ -158,6 +187,8 @@ juce::Rectangle<int> mcl::CodeMap::getPreviewBounds(const MouseEvent& e)
 
 void mcl::CodeMap::paint(Graphics& g)
 {
+	//g.fillAll(Colour(0xe3212121));
+
 	if (!isActive())
 	{
 		return;
@@ -190,9 +221,6 @@ void mcl::CodeMap::paint(Graphics& g)
 	}
 
 	RectangleList<float> selection;
-
-	auto numCharacters = doc.getCodeDocument().getNumCharacters();
-	auto numRectangles = colouredRectangles.size();
 
 	for (auto& a : colouredRectangles)
 	{
@@ -320,11 +348,15 @@ void mcl::CodeMap::setVisibleRange(Range<int> visibleLines)
 
 void mcl::CodeMap::rebuild()
 {
-	
 	colouredRectangles.clear();
 
-	if (!isActive())
+	if (!isActive() || !isShowing())
+	{
+		dirty = true;
 		return;
+	}
+		
+	dirty = false;
 
 	CodeDocument::Iterator it(doc.getCodeDocument());
 
@@ -332,30 +364,27 @@ void mcl::CodeMap::rebuild()
 
 	auto xScale = (float)(getWidth() - 6) / jlimit(1.0f, 80.0f, lineLength);
 
-	if (tokeniser != nullptr)
+	if (auto tokeniser = getTokeniser())
 	{
+		auto colourScheme = getColourScheme();
 
+		if (colourScheme == nullptr)
+			return;
 
 		while (!it.isEOF())
 		{
 			CodeDocument::Position start(doc.getCodeDocument(), it.getPosition());
 			auto token = tokeniser->readNextToken(it);
 
-			auto colour = colourScheme.types[token].colour;
-
-			if (token == 0)
-				break;
+			auto colour = colourScheme->types[token].colour;
 
 			CodeDocument::Position end(doc.getCodeDocument(), it.getPosition());
 
-			auto startLine = start.getLineNumber();
-			auto endLine = end.getLineNumber();
-
 			auto pos = start;
-
-			auto h = getHeight();
-
 			float height = (float)getHeight() / (float)getNumLinesToShow();
+
+			if (pos == end)
+				break;
 
 			while (pos != end)
 			{
@@ -393,7 +422,7 @@ void mcl::CodeMap::rebuild()
 		}
 	}
 
-
+	setVisibleRange(displayedLines);
 
 	repaint();
 }
@@ -451,37 +480,54 @@ void mcl::CodeMap::timerCallback()
 
 void mcl::CodeMap::HoverPreview::paint(Graphics& g)
 {
-	auto index = Point<int>(jmax(0, rows.getStart() - 20), 0);
+	auto& document = parent.doc;
 
-	auto it = TextDocument::Iterator(document, index);
-	auto previous = it.getIndex();
+	auto realStart = document.getFoldableLineRangeHolder().getNearestLineStartOfAnyRange(rows.getStart());
+
+	Range<int> realRange(realStart, rows.getEnd() + 1);
+
+	auto index = Point<int>(jmax(realStart, 0), 0);
+
+	CodeDocument::Position pos(document.getCodeDocument(), index.x, index.y);
+
+	auto it = CodeDocument::Iterator(pos);
+	auto previous = Point<int>(it.getLine(), it.getIndexInLine());
 	auto zones = Array<Selection>();
-	auto start = Time::getMillisecondCounterHiRes();
-
-	while (it.getIndex().x < rows.getEnd() && !it.isEOF())
+	
+	if (auto tokeniser = parent.getTokeniser())
 	{
-		auto tokenType = CppTokeniserFunctions::readNextToken(it);
-		zones.add(Selection(previous, it.getIndex()).withStyle(tokenType));
-		previous = it.getIndex();
+		while (it.getLine() <= rows.getEnd() && !it.isEOF())
+		{
+			auto tokenType = tokeniser->readNextToken(it);
+
+			Point<int> next(it.getLine(), it.getIndexInLine());
+
+			if (next == previous)
+				break;
+
+			zones.add(Selection(previous, next).withStyle(tokenType));
+			previous = next;
+		}
 	}
 
-	document.clearTokens(rows.expanded(20));
-	document.applyTokens(rows.expanded(20), zones);
+	document.clearTokens(realRange);
+	document.applyTokens(realRange, zones);
 
 	int top = rows.getStart();
-	int bottom = rows.getEnd();
+	int bottom = rows.getEnd() + 1;
 
 	RectangleList<float> area;
 
-	area.add(document.getBoundsOnRow(top, { 0, document.getNumColumns(top) }, GlyphArrangementArray::ReturnLastCharacter));
-	area.add(document.getBoundsOnRow(bottom, { 0, document.getNumColumns(bottom) }, GlyphArrangementArray::ReturnLastCharacter));
+	for (int i = top; i < bottom + 1; i++)
+		area.add(document.getBoundsOnRow(i, { 0, document.getNumColumns(i) }, GlyphArrangementArray::ReturnLastCharacter));
 
 	auto displayBounds = area.getBounds();
 
-	g.fillAll(Colour(0xCC333333));
+	g.setColour(Colour(0xEE333333));
+	g.fillRoundedRectangle(getLocalBounds().toFloat(), 4.0f);
 
 	g.setColour(Colours::white.withAlpha(0.6f));
-	g.drawRoundedRectangle(getLocalBounds().toFloat().reduced(1.0f), 2.0f, 1.0f);
+	g.drawRoundedRectangle(getLocalBounds().toFloat().reduced(1.0f), 4.0f, 1.0f);
 
 	auto transform = AffineTransform::scale(1.5f / scale).translated(displayBounds.getX() - 10, displayBounds.getY() - 10);
 
@@ -490,11 +536,15 @@ void mcl::CodeMap::HoverPreview::paint(Graphics& g)
 
 	g.setColour(Colours::black);
 
-	for (int i = 0; i < colourScheme.types.size(); i++)
+
+	if (auto colourScheme = parent.getColourScheme())
 	{
-		g.setColour(colourScheme.types[i].colour);
-		auto glyphs = document.findGlyphsIntersecting(displayBounds, i);
-		glyphs.draw(g);
+		for (int i = 0; i < colourScheme->types.size(); i++)
+		{
+			g.setColour(colourScheme->types[i].colour);
+			auto glyphs = document.findGlyphsIntersecting(displayBounds, i);
+			glyphs.draw(g);
+		}
 	}
 
 	g.restoreState();
@@ -503,27 +553,117 @@ void mcl::CodeMap::HoverPreview::paint(Graphics& g)
 void mcl::CodeMap::HoverPreview::setCenterRow(int newCenterRow)
 {
 	centerRow = newCenterRow;
-	auto numRowsToShow = getHeight() / document.getFontHeight();
+	auto numRowsToShow = getHeight() / parent.doc.getFontHeight();
 
-	rows = Range<int>(centerRow - numRowsToShow, centerRow + numRowsToShow / 2);
+	rows = Range<int>(centerRow - numRowsToShow / 2, centerRow + numRowsToShow / 2);
 
-	rows.setStart(jmax(0, rows.getStart()));
+	if (rows.getStart() < 0)
+		rows = rows.movedToStartAt(0);
 
 	repaint();
 }
 
+LanguageManager* FoldMap::getLanguageManager()
+{
+    return findParentComponentOfClass<FullEditor>()->editor.getLanguageManager();
+}
+
 void FoldMap::Item::mouseDoubleClick(const MouseEvent& e)
 {
-	clicked = true;
-	auto line = p->getLineRange().getStart()+1;
+	setSelected(true, true);
+}
 
-	auto& doc = findParentComponentOfClass<FoldMap>()->doc;
-	
-	doc.setDisplayedLineRange(p->getLineRange());
-	doc.jumpToLine(line);
 
+void FoldMap::Item::setSelected(bool shouldBeSelected, bool grabFocus)
+{
+	clicked = shouldBeSelected;
+
+    
+    
+	if (clicked)
+	{
+		auto line = p->getLineRange().getStart() + 1;
+		auto& doc = findParentComponentOfClass<FoldMap>()->doc;
+		doc.setDisplayedLineRange(p->getLineRange());
+		doc.jumpToLine(line);
+
+		if (grabFocus)
+			findParentComponentOfClass<FullEditor>()->editor.grabKeyboardFocusAndActivateTokenBuilding();
+	}
 
 	repaint();
+}
+
+juce::CodeEditorComponent::ColourScheme* CodeMap::getColourScheme()
+{
+	if (auto fe = findParentComponentOfClass<FullEditor>())
+		return &fe->editor.colourScheme;
+
+	return nullptr;
+}
+
+juce::CodeTokeniser* CodeMap::getTokeniser()
+{
+	if (auto fe = findParentComponentOfClass<FullEditor>())
+		return fe->editor.tokeniser;
+
+	return nullptr;
+}
+
+void addItem(Array<FoldMap::Item*>& list, FoldMap::Item* item)
+{
+	if (item == nullptr)
+		return;
+
+	list.add(item);
+
+	for (auto c : item->children)
+	{
+		addItem(list, c);
+	}
+}
+
+bool FoldMap::keyPressed(const KeyPress& k)
+{
+	if (k == KeyPress::upKey || k == KeyPress::downKey)
+	{
+		Array<Item*> allItems;
+		
+		for (auto i : items)
+			addItem(allItems, i);
+
+		bool up = k == KeyPress::upKey;
+
+        if(!up && allItems.getLast()->isBoldLine)
+            return false;
+        
+		for (int i = allItems.size() - 1; i >= 0; --i)
+		{
+			auto thisItem = allItems[i];
+			auto nextItem = allItems[i + 1];
+			auto prevItem = allItems[i - 1];
+
+			jassert(thisItem != nullptr);
+
+			if (up && nextItem != nullptr && nextItem->isBoldLine)
+			{
+				nextItem->setSelected(false, false);
+				thisItem->setSelected(true, false);
+				return true;
+			}
+
+			if (!up && nextItem != nullptr && thisItem->isBoldLine)
+			{
+				thisItem->setSelected(false, false);
+				nextItem->setSelected(true, false);
+				return true;
+			}
+		}
+
+		repaint();
+	}
+
+	return false;
 }
 
 }

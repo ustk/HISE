@@ -39,18 +39,6 @@ namespace snex {
 namespace jit {
 using namespace juce;
 
-void SnexPlayground::setFullTokenProviders()
-{
-	auto& ed = editor.editor;
-	ed.tokenCollection.clearTokenProviders();
-	ed.tokenCollection.addTokenProvider(new debug::KeywordProvider());
-	ed.tokenCollection.addTokenProvider(new debug::SymbolProvider(doc));
-	ed.tokenCollection.addTokenProvider(new debug::TemplateProvider());
-	ed.tokenCollection.addTokenProvider(new debug::MathFunctionProvider());
-	ed.tokenCollection.addTokenProvider(new debug::PreprocessorMacroProvider(doc));
-	ed.tokenCollection.signalRebuild();
-}
-
 SnexPlayground::SnexPlayground(ui::WorkbenchData* data, bool isTestMode) :
 	ui::WorkbenchComponent(data, true),
 	bpProvider(getGlobalScope()),
@@ -62,10 +50,12 @@ SnexPlayground::SnexPlayground(ui::WorkbenchData* data, bool isTestMode) :
 	showInfo("optimise", this, factory),
 	showAssembly("asm", this, factory),
 	showConsole("console", this, factory),
+	showWatch("watch", this, factory),
 	bugButton("debug", this, factory),
 	spacerAssembly("Assembly"),
 	spacerConsole("Console"),
 	spacerInfo("Info"),
+	spacerWatch("Data Table"),
 	compileButton("Compile"),
 	resumeButton("Resume"),
 	conditionUpdater(*this),
@@ -74,6 +64,8 @@ SnexPlayground::SnexPlayground(ui::WorkbenchData* data, bool isTestMode) :
 	doc.replaceAllContent(getWorkbench()->getCode());
 	doc.clearUndoHistory();
 	
+	watchTable.setHolder(this);
+
 	editor.addBreakpointListener(this);
 
 	stateViewer = new ui::OptimizationProperties(getWorkbench());
@@ -82,11 +74,11 @@ SnexPlayground::SnexPlayground(ui::WorkbenchData* data, bool isTestMode) :
 
 	ed.setPopupLookAndFeel(new hise::PopupLookAndFeel());
 
-	ed.setLineRangeFunction(debug::Helpers::createLineRanges);
+	ed.setLanguageManager(new debug::SnexLanguageManager(doc, getGlobalScope()));
 
 	setName("SNEX Editor");
 
-	
+	ed.addPopupMenuFunction([this](mcl::TextEditor& te, PopupMenu& m, const MouseEvent& e) { addPopupMenuItems(te, m, e); }, BIND_MEMBER_FUNCTION_2(SnexPlayground::performPopupMenu));
 
 	auto& d = doc;
 	ed.setGotoFunction([&d](int lineNumber, const String& token)
@@ -178,6 +170,9 @@ SnexPlayground::SnexPlayground(ui::WorkbenchData* data, bool isTestMode) :
 		addAndMakeVisible(showAssembly);
 		addAndMakeVisible(showConsole);
 		addAndMakeVisible(bugButton);
+		addAndMakeVisible(watchTable);
+		addAndMakeVisible(showWatch);
+		addAndMakeVisible(spacerWatch);
 
 		addAndMakeVisible(spacerAssembly);
 		addAndMakeVisible(spacerConsole);
@@ -192,16 +187,25 @@ SnexPlayground::SnexPlayground(ui::WorkbenchData* data, bool isTestMode) :
 	stateViewer->setVisible(false);
 	assembly.setVisible(false);
 	console.setVisible(false);
+	watchTable.setVisible(false);
 
 	showInfo.setClickingTogglesState(true);
 	showAssembly.setClickingTogglesState(true);
 	showConsole.setClickingTogglesState(true);
+	showWatch.setClickingTogglesState(true);
 
 	showInfo.setLookAndFeel(&blaf);
 	showAssembly.setLookAndFeel(&blaf);
 	showConsole.setLookAndFeel(&blaf);
+	showWatch.setLookAndFeel(&blaf);
 	compileButton.setLookAndFeel(&blaf);
 	resumeButton.setLookAndFeel(&blaf);
+
+	showWatch.onClick = [this]()
+	{
+		watchTable.setVisible(showWatch.getToggleState());
+		resized();
+	};
 
 	showInfo.onClick = [this]()
 	{
@@ -240,6 +244,7 @@ SnexPlayground::SnexPlayground(ui::WorkbenchData* data, bool isTestMode) :
 	showAssembly.setToggleModeWithColourChange(true);
 	showConsole.setToggleModeWithColourChange(true);
 	showInfo.setToggleModeWithColourChange(true);
+	showWatch.setToggleModeWithColourChange(true);
 
 	debugModeChanged(getWorkbench()->getGlobalScope().isDebugModeEnabled());
 
@@ -296,24 +301,28 @@ void SnexPlayground::resized()
 	bool infoVisible = stateViewer->isVisible();
 	bool consoleVisible = console.isVisible();
 	bool assemblyVisible = assembly.isVisible();
+	bool watchVisible = watchTable.isVisible();
 
+	spacerWatch.setVisible(watchVisible);
 	spacerInfo.setVisible(infoVisible);
 	spacerAssembly.setVisible(assemblyVisible);
 	spacerConsole.setVisible(consoleVisible);
 
-	auto topRight = top.removeFromRight(top.getHeight() * 4);
+	auto topRight = top.removeFromRight(top.getHeight() * 5);
 	
 	
 	auto buttonWidth = topRight.getHeight();
 
 	showInfo.setBounds(topRight.removeFromLeft(buttonWidth).reduced(2));
+	showWatch.setBounds(topRight.removeFromLeft(buttonWidth).reduced(2));
 	showAssembly.setBounds(topRight.removeFromLeft(buttonWidth).reduced(2));
 	showConsole.setBounds(topRight.removeFromLeft(buttonWidth).reduced(2));
+	
 	bugButton.setBounds(topRight.removeFromLeft(buttonWidth).reduced(2));
 	
 	top.removeFromLeft(100);
 
-	if (infoVisible || consoleVisible || assemblyVisible)
+	if (infoVisible || consoleVisible || assemblyVisible || watchVisible)
 	{
 		auto left = area.removeFromRight(480);
 
@@ -321,6 +330,12 @@ void SnexPlayground::resized()
 		{
 			spacerInfo.setBounds(left.removeFromTop(20));
 			stateViewer->setBounds(left.removeFromTop(stateViewer->getHeight()));
+		}
+
+		if (watchVisible)
+		{
+			spacerWatch.setBounds(left.removeFromTop(20));
+			watchTable.setBounds(left.removeFromTop(500));
 		}
 
 		if (assemblyVisible)
@@ -715,11 +730,6 @@ void SnexPlayground::buttonClicked(Button* b)
 
 String SnexPlayground::TestCodeProvider::getTestTemplate()
 {
-	auto emitCommentLine = [](juce::String& code, const juce::String& comment)
-	{
-		code << "/** " << comment << " */\n";
-	};
-
 	juce::String s;
 	juce::String nl = "\n";
 	String emptyBracket;
@@ -827,6 +837,8 @@ void SnexPlayground::postPostCompile(ui::WorkbenchData::Ptr wb)
 	{
 		resultLabel.setText(result.getErrorMessage(), dontSendNotification);
 	}
+
+	rebuild();
 }
 
 int AssemblyTokeniser::readNextToken(CodeDocument::Iterator& source)
@@ -999,6 +1011,7 @@ CodeEditorComponent::ColourScheme AssemblyTokeniser::getDefaultColourScheme()
 		LOAD_PATH_IF_URL("asm", SnexIcons::asmIcon);
 		LOAD_PATH_IF_URL("optimise", SnexIcons::optimizeIcon);
 		LOAD_PATH_IF_URL("console", SnexIcons::debugPanel);
+		LOAD_PATH_IF_URL("watch", BackendBinaryData::ToolbarIcons::viewPanel);
 
         return p;
     }

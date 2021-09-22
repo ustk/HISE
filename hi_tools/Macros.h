@@ -142,9 +142,7 @@ static Typeface::Ptr sourceCodeProBoldTypeFace = Typeface::createSystemTypefaceF
 #endif
 #endif
 
-#else
-
-
+#elif JUCE_LINUX && !HISE_NO_GUI_TOOLS
 
 class LinuxFontHandler
 {
@@ -184,9 +182,16 @@ class LinuxFontHandler
     };
 };
 
+
 #define GLOBAL_FONT() (LinuxFontHandler::Instance().getGlobalFont())
 #define GLOBAL_BOLD_FONT() (LinuxFontHandler::Instance().getGlobalBoldFont())
 #define GLOBAL_MONOSPACE_FONT() (LinuxFontHandler::Instance().getGlobalMonospaceFont())
+
+#else
+
+#define GLOBAL_FONT() (Font())
+#define GLOBAL_BOLD_FONT() (Font())
+#define GLOBAL_MONOSPACE_FONT() (Font())
 
 #endif
 
@@ -256,13 +261,13 @@ struct FontHelpers
 
 
 #if ENABLE_MARKDOWN
-#define MARKDOWN_CHAPTER(chapter) namespace chapter {
+#define MARKDOWN_CHAPTER(chapter) struct chapter {
 #define START_MARKDOWN(name) static const String name() { String content; static const String nl = "\n";
 #define ML(text) content << text << nl;
 #define ML_START_CODE() ML("```javascript")
 #define ML_END_CODE() ML("```")
 #define END_MARKDOWN() return content; };
-#define END_MARKDOWN_CHAPTER() }
+#define END_MARKDOWN_CHAPTER() };
 #else
 #define MARKDOWN_CHAPTER(chapter)
 #define START_MARKDOWN(name) 
@@ -456,5 +461,6 @@ private:
 #define BIND_MEMBER_FUNCTION_0(x) std::bind(&x, this)
 #define BIND_MEMBER_FUNCTION_1(x) std::bind(&x, this, std::placeholders::_1)
 #define BIND_MEMBER_FUNCTION_2(x) std::bind(&x, this, std::placeholders::_1, std::placeholders::_2)
+#define BIND_MEMBER_FUNCTION_3(x) std::bind(&x, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3)
 
 } // namespace hise

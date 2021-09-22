@@ -748,6 +748,8 @@ void PresetBrowser::expansionPackLoaded(Expansion* currentExpansion)
 {
 	if(expansionColumn != nullptr && currentExpansion != nullptr)
 		selectionChanged(-1, -1, currentExpansion->getRootFolder(), false);
+	else
+		selectionChanged(-1, -1, File(), false);
 }
 
 void PresetBrowser::expansionPackCreated(Expansion* newExpansion)
@@ -1388,9 +1390,7 @@ void PresetBrowser::renameEntry(int columnIndex, int rowIndex, const String& new
 				modalInputWindow->confirmReplacement(presetFile, newFile);
 			else
 			{
-				auto ok = presetFile.moveFileTo(newFile);
-
-				
+				presetFile.moveFileTo(newFile);
 				presetColumn->setNewRootDirectory(current);
 				rebuildAllPresets();
 				showLoadedPreset();

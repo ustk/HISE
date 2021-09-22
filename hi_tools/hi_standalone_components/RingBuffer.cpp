@@ -477,8 +477,6 @@ void AhdsrGraph::paint(Graphics &g)
 		laf->drawAhdsrPathSection(g, *this, *pToUse, true);
 
 		auto bounds = pToUse->getBounds();
-		auto duration = 10.0;// (float)(processor->getMainController()->getUptime() - lastState.changeTime) * 1000.0f;
-
 		auto normalizedDuration = 0.0f;
 
 		normalizedDuration = fmod(ballPos, 1.0);
@@ -648,7 +646,7 @@ void AhdsrGraph::rebuildGraph()
 
 
 
-void AhdsrGraph::DefaultLookAndFeel::drawAhdsrPathSection(Graphics& g, AhdsrGraph& graph, const Path& s, bool isActive)
+void AhdsrGraph::LookAndFeelMethods::drawAhdsrPathSection(Graphics& g, AhdsrGraph& graph, const Path& s, bool isActive)
 {
 	if (isActive)
 	{
@@ -679,7 +677,7 @@ void AhdsrGraph::DefaultLookAndFeel::drawAhdsrPathSection(Graphics& g, AhdsrGrap
 	}
 }
 
-void AhdsrGraph::DefaultLookAndFeel::drawAhdsrBallPosition(Graphics& g, AhdsrGraph& graph, Point<float> p)
+void AhdsrGraph::LookAndFeelMethods::drawAhdsrBallPosition(Graphics& g, AhdsrGraph& graph, Point<float> p)
 {
 	auto circle = Rectangle<float>(p, p).withSizeKeepingCentre(6.0f, 6.0f);
 	g.setColour(graph.findColour(lineColour).withAlpha(1.0f));
@@ -1000,8 +998,7 @@ void OscilloscopeBase::drawOscilloscope(Graphics &g, const AudioSampleBuffer &b)
 {
 	auto dataL = b.getReadPointer(0);
 	auto dataR = b.getReadPointer(1);
-	int size = b.getNumSamples();
-
+	
 	auto asComponent = dynamic_cast<Component*>(this);
 
 	drawPath(dataL, b.getNumSamples(), asComponent->getWidth(), lPath);

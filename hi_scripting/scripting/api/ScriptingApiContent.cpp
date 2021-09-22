@@ -123,6 +123,8 @@ struct ScriptingApi::Content::ScriptComponent::Wrapper
     API_METHOD_WRAPPER_0(ScriptComponent, getGlobalPositionY);
 	API_VOID_METHOD_WRAPPER_1(ScriptComponent, setControlCallback);
 	API_METHOD_WRAPPER_0(ScriptComponent, getAllProperties);
+	API_VOID_METHOD_WRAPPER_1(ScriptComponent, setKeyPressCallback);
+	API_VOID_METHOD_WRAPPER_0(ScriptComponent, loseFocus);
 	API_VOID_METHOD_WRAPPER_1(ScriptComponent, setZLevel);
 };
 
@@ -133,6 +135,7 @@ ScriptingApi::Content::ScriptComponent::ScriptComponent(ProcessorWithScriptingCo
 	ConstScriptingObject(base, numConstants),
 	UpdateDispatcher::Listener(base->getScriptingContent()->getUpdateDispatcher()),
 	name(name_),
+	keyboardCallback(base, {}, 1),
 	parent(base->getScriptingContent()),
 	controlSender(this, base),
 	propertyTree(name_.isValid() ? parent->getValueTreeForComponent(name) : ValueTree("Component")),
@@ -222,6 +225,8 @@ ScriptingApi::Content::ScriptComponent::ScriptComponent(ProcessorWithScriptingCo
 	ADD_API_METHOD_1(setControlCallback);
 	ADD_API_METHOD_0(getAllProperties);
 	ADD_API_METHOD_1(setZLevel);
+	ADD_API_METHOD_1(setKeyPressCallback);
+	ADD_API_METHOD_0(loseFocus);
 
 	//setName(name_.toString());
 
@@ -1102,6 +1107,72 @@ var ScriptingApi::Content::ScriptComponent::getLocalBounds(float reduceAmount)
 	Array<var> b;
 	b.add(ar.getX()); b.add(ar.getY()); b.add(ar.getWidth()); b.add(ar.getHeight());
 	return var(b);
+}
+
+void ScriptingApi::Content::ScriptComponent::setKeyPressCallback(var keyboardFunction)
+{
+	keyboardCallback = WeakCallbackHolder(getScriptProcessor(), keyboardFunction, 1);
+	keyboardCallback.incRefCount();
+	keyboardCallback.setThisObject(this);
+}
+
+bool ScriptingApi::Content::ScriptComponent::handleKeyPress(const KeyPress& k)
+{
+	if (keyboardCallback)
+	{
+		DynamicObject::Ptr obj = new DynamicObject();
+		obj->setProperty("isFocusChange", false);
+
+		auto c = k.getTextCharacter();
+
+		auto printable = CharacterFunctions::isPrintable(c);
+		
+		obj->setProperty("character", printable ? String::charToString(c) : "");
+		obj->setProperty("specialKey", !printable);
+		obj->setProperty("keyCode", k.getKeyCode());
+		obj->setProperty("description", k.getTextDescription());
+		obj->setProperty("shift", k.getModifiers().isShiftDown());
+		obj->setProperty("cmd", k.getModifiers().isCommandDown() || k.getModifiers().isCtrlDown());
+		obj->setProperty("alt", k.getModifiers().isAltDown());
+
+		var args(obj);
+		var rv;
+
+		auto ok = keyboardCallback.callSync(&args, 1, &rv);
+
+		if (ok.wasOk())
+			return (bool)rv;
+		else
+			reportScriptError(ok.getErrorMessage());
+	}
+
+	return false;
+}
+
+void ScriptingApi::Content::ScriptComponent::handleFocusChange(bool isFocused)
+{
+	if (keyboardCallback)
+	{
+		DynamicObject::Ptr obj = new DynamicObject();
+		obj->setProperty("isFocusChange", true);
+		obj->setProperty("hasFocus", isFocused);
+		
+		var args(obj);
+		
+		auto ok = keyboardCallback.callSync(&args, 1);
+
+		if (!ok.wasOk())
+			reportScriptError(ok.getErrorMessage());
+	}
+}
+
+void ScriptingApi::Content::ScriptComponent::loseFocus()
+{
+	for (auto l : zLevelListeners)
+	{
+		if (l != nullptr)
+			l->wantsToLoseFocus();
+	}
 }
 
 struct ScriptingApi::Content::ScriptSlider::Wrapper
@@ -2009,8 +2080,6 @@ snex::ExternalDataHolder* ScriptingApi::Content::ComplexDataScriptComponent::get
 juce::ValueTree ScriptingApi::Content::ComplexDataScriptComponent::exportAsValueTree() const
 {
 	ValueTree v = ScriptComponent::exportAsValueTree();
-
-	jassert(cachedObjectReference != nullptr);
 
 	if (cachedObjectReference != nullptr)
 		v.setProperty("data", cachedObjectReference->toBase64String(), nullptr);
@@ -3435,6 +3504,80 @@ void ScriptingApi::Content::ScriptPanel::removeAnimationListener(AnimationListen
 }
 
 
+hise::DebugInformationBase::Ptr ScriptingApi::Content::ScriptPanel::createChildElement(DebugWatchIndex i) const
+{
+	var v;
+	String id = "%PARENT%.";
+
+	switch (i)
+	{
+	case DebugWatchIndex::Data:					
+		v = getConstantValue(0); 
+
+		if (auto obj = v.getDynamicObject())
+			if (obj->getProperties().isEmpty())
+				return nullptr;
+		
+		id << "data";  break;
+	case DebugWatchIndex::PaintRoutine:			
+		v = paintRoutine; 
+		
+		if (v.isUndefined() || v.isVoid())
+			return nullptr;
+		
+		id << "paintRoutine";  break;
+	case DebugWatchIndex::TimerCallback:		return timerRoutine.createDebugObject("timerCallback");
+	case DebugWatchIndex::MouseCallback:		return mouseRoutine.createDebugObject("mouseCallback");
+	case DebugWatchIndex::PreloadCallback:		return this->loadRoutine.createDebugObject("loadingCallback");
+	case DebugWatchIndex::ChildPanels:
+	{
+		if (childPanels.isEmpty())
+			return nullptr;
+
+		Array<var> s;
+		for (auto p : childPanels)
+			s.add(var(p));
+
+		v = s;
+		id << "childPanels";
+		break;
+	}
+	case DebugWatchIndex::FileCallback:		   return fileDropRoutine.createDebugObject("fileCallback");
+	case DebugWatchIndex::NumDebugWatchIndexes:
+	default:
+		break;
+	}
+
+	auto vf = [v]() {return v; };
+	return new LambdaValueInformation(vf, Identifier(id), {}, DebugInformation::Type::Constant, getLocation());
+}
+
+
+void ScriptingApi::Content::ScriptPanel::buildDebugListIfEmpty() const
+{
+	if (cachedList.isEmpty())
+	{
+		for (int i = 0; i < (int)DebugWatchIndex::NumDebugWatchIndexes; i++)
+		{
+			auto ptr = createChildElement((DebugWatchIndex)i);
+
+			if (ptr != nullptr)
+				cachedList.add(ptr);
+		}
+	}
+}
+
+hise::DebugInformationBase* ScriptingApi::Content::ScriptPanel::getChildElement(int index)
+{
+	return cachedList[index];
+}
+
+int ScriptingApi::Content::ScriptPanel::getNumChildElements() const
+{
+	buildDebugListIfEmpty();
+	return cachedList.size();
+}
+
 
 
 #endif
@@ -3790,8 +3933,6 @@ colour(Colour(0xff777777))
 		contentPropertyData = ValueTree("ContentProperties");
 	}
 
-	
-
 	setMethod("addButton", Wrapper::addButton);
 	setMethod("addKnob", Wrapper::addKnob);
 	setMethod("addLabel", Wrapper::addLabel);
@@ -3807,6 +3948,8 @@ colour(Colour(0xff777777))
 	setMethod("setToolbarProperties", Wrapper::setToolbarProperties);
 	setMethod("setHeight", Wrapper::setHeight);
 	setMethod("setWidth", Wrapper::setWidth);
+	setMethod("createScreenshot", Wrapper::createScreenshot);
+	setMethod("addVisualGuide", Wrapper::addVisualGuide);
     setMethod("makeFrontInterface", Wrapper::makeFrontInterface);
 	setMethod("makeFullScreenInterface", Wrapper::makeFullScreenInterface);
 	setMethod("setName", Wrapper::setName);
@@ -3821,6 +3964,7 @@ colour(Colour(0xff777777))
 	setMethod("clear", Wrapper::clear);
 	setMethod("createPath", Wrapper::createPath);
 	setMethod("createShader", Wrapper::createShader);
+	setMethod("getCurrentTooltip", Wrapper::getCurrentTooltip);
 }
 
 ScriptingApi::Content::~Content()
@@ -4008,6 +4152,7 @@ void ScriptingApi::Content::beginInitialization()
 	allowGuiCreation = true;
 
 	updateWatcher = nullptr;
+	guides.clear();
 }
 
 
@@ -4043,13 +4188,14 @@ void ScriptingApi::Content::setWidth(int newWidth) noexcept
 	}
 
 	width = newWidth;
+	
 };
 
 void ScriptingApi::Content::makeFrontInterface(int newWidth, int newHeight)
 {
     width = newWidth;
     height = newHeight;
-    
+
     dynamic_cast<JavascriptMidiProcessor*>(getProcessor())->addToFront(true);
     
 }
@@ -4599,6 +4745,95 @@ var ScriptingApi::Content::createShader(const String& fileName)
 	return var(f);
 }
 
+
+void ScriptingApi::Content::createScreenshot(var area, var directory, String name)
+{
+	if (screenshotListener != nullptr)
+	{
+		if (auto sf = dynamic_cast<ScriptingObjects::ScriptFile*>(directory.getObject()))
+		{
+			auto dir = sf->f;
+
+			if (!dir.existsAsFile() && !dir.isDirectory())
+				dir.createDirectory();
+
+			if (sf->f.isDirectory())
+			{
+				auto target = sf->f.getChildFile(name).withFileExtension("png");
+				Rectangle<float> a;
+
+				if (auto comp = dynamic_cast<ScriptComponent*>(area.getObject()))
+				{
+					a.setX((int)comp->getGlobalPositionX());
+					a.setY((int)comp->getGlobalPositionY());
+					a.setWidth((int)comp->getWidth());
+					a.setHeight((int)comp->getHeight());
+				}
+				else
+				{
+					auto r = Result::ok();
+					a = ApiHelpers::getRectangleFromVar(area, &r);
+
+					if (!r.wasOk())
+						reportScriptError(r.getErrorMessage());
+				}
+
+				screenshotListener->makeScreenshot(target, a);
+			}
+		}
+	}
+}
+
+void ScriptingApi::Content::addVisualGuide(var guideData, var colour)
+{
+	if (auto ga = guideData.getArray())
+	{
+		VisualGuide g;
+		g.c = Helpers::getCleanedObjectColour(colour);
+
+		if (ga->size() == 4)
+		{
+			g.t = VisualGuide::Type::Rectangle;
+			g.area = ApiHelpers::getRectangleFromVar(guideData);
+		}
+		else if (ga->size() == 2)
+		{
+			auto x = (float)ga->getUnchecked(0);
+			auto y = (float)ga->getUnchecked(1);
+
+			if (x == 0)
+			{
+				g.t = VisualGuide::Type::HorizontalLine;
+				g.area = { 0.0f, y, (float)width, 1.0f };
+			}
+			else if (y == 0)
+			{
+				g.t = VisualGuide::Type::VerticalLine;
+				g.area = { x, 0.0, 1.0f, (float)height };
+			}
+		}
+
+		guides.add(std::move(g));
+	}
+	else
+		guides.clear();
+
+	if (screenshotListener != nullptr)
+		screenshotListener->visualGuidesChanged();
+}
+
+String ScriptingApi::Content::getCurrentTooltip()
+{
+	auto& desktop = Desktop::getInstance();
+	auto mouseSource = desktop.getMainMouseSource();
+	auto* newComp = mouseSource.isTouch() ? nullptr : mouseSource.getComponentUnderMouse();
+
+	if (auto ttc = dynamic_cast<TooltipClient*> (newComp))
+		return ttc->getTooltip();
+
+	return {};
+}
+
 #undef ADD_TO_TYPE_SELECTOR
 #undef ADD_AS_SLIDER_TYPE
 #undef SEND_MESSAGE
@@ -4898,7 +5133,7 @@ void ScriptingApi::Content::Helpers::gotoLocation(ScriptComponent* sc)
 		{
 			auto location = info->getObject()->getLocation();
 
-			DebugableObject::Helpers::gotoLocation(p, info);
+			DebugableObject::Helpers::gotoLocation(p, info.get());
 
 			return;
 		}

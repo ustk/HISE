@@ -94,9 +94,11 @@ DspNetwork::DspNetwork(hise::ProcessorWithScriptingContent* p, ValueTree data_, 
 #if USE_BACKEND
 	if (auto ah = dynamic_cast<Holder*>(p))
 	{
+		ownedFactories.add(new dll::BackendHostFactory(this, ah->projectDll));
+
 		if (ah->projectDll != nullptr)
 		{
-			ownedFactories.add(new dll::BackendHostFactory(this, ah->projectDll));
+			
 			projectNodeHolder.init(ah->projectDll);
 		}
 	}
@@ -191,25 +193,6 @@ void DspNetwork::createAllNodesOnce()
 	}
 
 	cppgen::CustomNodeProperties::setInitialised(true);
-}
-
-void DspNetwork::rightClickCallback(const MouseEvent& e, Component* c)
-{
-
-#if USE_BACKEND
-
-	auto* d = new DspNetworkGraph(this);
-
-	d->setSize(600, 600);
-
-	auto editor = GET_BACKEND_ROOT_WINDOW(c);
-
-	MouseEvent ee = e.getEventRelativeTo(editor);
-
-	editor->getRootFloatingTile()->showComponentInRootPopup(d, editor, ee.getMouseDownPosition());
-#else
-	ignoreUnused(e, c);
-#endif
 }
 
 NodeBase* DspNetwork::getNodeForValueTree(const ValueTree& v)
@@ -409,26 +392,28 @@ void DspNetwork::prepareToPlay(double sampleRate, double blockSize)
 
 			currentSpecs.sampleRate = sampleRate;
 			currentSpecs.blockSize = (int)blockSize;
-			currentSpecs.numChannels = getRootNode()->getCurrentChannelAmount();
-			currentSpecs.voiceIndex = getPolyHandler();
 
-			
-
-			getRootNode()->prepare(currentSpecs);
-			getRootNode()->reset();
-
-			if (firstTime)
+			if (auto rootNode = getRootNode())
 			{
-				for (int i = 0; i < getRootNode()->getNumParameters(); i++)
-				{
-					auto p = getRootNode()->getParameter(i);
-					auto value = (double)p->getTreeWithValue()[PropertyIds::Value];
-					p->setValueAndStoreAsync(value);
-				}
-			}
+				currentSpecs.numChannels = getRootNode()->getCurrentChannelAmount();
+				currentSpecs.voiceIndex = getPolyHandler();
 
-			if (projectNodeHolder.isActive())
-				projectNodeHolder.prepare(currentSpecs);
+				getRootNode()->prepare(currentSpecs);
+				getRootNode()->reset();
+
+				if (firstTime)
+				{
+					for (int i = 0; i < getRootNode()->getNumParameters(); i++)
+					{
+						auto p = getRootNode()->getParameter(i);
+						auto value = (double)p->data[PropertyIds::Value];
+						p->setValueAndStoreAsync(value);
+					}
+				}
+
+				if (projectNodeHolder.isActive())
+					projectNodeHolder.prepare(currentSpecs);
+			}
 		}
 		catch (String& errorMessage)
 		{
@@ -556,7 +541,7 @@ bool DspNetwork::setParameterDataFromJSON(var jsonData)
 				{
 					if (auto p = node->getParameter(pId))
 					{
-						p->getTreeWithValue().setProperty(PropertyIds::Value, value, getUndoManager());
+						p->data.setProperty(PropertyIds::Value, value, getUndoManager());
 						p->isProbed = true;
 						ok = true;
 					}
@@ -930,6 +915,18 @@ DspNetwork* DspNetwork::Holder::getOrCreate(const String& id)
 
 	v.addChild(s, -1, nullptr);
 
+#if USE_BACKEND
+	for (auto f : BackendDllManager::getNetworkFiles(asScriptProcessor->getMainController_()))
+	{
+		if (f.getFileNameWithoutExtension() == id)
+		{
+			auto xml = XmlDocument::parse(f);
+			v = ValueTree::fromXml(*xml);
+			break;
+		}
+	}
+#endif
+
 	auto newNetwork = new DspNetwork(asScriptProcessor, v, isPolyphonic());
 
 	if (vk != nullptr)
@@ -984,7 +981,30 @@ void DspNetwork::Holder::saveNetworks(ValueTree& d) const
 
 		for (auto n : networks)
 		{
-			v.addChild(n->getValueTree().createCopy(), -1, nullptr);
+			auto c = n->getValueTree().createCopy();
+
+#if USE_BACKEND
+
+			cppgen::ValueTreeIterator::forEach(c, 
+				snex::cppgen::ValueTreeIterator::IterationType::Forward, 
+				DspNetworkListeners::PatchAutosaver::stripValueTree);
+
+			auto f = BackendDllManager::getSubFolder(dynamic_cast<const ControlledObject*>(this)->getMainController(), BackendDllManager::FolderSubType::Networks);
+
+			auto nf = f.getChildFile(c[PropertyIds::ID].toString()).withFileExtension("xml");
+
+			if (nf.existsAsFile())
+			{
+				auto xml = c.createXml();
+				nf.replaceWithText(xml->createDocument(""));
+
+				debugToConsole(dynamic_cast<Processor*>(const_cast<Holder*>(this)), "Save network to " + nf.getFileName() + " from project folder");
+
+				c.removeAllChildren(nullptr);
+			}
+#endif
+
+			v.addChild(c, -1, nullptr);
 		}
 
 		d.addChild(v, -1, nullptr);
@@ -1001,6 +1021,21 @@ void DspNetwork::Holder::restoreNetworks(const ValueTree& d)
 
 		for (auto c : v)
 		{
+#if USE_BACKEND
+			auto f = BackendDllManager::getSubFolder(dynamic_cast<const ControlledObject*>(this)->getMainController(), BackendDllManager::FolderSubType::Networks);
+
+			auto nf = f.getChildFile(c[PropertyIds::ID].toString()).withFileExtension("xml");
+
+			if (nf.existsAsFile())
+			{
+				if (auto xml = XmlDocument::parse(nf))
+				{
+					debugToConsole(dynamic_cast<Processor*>(this), "Load network " + nf.getFileName() + " from project folder");
+					c = ValueTree::fromXml(*xml);
+				}
+			}
+#endif
+
 			auto newNetwork = new DspNetwork(dynamic_cast<ProcessorWithScriptingContent*>(this),
 				c.createCopy(), isPolyphonic());
 
@@ -1214,6 +1249,7 @@ bool DeprecationChecker::check(DeprecationId id)
 		return !v.hasProperty("OpType") || v["OpType"] == var("SetValue");
 	case DeprecationId::ConverterNotIdentity:
 		return !v.hasProperty("Converter") || v["Converter"] == var("Identity");
+    default: return false;
 	}
 
 	return false;

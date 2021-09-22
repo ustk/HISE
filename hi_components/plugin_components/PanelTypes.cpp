@@ -269,10 +269,11 @@ MidiSourcePanel::MidiSourcePanel(FloatingTile* parent) :
 {
 	setDefaultPanelColour(PanelColourId::bgColour, Colours::black);
 
+    StringArray midiInputs;
+    
 #if HISE_IOS || IS_STANDALONE_APP
-	StringArray midiInputs = MidiInput::getDevices();
-#else
-	StringArray midiInputs;
+    if(!parent->getMainController()->isFlakyThreadingAllowed())
+        midiInputs = MidiInput::getDevices();	
 #endif
 
 	numMidiDevices = midiInputs.size();

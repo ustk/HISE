@@ -120,6 +120,9 @@ namespace ScriptingObjects
 		/** Returns a JSON object with the current OpenGL statistics. */
 		var getOpenGLStatistics();
 
+		/** If this is enabled, the shader will create a buffered image of the last rendering result. */
+		void setEnableCachedBuffer(bool shouldEnableBuffer);
+
 		// ===========================================================================
 
 		void setEnableLineNumbers(bool shouldUseLineNumbers)
@@ -127,11 +130,11 @@ namespace ScriptingObjects
 			useLineNumbers = shouldUseLineNumbers;
 		}
 
-		void rightClickCallback(const MouseEvent& e, Component* componentToNotifiy) override;
+		Component* createPopupComponent(const MouseEvent& e, Component *c) override;
 
 		bool compiledOk() const { return r.wasOk(); }
 
-		String getErrorMessage() { return r.getErrorMessage(); }
+		String getErrorMessage(bool verbose) const;
 
 		void setCompileResult(Result compileResult)
 		{
@@ -165,17 +168,39 @@ namespace ScriptingObjects
 		ReferenceCountedArray<ExternalScriptFile> includedFiles;
 		
 		bool enableBlending = false;
+		bool enableCache = false;
+
 		BlendMode src = BlendMode::_GL_SRC_ALPHA;
 		BlendMode dst = BlendMode::_GL_ONE_MINUS_SRC_ALPHA;
 
+		static bool isRenderingScreenshot() { return renderingScreenShot; }
+
+		struct ScopedScreenshotRenderer
+		{
+			ScopedScreenshotRenderer()
+			{
+				renderingScreenShot = true;
+			}
+
+			~ScopedScreenshotRenderer()
+			{
+				renderingScreenShot = false;
+			}
+		};
+
 	private:
 
+		static bool renderingScreenShot;
+
 		String compiledCode;
+
+		String shaderName;
 
 		String getHeader();
 
 		void compileRawCode(const String& code);
 
+		
 		
 
 		struct Result processErrorMessage(const Result& r);
@@ -202,7 +227,7 @@ namespace ScriptingObjects
 		}
 		String getDebugName() const override { return "Path"; }
 
-		void rightClickCallback(const MouseEvent &e, Component* componentToNotify) override;
+		Component* createPopupComponent(const MouseEvent& e, Component *c) override;
 
 
 
@@ -358,6 +383,9 @@ namespace ScriptingObjects
 		/** Draws a drop shadow around a rectangle. */
 		void drawDropShadow(var area, var colour, int radius);
 
+		/** Draws a drop shadow from a path. */
+		void drawDropShadowFromPath(var path, var area, var colour, int radius, var offset);
+
 		/** Draws a triangle rotated by the angle in radians. */
 		void drawTriangle(var area, float angle, float lineThickness);
 
@@ -414,6 +442,8 @@ namespace ScriptingObjects
 			public NumberTag::LookAndFeelMethods,
 			public MessageWithIcon::LookAndFeelMethods,
 			public ControlledObject,
+			public RingBufferComponentBase::LookAndFeelMethods,
+			public AhdsrGraph::LookAndFeelMethods,
 			public MidiFileDragAndDropper::LookAndFeelMethods
 		{
 			Laf(MainController* mc) :
@@ -485,7 +515,8 @@ namespace ScriptingObjects
 
 			void drawScrollbar(Graphics& g, ScrollBar& scrollbar, int x, int y, int width, int height, bool isScrollbarVertical, int thumbStartPosition, int thumbSize, bool isMouseOver, bool isMouseDown) override;
 
-			
+			void drawAhdsrPathSection(Graphics& g, AhdsrGraph& graph, const Path& s, bool isActive) override;
+			void drawAhdsrBallPosition(Graphics& g, AhdsrGraph& graph, Point<float> p) override;
 
 			void drawMidiDropper(Graphics& g, Rectangle<float> area, const String& text, MidiFileDragAndDropper& d) override;
 
@@ -515,6 +546,46 @@ namespace ScriptingObjects
 		bool callWithGraphics(Graphics& g_, const Identifier& functionname, var argsObject);
 
 		var callDefinedFunction(const Identifier& name, var* args, int numArgs);
+
+		int getNumChildElements() const override
+		{
+			if (auto dyn = functions.getDynamicObject())
+				return dyn->getProperties().size();
+            
+            return 0;
+		}
+
+		DebugInformationBase* getChildElement(int index) override
+		{
+			WeakReference<ScriptedLookAndFeel> safeThis(this);
+
+			auto vf = [safeThis, index]()
+			{
+				if (safeThis != nullptr)
+				{
+					if (auto dyn = safeThis->functions.getDynamicObject())
+					{
+						if(isPositiveAndBelow(index, dyn->getProperties().size()))
+							return dyn->getProperties().getValueAt(index);
+					}
+				}
+
+				return var();
+			};
+
+			String id = "%PARENT%.";
+
+			auto mid = functions.getDynamicObject()->getProperties().getName(index);
+
+			id << mid;
+
+			Location l = getLocation();
+
+
+			return new LambdaValueInformation(vf, id, {}, (DebugInformation::Type)getTypeNumber(), l);
+		}
+
+		static Array<Identifier> getAllFunctionNames();
 
 		Font f = GLOBAL_BOLD_FONT();
 		ReferenceCountedObjectPtr<GraphicsObject> g;

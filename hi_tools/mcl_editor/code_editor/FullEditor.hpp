@@ -22,90 +22,95 @@
 
 #pragma once
 
-
+#define DECLARE_ID(x) static const juce::Identifier x(#x);
+namespace TextEditorSettings
+{
+	DECLARE_ID(MapWidth);
+	DECLARE_ID(LineBreaks);
+	DECLARE_ID(EnableHover);
+    DECLARE_ID(AutoAutocomplete);
+    DECLARE_ID(FixWeirdTab);
+}
+#undef DECLARE_ID
 
 
 namespace mcl
 {
 
-struct FullEditor: public Component
+struct FullEditor: public Component,
+				   public ButtonListener
 {
+	struct Factory : public PathFactory
+	{
+		Path createPath(const String& url) const override;
+	} factory;
+
 	TextEditor editor;
 
-	struct Navigator : public Component,
-					   public ButtonListener
+	FullEditor(TextDocument& d);
+
+	struct TemplateProvider : public TokenCollection::Provider
 	{
-		Navigator(TextDocument& d) :
-			codeMap(d, new CPlusPlusCodeTokeniser()),
-			foldMap(d),
-			mapButton("Map"),
-			foldButton("Tree"),
-			edge(this, nullptr, ResizableEdgeComponent::leftEdge)
+		void addTokens(TokenCollection::List& tokens) override
 		{
-			auto initButton = [this](TextButton& b)
+			for (int i = 0; i < templateExpressions.size(); i++)
 			{
-				addAndMakeVisible(b);
-				b.addListener(this);
-				b.setRadioGroupId(90);
-				b.setClickingTogglesState(true);
-			};
 
-			initButton(mapButton);
-			initButton(foldButton);
-			initButton(treeButton);
-
-			addAndMakeVisible(foldMap);
-			addAndMakeVisible(codeMap);
-
-			mapButton.setToggleState(true, sendNotification);
-
-			setSize(200, 10);
-		};
-
-		void buttonClicked(Button* b) override
-		{
-			codeMap.setVisible(b == &mapButton);
-			foldMap.setVisible(b == &foldButton);
-			resized();
-		}
-		
-		
-
-		void resized() override
-		{
-			auto b = getLocalBounds();
-			edge.setBounds(b.removeFromLeft(5));
-
-			auto top = b.removeFromTop(24);
-
-			auto bw = b.getWidth() / 2;
-
-			mapButton.setBounds(top.removeFromLeft(bw));
-			foldButton.setBounds(top.removeFromLeft(bw));
-
-			codeMap.setBounds(b);
-			foldMap.setBounds(b);
+			}
 		}
 
-		TextButton mapButton, foldButton, treeButton;
-		CodeMap codeMap;
-		FoldMap foldMap;
+		StringArray templateExpressions;
+		StringArray classIds;
+	};
 
-		ResizableEdgeComponent edge;
-
-	} navigator;
-
-	FullEditor(TextDocument& d):
-		editor(d),
-		navigator(d)
+	void addAutocompleteTemplate(const String& templateExpression, const String& classId)
 	{
-		addAndMakeVisible(editor);
-		addAndMakeVisible(navigator);
 
-		navigator.codeMap.colourScheme = editor.colourScheme;
-		navigator.codeMap.transformToUse = editor.transform;
 	}
 
+	void loadSettings(const File& sFile)
+	{
+		settingFile = sFile;
+
+		auto s = JSON::parse(settingFile);
+
+		editor.setLineBreakEnabled(s.getProperty(TextEditorSettings::LineBreaks, true));
+		mapWidth = s.getProperty(TextEditorSettings::MapWidth, 150);
+		resized();
+		codeMap.allowHover = s.getProperty(TextEditorSettings::EnableHover, true);
+        editor.showAutocompleteAfterDelay = s.getProperty(TextEditorSettings::AutoAutocomplete, true);
+	}
+
+	static void saveSetting(Component* c, const Identifier& id, const var& newValue)
+	{
+		auto pe = c->findParentComponentOfClass<FullEditor>();
+		
+		auto s = JSON::parse(pe->settingFile);
+
+		if (s.getDynamicObject() == nullptr)
+			s = var(new DynamicObject());
+
+		s.getDynamicObject()->setProperty(id, newValue);
+		pe->settingFile.replaceWithText(JSON::toString(s));
+
+		if (id == TextEditorSettings::MapWidth)
+		{
+			pe->mapWidth = (int)newValue;
+			pe->resized();
+		}
+		if (id == TextEditorSettings::EnableHover)
+		{
+			pe->codeMap.allowHover = (bool)newValue;
+		}
+		if (id == TextEditorSettings::AutoAutocomplete)
+		{
+			pe->editor.showAutocompleteAfterDelay = (bool)newValue;
+		}
+		if (id == TextEditorSettings::LineBreaks)
+		{
+			pe->editor.setLineBreakEnabled((bool)newValue);
+		}
+	}
 
 	void setReadOnly(bool shouldBeReadOnly)
 	{
@@ -115,6 +120,11 @@ struct FullEditor: public Component
 	bool injectBreakpointCode(String& s)
 	{
 		return editor.gutter.injectBreakPoints(s);
+	}
+
+	void setColourScheme(const juce::CodeEditorComponent::ColourScheme& s)
+	{
+		editor.colourScheme = s;
 	}
 
 	void setCurrentBreakline(int n)
@@ -142,16 +152,86 @@ struct FullEditor: public Component
 		editor.gutter.setBreakpointsEnabled(shouldBeEnabled);
 	}
 
-	void resized() override
-	{
-		auto b = getLocalBounds();
-		
-		navigator.setVisible(false);
-		//navigator.setBounds(b.removeFromRight(navigator.getWidth()));
-		editor.setBounds(b);
-	}
+	static mcl::FoldableLineRange::List createMarkdownLineRange(const CodeDocument& doc);
 
-	
+	bool keyPressed(const KeyPress& k) override;
+
+	void buttonClicked(Button* b) override;
+
+	void resized() override;
+
+	void paint(Graphics& g) override;
+
+	int mapWidth = 150;
+
+	bool overlayFoldMap = false;
+
+	HiseShapeButton mapButton, foldButton;
+	CodeMap codeMap;
+	FoldMap foldMap;
+
+	File settingFile;
+
+	using SettingFunction = std::function<void(bool, DynamicObject::Ptr)>;
+
+	SettingFunction settingFunction;
+
+	juce::ComponentBoundsConstrainer constrainer;
+
+	var settings;
+};
+
+struct MarkdownPreviewSyncer : public Timer,
+                               public CodeDocument::Listener,
+                               public juce::ScrollBar::Listener
+{
+    void setEnableScrollbarListening(bool shouldListenToScrollBars);
+
+    void synchroniseTabs(bool editorIsSource);
+    
+    void scrollBarMoved(ScrollBar* scrollBarThatHasMoved, double newRangeStart) override;
+
+    void codeDocumentTextInserted(const String& newText, int insertIndex) override
+    {
+        startTimer(500);
+    }
+
+    void codeDocumentTextDeleted(int startIndex, int endIndex) override
+    {
+        startTimer(500);
+    }
+    
+    MarkdownPreviewSyncer(mcl::FullEditor& editor, MarkdownPreview& preview) :
+        p(preview),
+        e(editor)
+    {
+        e.editor.getTextDocument().getCodeDocument().addListener(this);
+    };
+
+    ~MarkdownPreviewSyncer()
+    {
+        e.editor.getTextDocument().getCodeDocument().removeListener(this);
+    }
+    
+    void timerCallback() override
+    {
+        {
+            MarkdownRenderer::ScopedScrollDisabler sds(p.renderer);
+            ScopedValueSetter<bool> svs(recursiveScrollProtector, true);
+
+            if (p.isVisible())
+                p.setNewText(e.editor.getTextDocument().getCodeDocument().getAllContent(), {}, false);
+
+            stopTimer();
+        }
+        
+        synchroniseTabs(true);
+    }
+
+    bool recursiveScrollProtector = false;
+    
+    MarkdownPreview& p;
+    mcl::FullEditor& e;
 };
 
 }

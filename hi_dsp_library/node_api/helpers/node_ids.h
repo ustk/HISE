@@ -76,7 +76,6 @@ DECLARE_ID(SkewFactor);
 DECLARE_ID(ShowParameters);
 DECLARE_ID(Bypassed);
 DECLARE_ID(SoulPatch);
-DECLARE_ID(DynamicBypass);
 DECLARE_ID(Debug);
 DECLARE_ID(NumParameters);
 DECLARE_ID(Value);
@@ -177,7 +176,7 @@ struct Helpers
 		returnIfDefault(AllowCompilation, false);
 		returnIfDefault(AllowPolyphonic, false);
 
-		jassertfalse;
+        return {};
 	}
 
 #undef returnIfDefault
@@ -225,6 +224,7 @@ struct Error
 		RingBufferMultipleWriters,
 		DeprecatedNode,
 		IllegalPolyphony,
+		IllegalBypassConnection,
 		numErrorCodes
 	};
 

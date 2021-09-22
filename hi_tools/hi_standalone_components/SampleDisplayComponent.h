@@ -64,7 +64,9 @@ public:
 		virtual void drawTextOverlay(Graphics& g, HiseAudioThumbnail& th, const String& text, Rectangle<float> area);
 	};
 
-	
+	struct DefaultLookAndFeel : public LookAndFeel_V3,
+		public LookAndFeelMethods
+	{} defaultLaf;
 
 	static Image createPreview(const AudioSampleBuffer* buffer, int width)
 	{
@@ -899,7 +901,7 @@ struct MultiChannelAudioBuffer : public ComplexDataUIBase
 
 	private:
 
-		friend class MultiChannelAudioBuffer;
+		friend struct MultiChannelAudioBuffer;
 
 		void onComplexDataEvent(ComplexDataUIUpdaterBase::EventType d, var v) override
 		{
@@ -914,6 +916,8 @@ struct MultiChannelAudioBuffer : public ComplexDataUIBase
 			case ComplexDataUIUpdaterBase::EventType::DisplayIndex:
 				sampleIndexChanged((int)v);
 				break;
+            default:
+                break;
 			}
 		}
 	};
@@ -1125,7 +1129,7 @@ private:
 		return newDataBuffer;
 	}
 
-	friend class DataProvider;
+	friend struct DataProvider;
 
 	Range<int> bufferRange;
 	Range<int> loopRange;
@@ -1257,6 +1261,8 @@ public:
 	{
 
 	};
+
+
 
 	virtual void setSpecialLookAndFeel(LookAndFeel* l, bool shouldOwn=false)
 	{

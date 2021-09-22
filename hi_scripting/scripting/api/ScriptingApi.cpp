@@ -270,6 +270,7 @@ struct ScriptingApi::Message::Wrapper
 	API_VOID_METHOD_WRAPPER_1(Message, store);
 	API_METHOD_WRAPPER_0(Message, makeArtificial);
 	API_METHOD_WRAPPER_0(Message, isArtificial);
+	API_VOID_METHOD_WRAPPER_1(Message, setAllNotesOffCallback);
 
 };
 
@@ -278,7 +279,8 @@ ScriptingApi::Message::Message(ProcessorWithScriptingContent *p) :
 ScriptingObject(p),
 ApiClass(0),
 messageHolder(nullptr),
-constMessageHolder(nullptr)
+constMessageHolder(nullptr),
+allNotesOffCallback(p, var(), 0)
 {
 	memset(artificialNoteOnIds, 0, sizeof(uint16) * 128);
 
@@ -311,6 +313,7 @@ constMessageHolder(nullptr)
 	ADD_API_METHOD_1(store);
 	ADD_API_METHOD_0(makeArtificial);
 	ADD_API_METHOD_0(isArtificial);
+	ADD_API_METHOD_1(setAllNotesOffCallback);
 }
 
 
@@ -738,8 +741,7 @@ int ScriptingApi::Message::makeArtificial()
 		if (copy.isNoteOn())
 		{
 			getScriptProcessor()->getMainController_()->getEventHandler().pushArtificialNoteOn(copy);
-			artificialNoteOnIds[copy.getNoteNumber()] = copy.getEventId();
-
+			pushArtificialNoteOn(copy);
 		}
 		else if (copy.isNoteOff())
 		{
@@ -772,6 +774,12 @@ bool ScriptingApi::Message::isArtificial() const
 	return false;
 }
 
+void ScriptingApi::Message::setAllNotesOffCallback(var onAllNotesOffCallback)
+{
+	allNotesOffCallback = WeakCallbackHolder(getScriptProcessor(), onAllNotesOffCallback, 0);
+	allNotesOffCallback.incRefCount();
+}
+
 void ScriptingApi::Message::setHiseEvent(HiseEvent &m)
 {
 	messageHolder = &m;
@@ -792,6 +800,12 @@ hise::HiseEvent& ScriptingApi::Message::getCurrentEventReference()
 	jassertfalse;
 	static HiseEvent unused;
 	return unused;
+}
+
+void ScriptingApi::Message::onAllNotesOff()
+{
+	if (allNotesOffCallback)
+		allNotesOffCallback.callSync(nullptr, 0, nullptr);
 }
 
 // ====================================================================================================== Engine functions
@@ -826,13 +840,13 @@ struct ScriptingApi::Engine::Wrapper
 	API_METHOD_WRAPPER_1(Engine, getMidiNoteName);
 	API_METHOD_WRAPPER_1(Engine, getMidiNoteFromName);
 	API_METHOD_WRAPPER_1(Engine, getMacroName);
-	
-	API_VOID_METHOD_WRAPPER_1(Engine, setFrontendMacros)
+  API_VOID_METHOD_WRAPPER_1(Engine, setFrontendMacros)
 	API_VOID_METHOD_WRAPPER_2(Engine, setKeyColour);
 	API_VOID_METHOD_WRAPPER_2(Engine, showErrorMessage);
 	API_VOID_METHOD_WRAPPER_1(Engine, showMessage);
 	API_VOID_METHOD_WRAPPER_1(Engine, setLowestKeyToDisplay);
-    API_VOID_METHOD_WRAPPER_1(Engine, openWebsite);
+  API_VOID_METHOD_WRAPPER_1(Engine, openWebsite);
+	API_METHOD_WRAPPER_0(Engine, createUserPresetHandler);
 	API_VOID_METHOD_WRAPPER_1(Engine, loadNextUserPreset);
 	API_VOID_METHOD_WRAPPER_1(Engine, loadPreviousUserPreset);
 	API_VOID_METHOD_WRAPPER_1(Engine, loadUserPreset);
@@ -942,8 +956,9 @@ parentMidiProcessor(dynamic_cast<ScriptBaseMidiProcessor*>(p))
 	ADD_API_METHOD_2(showErrorMessage);
 	ADD_API_METHOD_1(showMessage);
 	ADD_API_METHOD_1(setLowestKeyToDisplay);
-    ADD_API_METHOD_1(openWebsite);
-	ADD_API_METHOD_1(loadNextUserPreset);
+  ADD_API_METHOD_1(openWebsite);
+	ADD_API_METHOD_0(createUserPresetHandler);
+  ADD_API_METHOD_1(loadNextUserPreset);
 	ADD_API_METHOD_1(loadPreviousUserPreset);
 	ADD_API_METHOD_1(isUserPresetReadOnly);
 	ADD_API_METHOD_0(getExpansionList);
@@ -1488,6 +1503,11 @@ var ScriptingApi::Engine::createDspNetwork(String id)
 var ScriptingApi::Engine::createExpansionHandler()
 {
 	return var(new ScriptExpansionHandler(dynamic_cast<JavascriptProcessor*>(getScriptProcessor())));
+}
+
+var ScriptingApi::Engine::createUserPresetHandler()
+{
+	return var(new ScriptUserPresetHandler(getScriptProcessor()));
 }
 
 var ScriptingApi::Engine::getDspNetworkReference(String processorId, String id)
@@ -2435,6 +2455,7 @@ void ScriptingApi::Engine::logSettingWarning(const String& methodName) const
 	auto p = dynamic_cast<const Processor*>(getScriptProcessor());
 
 	auto unconst = const_cast<Processor*>(p);
+    ignoreUnused(unconst);
 
 	String s;
 	s << "Engine." << methodName << "() is deprecated. Use Settings." << methodName << "() instead.";
@@ -2476,6 +2497,7 @@ struct ScriptingApi::Sampler::Wrapper
 	API_METHOD_WRAPPER_1(Sampler, loadSfzFile);
 	API_METHOD_WRAPPER_1(Sampler, createSelection);
 	API_METHOD_WRAPPER_1(Sampler, createSelectionFromIndexes);
+	API_METHOD_WRAPPER_1(Sampler, createSelectionWithFilter);
 	API_METHOD_WRAPPER_0(Sampler, createListFromGUISelection);
 	API_METHOD_WRAPPER_0(Sampler, createListFromScriptSelection);
 	API_METHOD_WRAPPER_1(Sampler, saveCurrentSampleMap);
@@ -2521,6 +2543,7 @@ sampler(sampler_)
 	ADD_API_METHOD_1(setSortByRRGroup);
 	ADD_API_METHOD_1(createSelection);
 	ADD_API_METHOD_1(createSelectionFromIndexes);
+	ADD_API_METHOD_1(createSelectionWithFilter);
 	ADD_API_METHOD_0(createListFromGUISelection);
 	ADD_API_METHOD_0(createListFromScriptSelection);
 	ADD_API_METHOD_1(saveCurrentSampleMap);
@@ -2612,8 +2635,6 @@ void ScriptingApi::Sampler::setMultiGroupIndex(var groupIndex, bool enabled)
 		reportScriptError("Round Robin is not disabled. Call 'Synth.enableRoundRobin(false)' before calling this method.");
 		return;
 	}
-
-	bool ok = true;
 
 	if (groupIndex.isArray())
 	{
@@ -2797,6 +2818,50 @@ var ScriptingApi::Sampler::createSelectionFromIndexes(var indexData)
 	}
 
 	return var(selection);
+}
+
+var ScriptingApi::Sampler::createSelectionWithFilter(var filterFunction)
+{
+	ModulatorSampler *s = static_cast<ModulatorSampler*>(sampler.get());
+
+	if (s == nullptr)
+	{
+		reportScriptError("createSelectionWithFilter() only works with Samplers.");
+		RETURN_IF_NO_THROW({});
+	}
+
+	ReferenceCountedArray<ModulatorSamplerSound> list;
+
+	{
+		ModulatorSampler::SoundIterator it(s, false);
+
+		while (auto so = it.getNextSound())
+			list.add(so.get());
+	}
+
+	Array<var> results;
+
+	if (auto jp = dynamic_cast<JavascriptProcessor*>(getScriptProcessor()))
+	{
+		auto engine = jp->getScriptEngine();
+
+		
+
+		for (auto so : list)
+		{
+			var x = var(new ScriptingObjects::ScriptingSamplerSound(getScriptProcessor(), s, so));
+			var::NativeFunctionArgs args(x, nullptr, 0);
+
+			auto ok = (int)engine->callExternalFunctionRaw(filterFunction, args);
+
+			if(ok != 0)
+				results.add(x);
+		}
+	}
+
+	
+
+	return var(results);
 }
 
 var ScriptingApi::Sampler::createListFromScriptSelection()
@@ -3541,6 +3606,7 @@ struct ScriptingApi::Synth::Wrapper
 	API_METHOD_WRAPPER_1(Synth, getAudioSampleProcessor);
 	API_METHOD_WRAPPER_1(Synth, getDisplayBufferSource);
 	API_METHOD_WRAPPER_1(Synth, getTableProcessor);
+	API_METHOD_WRAPPER_1(Synth, getSliderPackProcessor);
 	API_METHOD_WRAPPER_1(Synth, getRoutingMatrix);
 	API_METHOD_WRAPPER_1(Synth, getSampler);
 	API_METHOD_WRAPPER_1(Synth, getSlotFX);
@@ -3563,10 +3629,11 @@ struct ScriptingApi::Synth::Wrapper
 };
 
 
-ScriptingApi::Synth::Synth(ProcessorWithScriptingContent *p, ModulatorSynth *ownerSynth) :
+ScriptingApi::Synth::Synth(ProcessorWithScriptingContent *p, Message* messageObject_, ModulatorSynth *ownerSynth) :
 	ScriptingObject(p),
 	ApiClass(0),
 	moduleHandler(dynamic_cast<Processor*>(p), dynamic_cast<JavascriptProcessor*>(p)),
+	messageObject(messageObject_),
 	owner(ownerSynth),
 	numPressedKeys(0),
 	keyDown(0),
@@ -3613,6 +3680,7 @@ ScriptingApi::Synth::Synth(ProcessorWithScriptingContent *p, ModulatorSynth *own
 	ADD_API_METHOD_1(getAudioSampleProcessor);
 	ADD_API_METHOD_1(getDisplayBufferSource);
 	ADD_API_METHOD_1(getTableProcessor);
+	ADD_API_METHOD_1(getSliderPackProcessor);
 	ADD_API_METHOD_1(getSampler);
 	ADD_API_METHOD_1(getSlotFX);
 	ADD_API_METHOD_1(getEffect);
@@ -3849,6 +3917,9 @@ int ScriptingApi::Synth::addMessageFromHolder(var messageHolder)
 				if (e.isNoteOn())
 				{
 					parentMidiProcessor->getMainController()->getEventHandler().pushArtificialNoteOn(e);
+					if (messageObject != nullptr)
+						messageObject->pushArtificialNoteOn(e);
+
 					parentMidiProcessor->addHiseEventToBuffer(e);
 					return e.getEventId();
 				}
@@ -4251,13 +4322,12 @@ ScriptingObjects::ScriptingTableProcessor *ScriptingApi::Synth::getTableProcesso
 
 	if (getScriptProcessor()->objectsCanBeCreated())
 	{
-		Processor::Iterator<LookupTableProcessor> it(owner);
+		Processor::Iterator<ExternalDataHolder> it(owner);
 
-		while (LookupTableProcessor *lut = it.getNextProcessor())
+		while (auto lut = it.getNextProcessor())
 		{
 			if (dynamic_cast<Processor*>(lut)->getId() == name)
 			{
-
 				return new ScriptTableProcessor(getScriptProcessor(), lut);
 			}
 		}
@@ -4269,6 +4339,32 @@ ScriptingObjects::ScriptingTableProcessor *ScriptingApi::Synth::getTableProcesso
 	{
 		reportIllegalCall("getScriptingTableProcessor()", "onInit");
 		RETURN_IF_NO_THROW(new ScriptTableProcessor(getScriptProcessor(), nullptr));
+	}
+}
+
+hise::ScriptingApi::Synth::ScriptSliderPackProcessor* ScriptingApi::Synth::getSliderPackProcessor(const String& name)
+{
+	WARN_IF_AUDIO_THREAD(true, ScriptGuard::ObjectCreation);
+
+	if (getScriptProcessor()->objectsCanBeCreated())
+	{
+		Processor::Iterator<ExternalDataHolder> it(owner);
+
+		while (auto sp = it.getNextProcessor())
+		{
+			if (dynamic_cast<Processor*>(sp)->getId() == name)
+			{
+				return new ScriptSliderPackProcessor(getScriptProcessor(), sp);
+			}
+		}
+
+		reportScriptError(name + " was not found. ");
+		RETURN_IF_NO_THROW(new ScriptSliderPackProcessor(getScriptProcessor(), nullptr));
+	}
+	else
+	{
+		reportIllegalCall("getSliderPackProcessor()", "onInit");
+		RETURN_IF_NO_THROW(new ScriptSliderPackProcessor(getScriptProcessor(), nullptr));
 	}
 }
 
@@ -4476,6 +4572,10 @@ int ScriptingApi::Synth::internalAddNoteOn(int channel, int noteNumber, int velo
 						m.setArtificial();
 
 						parentMidiProcessor->getMainController()->getEventHandler().pushArtificialNoteOn(m);
+
+						if (messageObject != nullptr)
+							messageObject->pushArtificialNoteOn(m);
+
 						parentMidiProcessor->addHiseEventToBuffer(m);
 
 						return m.getEventId();
@@ -4752,8 +4852,9 @@ int ScriptingApi::Synth::getModulatorIndex(int chain, const String &id) const
 struct ScriptingApi::Console::Wrapper
 {
 	API_VOID_METHOD_WRAPPER_1(Console, print);
-	API_VOID_METHOD_WRAPPER_0(Console, start);
-	API_VOID_METHOD_WRAPPER_0(Console, stop);
+	API_VOID_METHOD_WRAPPER_0(Console, startBenchmark);
+	API_VOID_METHOD_WRAPPER_0(Console, stopBenchmark);
+	API_VOID_METHOD_WRAPPER_1(Console, stop);
 	API_VOID_METHOD_WRAPPER_0(Console, clear);
 	API_VOID_METHOD_WRAPPER_1(Console, assertTrue);
 	API_VOID_METHOD_WRAPPER_2(Console, assertEqual);
@@ -4761,6 +4862,7 @@ struct ScriptingApi::Console::Wrapper
 	API_VOID_METHOD_WRAPPER_1(Console, assertIsObjectOrArray);
 	API_VOID_METHOD_WRAPPER_1(Console, assertLegalNumber);
 	API_VOID_METHOD_WRAPPER_0(Console, breakInDebugger);
+	API_VOID_METHOD_WRAPPER_0(Console, blink);
 };
 
 ScriptingApi::Console::Console(ProcessorWithScriptingContent *p) :
@@ -4769,9 +4871,11 @@ ApiClass(0),
 startTime(0.0)
 {
 	ADD_API_METHOD_1(print);
-	ADD_API_METHOD_0(start);
-	ADD_API_METHOD_0(stop);
+	ADD_API_METHOD_0(startBenchmark);
+	ADD_API_METHOD_0(stopBenchmark);
+	ADD_API_METHOD_1(stop);
 	ADD_API_METHOD_0(clear);
+	ADD_API_METHOD_0(blink);
 
 	ADD_API_METHOD_1(assertTrue);
 	ADD_API_METHOD_2(assertEqual);
@@ -4790,17 +4894,21 @@ void ScriptingApi::Console::print(var x)
 
 	AudioThreadGuard::Suspender suspender;
 	ignoreUnused(suspender);
+    
+    auto jp = dynamic_cast<JavascriptProcessor*>(getScriptProcessor());
+    jp->addInplaceDebugValue(id, lineNumber, x.toString());
+    
 	debugToConsole(getProcessor(), x);
 #endif
 }
 
-void ScriptingApi::Console::stop()
+void ScriptingApi::Console::stopBenchmark()
 {
 #if USE_BACKEND
 	AudioThreadGuard::Suspender suspender;
 	ignoreUnused(suspender);
 
-	if(startTime == 0.0)
+	if (startTime == 0.0)
 	{
 		reportScriptError("The Benchmark was not started!");
 		return;
@@ -4810,13 +4918,72 @@ void ScriptingApi::Console::stop()
 	const double ms = (now - startTime) * 1000.0;
 	startTime = 0.0;
 
+    
+    
 	debugToConsole(getProcessor(), "Benchmark Result: " + String(ms, 3) + " ms");
 #endif
+}
+
+void ScriptingApi::Console::stop(bool condition)
+{
+	if (!condition)
+		return;
+
+	auto c = getScriptProcessor()->getMainController_()->getKillStateHandler().getCurrentThread();
+
+	if (c == MainController::KillStateHandler::ScriptingThread ||
+		c == MainController::KillStateHandler::SampleLoadingThread ||
+		c == MainController::KillStateHandler::AudioThread)
+	{
+		auto n = Time::getMillisecondCounter();
+
+		auto jp = dynamic_cast<JavascriptProcessor*>(getScriptProcessor());
+		
+		MessageManager::callAsync([jp]()
+		{
+			ScopedReadLock sl(jp->getDebugLock());
+			jp->getScriptEngine()->rebuildDebugInformation();
+			jp->rebuild();
+		});
+
+		auto& jtp = getScriptProcessor()->getMainController_()->getJavascriptThreadPool();
+
+		JavascriptThreadPool::ScopedSleeper ss(jtp, id, lineNumber);
+
+		n = Time::getMillisecondCounter() - n;
+		jp->getScriptEngine()->extendTimeout(n);
+	}
+	else
+	{
+		String message;
+		message << "Breakpoint in UI Thread at " << id << "(Line " << lineNumber << ")";
+
+		debugToConsole(dynamic_cast<Processor*>(getScriptProcessor()), message);
+	}
 }
 
 
 
 
+
+void ScriptingApi::Console::blink()
+{
+#if USE_BACKEND && HISE_USE_NEW_CODE_EDITOR
+	if (auto e = getProcessor()->getMainController()->getLastActiveEditor())
+	{
+		Identifier i = id;
+		int l = lineNumber;
+
+		MessageManager::callAsync([e, i, l]()
+		{
+			if (PopupIncludeEditor::matchesId(e, i))
+			{
+				CommonEditorFunctions::as(e)->sendBlinkMessage(l);
+			}
+		});
+	}
+#endif
+}
 
 void ScriptingApi::Console::clear()
 {
@@ -5415,6 +5582,7 @@ struct ScriptingApi::Server::Wrapper
 	API_VOID_METHOD_WRAPPER_1(Server, setNumAllowedDownloads);
 	API_VOID_METHOD_WRAPPER_0(Server, cleanFinishedDownloads);
 	API_VOID_METHOD_WRAPPER_1(Server, setServerCallback);
+	API_METHOD_WRAPPER_1(Server, isEmailAddress);
 };
 
 ScriptingApi::Server::Server(JavascriptProcessor* jp_):
@@ -5443,6 +5611,7 @@ ScriptingApi::Server::Server(JavascriptProcessor* jp_):
 	ADD_API_METHOD_1(setNumAllowedDownloads);
 	ADD_API_METHOD_1(setServerCallback);
 	ADD_API_METHOD_0(cleanFinishedDownloads);
+	ADD_API_METHOD_1(isEmailAddress);
 }
 
 void ScriptingApi::Server::setBaseURL(String url)
@@ -5548,8 +5717,11 @@ void ScriptingApi::Server::setServerCallback(var callback)
 	serverCallback.incRefCount();
 }
 
-
-
+bool ScriptingApi::Server::isEmailAddress(String email)
+{
+	URL u("");
+	return u.isProbablyAnEmailAddress(email);
+}
 
 ScriptingApi::TransportHandler::Callback::Callback(TransportHandler* p, const var& f, bool sync, int numArgs_) :
 	callback(p->getScriptProcessor(), f, numArgs_),

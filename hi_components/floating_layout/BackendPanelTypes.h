@@ -410,7 +410,7 @@ public:
 
 			if (ref.isValid())
 			{
-				editor->insertTextAtCaret(ref.getReferenceString());
+				CommonEditorFunctions::insertTextAtCaret(editor, ref.getReferenceString());
 			}
 		}
 	}

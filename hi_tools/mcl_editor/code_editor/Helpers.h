@@ -19,10 +19,7 @@ namespace mcl
 
 #define CURSOR_WIDTH 1.5f
 #define TEXT_INDENT 6.f
-#define TEST_MULTI_CARET_EDITING true
-#define TEST_SYNTAX_SUPPORT true
 
-#define PROFILE_PAINTS false
 static bool DEBUG_TOKENS = false;
 
 
@@ -36,11 +33,12 @@ class CaretComponent;         // draws the caret symbol(s)
 class GutterComponent;        // draws the gutter
 class GlyphArrangementArray;  // like StringArray but caches glyph positions
 class HighlightComponent;     // draws the highlight region(s)
-class Selection;              // stores leading and trailing edges of an editing region
+struct Selection;              // stores leading and trailing edges of an editing region
 class TextDocument;           // stores text data and caret ranges, supplies metrics, accepts actions
 class TextEditor;             // is a component, issues actions, computes view transform
-class Transaction;            // a text replacement, the document computes the inverse on fulfilling it
+struct Transaction;            // a text replacement, the document computes the inverse on fulfilling it
 class CodeMap;
+class LanguageManager;		  
 
 //==============================================================================
 template <typename ArgType, typename DataType>
@@ -79,11 +77,11 @@ struct ActionHelpers
 
 	static bool  isMatchingClosure(juce_wchar l, juce_wchar r)
 	{
-		return l == '"' && r == '"' ||
-			l == '[' && r == ']' ||
-			l == '(' && r == ')' ||
-			l == '{' && r == '}' ||
-			l == '<' && r == '>' ;
+		return (l == '"' && r == '"') ||
+			(l == '[' && r == ']') ||
+			(l == '(' && r == ')') ||
+			(l == '{' && r == '}') ||
+			(l == '<' && r == '>') ;
 	};
 };
 
@@ -101,8 +99,9 @@ struct Helpers
 	{
 		switch (c)
 		{
-		case GutterColour: return JUCE_LIVE_CONSTANT_OFF(Colour(0xff2f2f2f));
-		case EditorBackgroundColour: return JUCE_LIVE_CONSTANT_OFF(Colour(0xff282829));
+		case GutterColour:           return Colour(0xff2f2f2f);
+		case EditorBackgroundColour: return Colour(0xff282829);
+            default:                 return Colours::transparentBlack;
 		}
 
 		return Colours::transparentBlack;
@@ -163,7 +162,7 @@ struct CoallescatedCodeDocumentListener : public CodeDocument::Listener
 		codeChanged(true, insertIndex, insertIndex + newText.length());
 	}
 
-	virtual void codeChanged(bool wasAdded, int startIndex, int endIndex) = 0;
+	virtual void codeChanged(bool wasAdded, int startIndex, int endIndex) {};
 
 protected:
 

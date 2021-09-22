@@ -200,7 +200,7 @@ int StaticLibraryHostFactory::getNumDataObjects(int index, int dataTypeAsInt) co
 DynamicLibraryHostFactory::DynamicLibraryHostFactory(ProjectDll::Ptr dll_) :
 	projectDll(dll_)
 {
-	jassert(projectDll != nullptr);
+	
 }
 
 DynamicLibraryHostFactory::~DynamicLibraryHostFactory()
@@ -263,6 +263,8 @@ int ProjectDll::getWrapperType(int i) const
 {
 	if (gwtf != nullptr)
 		return gwtf(i);
+    
+    return 0;
 }
 
 int ProjectDll::getNumNodes() const

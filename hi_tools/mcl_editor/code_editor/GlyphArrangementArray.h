@@ -22,7 +22,7 @@ using namespace juce;
    This class wraps a StringArray and memoizes the evaluation of glyph
    arrangements derived from the associated strings.
 */
-class mcl::GlyphArrangementArray
+class GlyphArrangementArray
 {
 public:
 
@@ -37,24 +37,28 @@ public:
 
 	int size() const { return lines.size(); }
 	void clear() { lines.clear(); }
-	void add(const juce::String& string)
+
+	void set(int index, const juce::String& string)
 	{
-		auto hash = Entry::createHash(string, maxLineWidth);
-		int lineNumber = lines.size();
-		auto cachedItem = cache.getCachedItem(lineNumber, hash);
+		auto newItem = new Entry(string.removeCharacters("\r\n"), maxLineWidth);
+		lines.set(index, newItem);
+		ensureValid(index);
+	}
 
-		if (cachedItem == nullptr)
-		{
-			cachedItem = new Entry(string, maxLineWidth);
-			cache.cachedItems.set(lineNumber, { hash, cachedItem });
-		}
+	void insert(int index, const String& string)
+	{
+		auto newItem = new Entry(string.removeCharacters("\r\n"), maxLineWidth);
+		lines.insert(index, newItem);
+		ensureValid(index);
+	}
 
-		lines.add(cachedItem);
+	void removeRange(Range<int> r)
+	{
+		lines.removeRange(r.getStart(), r.getLength());
 	}
 
 	void removeRange(int startIndex, int numberToRemove) { lines.removeRange(startIndex, numberToRemove); }
 	const juce::String& operator[] (int index) const;
-
 
 	int getToken(int row, int col, int defaultIfOutOfBounds) const;
 	void clearTokens(int index);
@@ -76,6 +80,9 @@ public:
 		juce::Array<int> tokens;
 		bool glyphsAreDirty = true;
 		bool tokensAreDirty = true;
+		bool hasLineBreak = false;
+		
+		bool isBookmark();
 
 		Array<Point<int>> positions;
 
@@ -128,42 +135,57 @@ public:
 				return lines;
 			}
 
-			Array<LR> lineRanges;
-			lineRanges.insertMultiple(0, {}, charactersPerLine.size());
-
-			for (int i = columnRange.getStart(); i < columnRange.getEnd(); i++)
+			if (hasLineBreak)
 			{
-				auto pos = getPositionInLine(i, ReturnLastCharacter);
-				auto lineNumber = pos.x;
-				auto b = characterBounds.translated(pos.y * characterBounds.getWidth(), pos.x * characterBounds.getHeight());
+				Array<LR> lineRanges;
+				lineRanges.insertMultiple(0, {}, charactersPerLine.size());
 
-				if (isPositiveAndBelow(lineNumber, lineRanges.size()))
+				for (int i = columnRange.getStart(); i < columnRange.getEnd(); i++)
 				{
-					auto& l = lineRanges.getReference(lineNumber);
+					auto pos = getPositionInLine(i, ReturnLastCharacter);
+					auto lineNumber = pos.x;
+					auto b = characterBounds.translated(pos.y * characterBounds.getWidth(), pos.x * characterBounds.getHeight());
 
-					l.used = true;
-					l.y = b.getY();
-					l.expandLeft(b.getX());
-					l.expandRight(b.getRight());
+					if (isPositiveAndBelow(lineNumber, lineRanges.size()))
+					{
+						auto& l = lineRanges.getReference(lineNumber);
+
+						l.used = true;
+						l.y = b.getY();
+						l.expandLeft(b.getX());
+						l.expandRight(b.getRight());
+					}
 				}
-			}
 
-			for (auto& lr : lineRanges)
+				for (auto& lr : lineRanges)
+				{
+					if (lr.used)
+						lines.add(lr.toLine());
+				}
+
+				return lines;
+			}
+			else
 			{
-				if (lr.used)
-					lines.add(lr.toLine());
+				auto s = (float)getLineLength(string, columnRange.getStart());
+				auto e = (float)getLineLength(string, columnRange.getEnd());
+
+				auto w = characterBounds.getWidth();
+
+				Line<float> l(s * w, 0.0f, e * w, 0.0f);
+				lines.add(l);
+
+				return lines;
 			}
-
-			return lines;
-		}
-
-		int getNextColumn(Point<int> pos)
-		{
-
 		}
 
 		Point<int> getPositionInLine(int col, OutOfBoundsMode mode) const
 		{
+			if (!hasLineBreak)
+			{
+				return { 0, getLineLength(string, col) };
+			}
+
 			if (isPositiveAndBelow(col, positions.size()))
 				return positions[col];
 
@@ -206,7 +228,9 @@ public:
 				auto l = (int)charactersPerLine.size() - 1;
 				auto c = charactersPerLine[l];
 
-				auto isTab = !string.isEmpty() && string[jlimit(0, string.length()-1, col - 1)] == '\t';
+				auto stringLength = string.length();
+
+				auto isTab = !string.isEmpty() && isPositiveAndBelow(col-1, stringLength) && string[jlimit(0, stringLength, col - 1)] == '\t';
 
 				if (isTab)
 					return { l, roundToTab(c) };
@@ -248,6 +272,17 @@ public:
 			return string.length() + 1;
 		}
 
+		void ensureReadyToPaint(const Font& font)
+		{
+			if (!readyToPaint)
+			{
+				glyphs.addLineOfText(font, string, 0.f, 0.f);
+				glyphsWithTrailingSpace.addLineOfText(font, string, 0.f, 0.f);
+				readyToPaint = true;
+			}
+		}
+
+		bool readyToPaint = false;
 		Rectangle<float> characterBounds;
 		Array<int> charactersPerLine;
 
@@ -273,10 +308,14 @@ public:
 		{
 			if (isPositiveAndBelow(line, cachedItems.size()))
 			{
-				auto l = cachedItems.begin() + line;
+				Range<int> rangeToCheck(jmax(0, line - 4), jmin(cachedItems.size(), line + 4));
 
-				if (l->hash == hash)
-					return l->p;
+				for (int i = rangeToCheck.getStart(); i < rangeToCheck.getEnd(); i++)
+				{
+					auto l = cachedItems.begin() + i;
+					if (l->hash == hash)
+						return l->p;
+				}
 			}
 
 			return nullptr;
@@ -285,14 +324,10 @@ public:
 		Array<Item> cachedItems;
 	} cache;
 
-	static int roundToTab(int c)
-	{
-		return c + 4 - c % 4;
-	}
+	static int getLineLength(const String& s, int maxCharacterIndex=-1);
+	static int roundToTab(int c);
 
 	mutable juce::ReferenceCountedArray<Entry> lines;
-
-
 
 	Rectangle<float> characterRectangle;
 
@@ -306,6 +341,10 @@ private:
 	friend class TextEditor;
 	juce::Font font;
 	bool cacheGlyphArrangement = true;
+
+	
+
+	void ensureReadyToPaint(Range<int> lineRange);
 
 	void ensureValid(int index) const;
 	void invalidate(Range<int> lineRange);

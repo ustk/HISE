@@ -859,6 +859,8 @@ void HiseAudioThumbnail::LoadingThread::calculatePath(Path &p, float width, cons
 HiseAudioThumbnail::HiseAudioThumbnail() :
 	loadingThread(this)
 {
+	setLookAndFeel(&defaultLaf);
+
 	setEnablePaintProfiling("AudioThumbnail");
 	setColour(AudioDisplayComponent::ColourIds::fillColour, JUCE_LIVE_CONSTANT_OFF(Colour(0xffcccccc)));
 	setColour(AudioDisplayComponent::ColourIds::outlineColour, JUCE_LIVE_CONSTANT_OFF(Colour(0xa2181818)));
@@ -1137,8 +1139,8 @@ void XYZMultiChannelAudioBufferEditor::addButton(const Identifier& id, const Ide
 	tb->setClickingTogglesState(true);
 	tb->setRadioGroupId(912451, dontSendNotification);
 
-	bool shouldBeOn = currentId == id ||
-		id == Identifier("Single Sample") && currentId.isNull();
+	bool shouldBeOn = (currentId == id ||
+		id == Identifier("Single Sample")) && currentId.isNull();
 
 	tb->setToggleState(shouldBeOn, dontSendNotification);
 	addAndMakeVisible(tb);

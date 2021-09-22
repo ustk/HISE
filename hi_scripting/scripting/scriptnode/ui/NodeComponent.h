@@ -165,13 +165,13 @@ public:
 			isHoveringOverBypass = false;
 			repaint();
 		}
-		
-		
 
 		NodeComponent& parent;
 		Factory f;
 
 		Colour colour = Colours::transparentBlack;
+
+		valuetree::RecursiveTypedChildListener dynamicPowerUpdater;
 
 		valuetree::PropertyListener powerButtonUpdater;
 		valuetree::PropertyListener colourUpdater;

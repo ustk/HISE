@@ -115,7 +115,7 @@ StandaloneProcessor::StandaloneProcessor()
     {
         const String portName = FrontendHandler::getProjectName() + " Virtual MIDI";
         
-        if(virtualMidiPort = MidiInput::createNewDevice(portName, callback))
+        if(virtualMidiPort = MidiInput::createNewDevice(portName, callback).release())
         {
             virtualMidiPort->start();
         }
@@ -305,7 +305,14 @@ juce::BigInteger AudioProcessorDriver::getMidiInputState() const
 
 	
 
-	StringArray midiInputs = MidiInput::getDevices();
+    StringArray midiInputs;
+    
+    if(auto mc = dynamic_cast<const MainController*>(this))
+    {
+        if(!mc->isFlakyThreadingAllowed())
+            midiInputs = MidiInput::getDevices();
+    }
+        
 
 	for (int i = 0; i < midiInputs.size(); i++)
 	{

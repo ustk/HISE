@@ -135,7 +135,7 @@ Use the Intel Performance Primitives Library for the convolution reverb.
 * Use the vDsp FFT on Apple devices.
 */
 #ifndef USE_VDSP_FFT
-#define USE_VDSP_FFT 0
+#define USE_VDSP_FFT !USE_IPP && JUCE_MAC
 #endif
 
 /** Config: FRONTEND_IS_PLUGIN
@@ -227,9 +227,6 @@ Set this to 0 to deactivate the plotter data collection
 #endif
 
 
-#ifndef IS_MARKDOWN_EDITOR
-#define IS_MARKDOWN_EDITOR 0
-#endif
 
 /** Config: ENABLE_SCRIPTING_SAFE_CHECKS
 

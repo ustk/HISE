@@ -330,6 +330,84 @@ struct SymbolProvider : public TokenCollection::Provider
 };
 
 
+struct SnexLanguageManager : public mcl::LanguageManager,
+							 public snex::jit::DebugHandler
+{
+	SnexLanguageManager(CodeDocument& d, snex::GlobalScope& s) :
+		doc(d)
+	{
+		s.addDebugHandler(this);
+	};
+
+	Array<LanguageManager::InplaceDebugValue> debugValues;
+
+	void recompiled() override
+	{
+		debugValues.clear();
+	}
+
+	void logMessage(int level, const juce::String& s) override
+	{
+		if (s.startsWith("Line"))
+		{
+			auto lineNumber = s.fromFirstOccurrenceOf("Line ", false, false).getIntValue() - 1;
+			auto value = s.fromFirstOccurrenceOf(":", false, false).trim().replaceCharacter('\t', ' ');
+
+			if (value.length() > 60)
+				value = value.substring(0, 60) + "(...)";
+
+			for (auto& v : debugValues)
+			{
+				if (v.location.getLineNumber() == lineNumber)
+				{
+					v.value = value;
+					return;
+				}
+			}
+
+			InplaceDebugValue newValue;
+			newValue.value = value;
+
+			newValue.location = CodeDocument::Position(doc, lineNumber, 99);
+			debugValues.add(std::move(newValue));
+			(debugValues.getRawDataPointer() + debugValues.size() - 1)->location.setPositionMaintained(true);
+		}
+	}
+
+	bool getInplaceDebugValues(Array<InplaceDebugValue>& values) const override
+	{
+		values.addArray(debugValues);
+		return !debugValues.isEmpty();
+	}
+
+	CodeTokeniser* createCodeTokeniser() override
+	{
+		return new CPlusPlusCodeTokeniser();
+	}
+
+	void processBookmarkTitle(juce::String& bookmarkTitle) override
+	{
+
+	}
+
+	mcl::FoldableLineRange::List createLineRange(const CodeDocument& doc) override;
+
+	void addTokenProviders(mcl::TokenCollection* t) override
+	{
+		t->addTokenProvider(new debug::KeywordProvider());
+		t->addTokenProvider(new debug::SymbolProvider(doc));
+		t->addTokenProvider(new debug::TemplateProvider());
+		t->addTokenProvider(new debug::MathFunctionProvider());
+		t->addTokenProvider(new debug::PreprocessorMacroProvider(doc));
+	}
+
+	void setupEditor(mcl::TextEditor* editor) override
+	{
+	}
+
+	CodeDocument& doc;
+};
+
 }
 
 

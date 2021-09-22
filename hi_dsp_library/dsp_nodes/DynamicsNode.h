@@ -63,17 +63,17 @@ struct DynamicHelpers
         RETURN_STATIC_IDENTIFIER("limiter");
     }
     
-    static char* getDescription(const chunkware_simple::SimpleGate*)
+    static String getDescription(const chunkware_simple::SimpleGate*)
     {
         return "A gate effect with the ducking amount as modulation signal";
     }
     
-    static char* getDescription(const chunkware_simple::SimpleComp*)
+    static String getDescription(const chunkware_simple::SimpleComp*)
     {
         return "A compressor with the ducking amount as modulation signal";
     }
     
-    static char* getDescription(const chunkware_simple::SimpleLimit*)
+    static String getDescription(const chunkware_simple::SimpleLimit*)
     {
         return "A limiter with the ducking amount as modulation signal";
     }
@@ -107,9 +107,10 @@ public:
         return DynamicHelpers::getId(t);
     }
 
-	constexpr char* getDescription() const
+	static String getDescription()
     {
-        return DynamicHelpers::getDescription(&obj);
+        DynamicProcessorType* t;
+        return DynamicHelpers::getDescription(t);
     }
 
 	static constexpr bool isNormalisedModulation() { return true; };
@@ -231,9 +232,9 @@ public:
 	int lastNumSamples = 0;
 };
 
-template struct dynamics_wrapper<chunkware_simple::SimpleGate>;
-template struct dynamics_wrapper<chunkware_simple::SimpleComp>;
-template struct dynamics_wrapper<chunkware_simple::SimpleLimit>;
+template class dynamics_wrapper<chunkware_simple::SimpleGate>;
+template class dynamics_wrapper<chunkware_simple::SimpleComp>;
+template class dynamics_wrapper<chunkware_simple::SimpleLimit>;
 
 using gate = dynamics_wrapper<chunkware_simple::SimpleGate>;
 using comp = dynamics_wrapper<chunkware_simple::SimpleComp>;

@@ -111,7 +111,7 @@ public:
 
 	Identifier getObjectName() const override { return PropertyIds::Parameter; }
 
-	Parameter(NodeBase* parent_, ValueTree& data_);;
+	Parameter(NodeBase* parent_, const ValueTree& data_);;
 
 	// ======================================================================== API Calls
 
@@ -135,14 +135,15 @@ public:
 
 	Array<Parameter*> getConnectedMacroParameters() const;
 
-	parameter::dynamic_base_holder& getReferenceToCallback()
+	parameter::dynamic_base_holder* getDynamicParameterAsHolder()
 	{
-		return dbNew;
+		return dynamic_cast<parameter::dynamic_base_holder*>(dynamicParameter.get());
 	}
 
-	const parameter::dynamic_base_holder& getCallback() const
+	parameter::dynamic_base::Ptr getDynamicParameter() const
 	{
-		return dbNew;
+		jassert(dynamicParameter != nullptr);
+		return dynamicParameter;
 	}
 
 	void setCallbackNew(parameter::dynamic_base* ownedNew);
@@ -155,10 +156,6 @@ public:
 	{
 		setValueAndStoreAsync((double)newValue);
 	}
-
-	void setTreeWithValue(ValueTree v);
-
-	ValueTree getTreeWithValue() const { return treeThatStoresValue; }
 
 	ValueTree data;
 
@@ -176,8 +173,7 @@ private:
 
 	void updateConnectionOnRemoval(ValueTree& c);
 
-	ValueTree treeThatStoresValue;
-	parameter::dynamic_base_holder dbNew;
+	parameter::dynamic_base::Ptr dynamicParameter;
 
 	ValueTree connectionSourceTree;
 
@@ -337,7 +333,7 @@ public:
 
 	virtual Rectangle<int> getPositionInCanvas(Point<int> topLeft) const;
 	
-	virtual ParameterDataList createInternalParameterList() { return {}; }
+	virtual ParameterDataList createInternalParameterList() { return {}; };
 
 	NamespacedIdentifier getPath() const;
 
@@ -368,6 +364,8 @@ public:
 	var getParameterReference(var indexOrId) const;
 
 	// ============================================================================================= END NODE API
+
+	String getDynamicBypassSource(bool forceUpdate=true) const;
 
 	void setValueTreeProperty(const Identifier& id, const var value);
 	void setDefaultValue(const Identifier& id, var newValue);
@@ -500,7 +498,7 @@ private:
 
 	bool preserveAutomation = false;
 	bool enableUndo = true;
-
+	mutable String dynamicBypassId;
 	
 
 	void updateFrozenState(Identifier id, var newValue);
@@ -612,6 +610,8 @@ public:
 
 	// ============================================================================== End of API Calls
 
+	
+
 	bool objectDeleted() const override
 	{
 		return !data.getParent().isValid();
@@ -627,6 +627,7 @@ public:
 	ValueTree data;
 
 	valuetree::RemoveListener nodeRemoveUpdater;
+	valuetree::RemoveListener sourceRemoveUpdater;
 
 	NormalisableRange<double> connectionRange;
 

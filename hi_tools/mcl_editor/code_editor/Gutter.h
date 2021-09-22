@@ -19,7 +19,7 @@ using namespace juce;
 
 
 //==============================================================================
-class mcl::GutterComponent : public juce::Component,
+class GutterComponent : public juce::Component,
 							 public FoldableLineRange::Listener,
 							 public Value::Listener
 {
@@ -136,6 +136,10 @@ public:
 	void setError(int lineNumber, const String& error)
 	{
 		errorLine = lineNumber;
+        
+        if(error.isEmpty())
+            errorLine = -1;
+        
 		errorMessage = error;
 		repaint();
 	}
@@ -380,7 +384,7 @@ private:
 
 	TextDocument::RowData hoveredData;
 
-	int errorLine;
+    int errorLine = -1;
 	String errorMessage;
 
 	float scaleFactor = 1.0f;
@@ -390,6 +394,8 @@ private:
 	TextDocument& document;
 	juce::AffineTransform transform;
 	Memoizer<int, juce::GlyphArrangement> memoizedGlyphArrangements;
+
+	JUCE_DECLARE_WEAK_REFERENCEABLE(GutterComponent);
 };
 
 

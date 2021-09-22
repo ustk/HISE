@@ -27,7 +27,7 @@ using namespace juce;
 	head <= tail, and singular when head == tail, in which case it would be
 	rendered without any highlighting.
  */
-struct mcl::Selection
+struct Selection
 {
 	struct Listener
 	{
@@ -46,6 +46,7 @@ struct mcl::Selection
 	};
 
 	Selection() {}
+	Selection(const juce::CodeDocument& doc, int headChar, int tailChar);
 	Selection(juce::Point<int> head) : head(head), tail(head) {}
 	Selection(juce::Point<int> head, juce::Point<int> tail) : head(head), tail(tail) {}
 	Selection(int r0, int c0, int r1, int c1) : head(r0, c0), tail(r1, c1) {}
@@ -168,6 +169,21 @@ struct mcl::Selection
 	 */
 	void push(juce::Point<int>& index) const;
 
+    bool contains(Point<int> pos) const
+    {
+        if(isSingular())
+            return false;
+        
+        auto o = oriented();
+        
+        auto isBiggerThanHead = pos.x > o.head.x ||
+                              ((pos.x == o.head.x) && (pos.y > o.head.y));
+        auto isSmallerThanTail = pos.x < o.tail.x ||
+                               ((pos.x == o.tail.x) && (pos.y < o.tail.y));
+        
+        return isBiggerThanHead && isSmallerThanTail;
+    }
+    
 	juce::Point<int> head; // (row, col) of the selection head (where the caret is drawn)
 	juce::Point<int> tail; // (row, col) of the tail
 	int token = 0;
@@ -177,7 +193,7 @@ struct mcl::Selection
 
 
 //==============================================================================
-struct mcl::Transaction
+struct Transaction
 {
 	using Callback = std::function<void(const Transaction&)>;
 	enum class Direction { forward, reverse };

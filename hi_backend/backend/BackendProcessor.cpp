@@ -58,6 +58,8 @@ viewUndoManager(new UndoManager())
 
 	initData(this);
 
+	getFontSizeChangeBroadcaster().sendMessage(sendNotification, getGlobalCodeFontSize());
+
 	GET_PROJECT_HANDLER(synthChain).checkSubDirectories();
 
 	dllManager = new BackendDllManager(this);
@@ -274,7 +276,9 @@ AudioProcessorEditor* BackendProcessor::createEditor()
 #if USE_WORKBENCH_EDITOR
 	return new SnexWorkbenchEditor(this);
 #else
-	return new BackendRootWindow(this, editorInformation);
+	auto d = new BackendRootWindow(this, editorInformation);
+    docWindow = d;
+    return d;
 #endif
 }
 
@@ -315,6 +319,8 @@ juce::File BackendProcessor::getDatabaseRootDirectory() const
 
 hise::BackendProcessor* BackendProcessor::getDocProcessor()
 {
+    return this;
+    
 	if (isFlakyThreadingAllowed())
 		return this;
 
@@ -331,17 +337,8 @@ hise::BackendProcessor* BackendProcessor::getDocProcessor()
 
 hise::BackendRootWindow* BackendProcessor::getDocWindow()
 {
-	if (getDocProcessor() != this)
-		return getDocProcessor()->getDocWindow();
-
-	if (docWindow == nullptr)
-	{
-		MessageManagerLock mmLock;
-		docWindow = new BackendRootWindow(getDocProcessor(), {});
-	}
-		
-
-	return docWindow;
+    return docWindow;
+    
 }
 
 juce::Component* BackendProcessor::getRootComponent()

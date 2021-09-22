@@ -99,6 +99,26 @@ String ScriptingObjects::ScriptShader::FileParser::loadFileContent()
 #if USE_BACKEND
 	auto f = getMainController()->getCurrentFileHandler().getSubDirectory(FileHandlerBase::Scripts).getChildFile(fileNameWithoutExtension).withFileExtension("glsl");
 
+    if(!f.existsAsFile())
+    {
+        String s;
+        String nl = "\n";
+        
+        s << "void main()" << nl;
+        s << "{" << nl;
+        s << "    // Normalized pixel coordinates (from 0 to 1)" << nl;
+        s << "    vec2 uv = fragCoord/iResolution.xy;" << nl;
+        s << nl;
+        s << "    // Time varying pixel color" << nl;
+        s << "    vec3 col = 0.5 + 0.5*cos(iTime+uv.xyx+vec3(0,2,4));" << nl;
+        s << nl;
+        s << "    // Output to screen" << nl;
+        s << "    fragColor = pixelAlpha * vec4(col,1.0);" << nl;
+        s << "}" << nl;
+        
+        f.replaceWithText(s);
+    }
+    
 	if (auto jp = dynamic_cast<JavascriptProcessor*>(sp))
 	{
 		auto ef = jp->addFileWatcher(f);
@@ -205,7 +225,7 @@ void ScriptingObjects::ScriptShader::PreviewComponent::paint(Graphics& g)
 			String s;
 			s << "### Compilation Error: \n";
 			s << "```\n";
-			s << obj->getErrorMessage();
+			s << obj->getErrorMessage(false);
 			s << "```\n";
 
 
@@ -213,6 +233,7 @@ void ScriptingObjects::ScriptShader::PreviewComponent::paint(Graphics& g)
 			r.parse();
 			r.getHeightForWidth(getWidth() - 20.0f);
 
+			g.fillAll(Colours::grey);
 			r.draw(g, getLocalBounds().toFloat().reduced(10.0f));
 		}
 	}
@@ -224,6 +245,7 @@ struct ScriptingObjects::ScriptShader::Wrapper
 	API_VOID_METHOD_WRAPPER_2(ScriptShader, setUniformData);
 	API_VOID_METHOD_WRAPPER_3(ScriptShader, setBlendFunc);
 	API_VOID_METHOD_WRAPPER_1(ScriptShader, fromBase64);
+	API_VOID_METHOD_WRAPPER_1(ScriptShader, setEnableCachedBuffer);
 	API_METHOD_WRAPPER_0(ScriptShader, toBase64);
 	API_METHOD_WRAPPER_0(ScriptShader, getOpenGLStatistics);
 };
@@ -250,7 +272,10 @@ ScriptingObjects::ScriptShader::ScriptShader(ProcessorWithScriptingContent* sp) 
 	ADD_API_METHOD_1(fromBase64);
 	ADD_API_METHOD_0(toBase64);
 	ADD_API_METHOD_0(getOpenGLStatistics);
+	ADD_API_METHOD_1(setEnableCachedBuffer);
 }
+
+bool ScriptingObjects::ScriptShader::renderingScreenShot = false;
 
 String ScriptingObjects::ScriptShader::getHeader()
 {
@@ -272,6 +297,11 @@ String ScriptingObjects::ScriptShader::getHeader()
 	s << "\n#define fragCoord _gl_fc()\n";
 	s << "#define fragColor gl_FragColor\n";
 
+#if JUCE_WINDOWS
+	// The #line directive does not work on macOS apparently...
+	s << "#line 0 \"" << shaderName << "\" \n";
+#endif
+
 	return s;
 }
 
@@ -279,6 +309,8 @@ String ScriptingObjects::ScriptShader::getHeader()
 
 void ScriptingObjects::ScriptShader::setFragmentShader(String shaderFile)
 {
+	shaderName = shaderFile;
+
 	FileParser p(getScriptProcessor(), useLineNumbers, shaderFile, includedFiles);
 
 	compileRawCode(p.getLines().joinIntoString("\n"));
@@ -325,23 +357,41 @@ var ScriptingObjects::ScriptShader::getOpenGLStatistics()
 	return openGLStats;
 }
 
-void ScriptingObjects::ScriptShader::rightClickCallback(const MouseEvent& e, Component* componentToNotify)
+void ScriptingObjects::ScriptShader::setEnableCachedBuffer(bool shouldEnableBuffer)
+{
+	enableCache = shouldEnableBuffer;
+}
+
+Component* ScriptingObjects::ScriptShader::createPopupComponent(const MouseEvent& e, Component* componentToNotify)
 {
 #if USE_BACKEND
-
-	auto *editor = GET_BACKEND_ROOT_WINDOW(componentToNotify);
-
-	auto content = new PreviewComponent(this);
-
-	MouseEvent ee = e.getEventRelativeTo(editor);
-
-	editor->getRootFloatingTile()->showComponentInRootPopup(content, editor, ee.getMouseDownPosition());
-
+	return new PreviewComponent(this);
 #else
-
 	ignoreUnused(e, componentToNotify);
-
+	return nullptr;
 #endif
+}
+
+String ScriptingObjects::ScriptShader::getErrorMessage(bool verbose) const
+{
+	if (verbose)
+	{
+		String s;
+
+		auto lines = StringArray::fromLines(r.getErrorMessage());
+		lines.removeEmptyStrings();
+
+		for (const auto& l : lines)
+		{
+			s << l;
+			s << "{GLSL::";
+			s << dynamic_cast<const Processor*>(getScriptProcessor())->getId() << "::" << shaderName << "}\n";
+		}
+		
+		return s;
+	}
+	else
+	return r.getErrorMessage();
 }
 
 void ScriptingObjects::ScriptShader::compileRawCode(const String& code)
@@ -368,8 +418,6 @@ void ScriptingObjects::ScriptShader::compileRawCode(const String& code)
 		auto lr = safeShader->localRect;
 		auto gr = safeShader->globalRect;
 
-		auto wScale = lr.getWidth() / gr.getWidth();
-
 		auto scale = safeShader->scaleFactor;
 
 		pr.setUniform("iTime", thisTime);
@@ -389,18 +437,12 @@ void ScriptingObjects::ScriptShader::compileRawCode(const String& code)
 				if (v.getArray()->size() == 2) // vec2
 					pr.setUniform(name, (float)v[0], (float)v[1]);
 				if (v.getArray()->size() == 3) // vec3
-				{
 					pr.setUniform(name, (float)v[0], (float)v[1], (float)v[2]);
-				}
 				if (v.getArray()->size() == 4) // vec4
-				{
 					pr.setUniform(name, (float)v[0], (float)v[1], (float)v[2], (float)v[3]);
-				}
 			}
 			if (v.isDouble()) // single value
-			{
 				pr.setUniform(name, (float)v);
-			}
 			if (v.isInt() || v.isInt64())
 			{
 				auto u = (int64)v;
@@ -408,9 +450,7 @@ void ScriptingObjects::ScriptShader::compileRawCode(const String& code)
 				pr.setUniform(name, u_);
 			}
 			if (v.isBuffer()) // static float array
-			{
 				pr.setUniform(name, v.getBuffer()->buffer.getReadPointer(0), v.getBuffer()->size);
-			}
 		}
 	};
 
@@ -440,22 +480,13 @@ private:
 	Path p;
 };
 
-void ScriptingObjects::PathObject::rightClickCallback(const MouseEvent &e, Component* componentToNotify)
+Component* ScriptingObjects::PathObject::createPopupComponent(const MouseEvent &e, Component* componentToNotify)
 {
 #if USE_BACKEND
-
-	auto *editor = GET_BACKEND_ROOT_WINDOW(componentToNotify);
-
-	PathPreviewComponent* content = new PathPreviewComponent(p);
-
-	MouseEvent ee = e.getEventRelativeTo(editor);
-
-	editor->getRootFloatingTile()->showComponentInRootPopup(content, editor, ee.getMouseDownPosition());
-
+	return new PathPreviewComponent(p);
 #else
-
 	ignoreUnused(e, componentToNotify);
-
+	return nullptr;
 #endif
 }
 
@@ -588,6 +619,7 @@ struct ScriptingObjects::GraphicsObject::Wrapper
 	API_VOID_METHOD_WRAPPER_1(GraphicsObject, fillEllipse);
 	API_VOID_METHOD_WRAPPER_4(GraphicsObject, drawImage);
 	API_VOID_METHOD_WRAPPER_3(GraphicsObject, drawDropShadow);
+	API_VOID_METHOD_WRAPPER_5(GraphicsObject, drawDropShadowFromPath);
 	API_VOID_METHOD_WRAPPER_2(GraphicsObject, addDropShadowFromAlpha);
 	API_VOID_METHOD_WRAPPER_3(GraphicsObject, drawTriangle);
 	API_VOID_METHOD_WRAPPER_2(GraphicsObject, fillTriangle);
@@ -634,6 +666,7 @@ ScriptingObjects::GraphicsObject::GraphicsObject(ProcessorWithScriptingContent *
 	ADD_API_METHOD_1(fillEllipse);
 	ADD_API_METHOD_4(drawImage);
 	ADD_API_METHOD_3(drawDropShadow);
+	ADD_API_METHOD_5(drawDropShadowFromPath);
 	ADD_API_METHOD_2(addDropShadowFromAlpha);
 	ADD_API_METHOD_3(drawTriangle);
 	ADD_API_METHOD_2(fillTriangle);
@@ -966,6 +999,22 @@ void ScriptingObjects::GraphicsObject::drawDropShadow(var area, var colour, int 
 	shadow.radius = radius;
 
 	drawActionHandler.addDrawAction(new ScriptedDrawActions::drawDropShadow(r, shadow));
+}
+
+void ScriptingObjects::GraphicsObject::drawDropShadowFromPath(var path, var area, var colour, int radius, var offset)
+{
+	auto r = getIntRectangleFromVar(area);
+	auto o = getPointFromVar(offset);
+	auto c = ScriptingApi::Content::Helpers::getCleanedObjectColour(colour);
+
+	if (auto p = dynamic_cast<ScriptingObjects::PathObject*>(path.getObject()))
+	{
+		Path sp = p->getPath();
+		
+		auto area = r.toFloat().translated(o.getX(), o.getY());
+
+		drawActionHandler.addDrawAction(new ScriptedDrawActions::drawDropShadowFromPath(sp, area, c, radius));
+	}
 }
 
 void ScriptingObjects::GraphicsObject::drawTriangle(var area, float angle, float lineThickness)

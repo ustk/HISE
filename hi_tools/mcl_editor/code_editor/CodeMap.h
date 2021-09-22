@@ -116,7 +116,7 @@ public:
 
 		static EntryType getEntryType(String& s)
 		{
-			static const StringArray skipWords = { "for", "if", "else", "while", "switch", "/*" };
+			static const StringArray skipWords = { "for", "if", "else", "while", "switch", "/*", "```", "---" };
 
 			for (auto& w : skipWords)
 				if (s.startsWith(w))
@@ -124,8 +124,6 @@ public:
 
 			if (s.startsWith("template"))
 				s = s.fromFirstOccurrenceOf(">", false, false).trim();
-
-
 
 			if (trimAndGet(s, "class"))
 				return EntryType::Class;
@@ -138,9 +136,6 @@ public:
 
 			if (auto t = trimAndGet(s, "enum"))
 				return EntryType::Enum;
-
-
-
 
 			trimIf(s, "static");
 			trimIf(s, "inline");
@@ -166,39 +161,45 @@ public:
 				i->setBoldLine(lineToBolden);
 			}
 		}
-
-		
 	}
 
 	void displayedLineRangeChanged(Range<int> newRange) override
 	{
-		auto middleLine = newRange.getStart() + newRange.getLength() / 2;
+		lastRange = newRange;
 
 		for (auto i : items)
-		{
 			i->setDisplayedRange(newRange);
 			
-		}
-
 		repaint();
 	}
 
+	
+
 	String getTextForFoldRange(FoldableLineRange::WeakPtr p)
 	{
-		auto s = doc.getCodeDocument().getLine(p->getLineRange().getStart());
-		return s.trim();
+		return doc.getCodeDocument().getLine(p->getLineRange().getStart());
 	}
 
 	struct Item : public Component,
 				  public TooltipWithArea::Client
 	{
-		static const int Height = 20;
+		static const int Height = 24;
 
 		Item(FoldableLineRange::WeakPtr p_, FoldMap& m) :
 			p(p_)
 		{
+            auto* lm = m.getLanguageManager();
+            
 			text = m.getTextForFoldRange(p);
+            
+            if(lm != nullptr)
+                lm->processBookmarkTitle(text);
+            
 			type = Helpers::getEntryType(text);
+
+			bestWidth = getFont().boldened().getStringWidth(text) + roundToInt((float)Helpers::getLevel(p) * 5.0f);
+
+			bestWidth = jmin(bestWidth, 600);
 
 			int h = Height;
 
@@ -214,9 +215,8 @@ public:
 				h += n->getHeight();
 				children.add(n.release());
 
+				bestWidth = jmax(bestWidth, children.getLast()->bestWidth + 10);
 			}
-
-			
 
 			setRepaintsOnMouseActivity(true);
 			setSize(1, h);
@@ -298,6 +298,8 @@ public:
 
 		void mouseDoubleClick(const MouseEvent& e) override;
 
+		void setSelected(bool shouldBeSelected, bool grabFocus);
+
 		void resized() override
 		{
 			int y = Height;
@@ -312,22 +314,26 @@ public:
 			}
 		}
 
+		Font getFont() { return Font(Font::getDefaultMonospacedFontName(), 14.0f, clicked ? Font::bold : Font::plain); }
+
+
 		void paint(Graphics& g) override
 		{
 			auto a = getLocalBounds().removeFromTop(Height).toFloat();;
 
-			//Font f(Font::getDefaultMonospacedFontName(), 13.0f, clicked ? Font::bold : Font::plain);
+			auto f = getFont();
 
-			auto f = GLOBAL_FONT().withHeight(12.0f);
+			//auto f = GLOBAL_FONT().withHeight(12.0f);
 
+			
 
 			if (isBoldLine)
 				f = f.boldened();
 
 			if (edgeOnScreen) 
 			{
-				auto b = a.removeFromRight(4.0f);
-				g.setColour(Colours::white.withAlpha(0.07f));
+				auto b = a;// .removeFromRight(4.0f);
+				g.setColour(Colours::white.withAlpha(0.03f));
 				g.fillRect(b);
 
 				if (onScreen)
@@ -351,6 +357,7 @@ public:
 			case Function:	g.setColour(Colour(0xFF76425A).brighter(0.2f)); break;
 			case Enum:		g.setColour(Colour(0xFF6C8249).brighter(0.2f)); break;
 			case Namespace: g.setColour(Colour(0xFF8D7B4F).brighter(0.2f)); break;
+            default:                                                        break;
 			}
 
 
@@ -390,7 +397,7 @@ public:
 			
 
 			g.setFont(f);
-			g.setColour(Colours::white.withAlpha(isBoldLine ? 1.0f : 0.8f));
+			g.setColour(Colours::white.withAlpha(isBoldLine ? 1.0f : 0.6f));
 
 			a.removeFromLeft((float)Helpers::getLevel(p) * 5.0f);
 
@@ -409,13 +416,14 @@ public:
 
 		OwnedArray<Item> children;
 		bool clicked = false;
+
+		int bestWidth = 0;
 	};
 
 	
 
 	FoldMap(TextDocument& d) :
-		doc(d),
-		resizer(this, nullptr, ResizableEdgeComponent::leftEdge)
+		doc(d)
 	{
 		doc.addFoldListener(this);
 		doc.addSelectionListener(this);
@@ -424,14 +432,32 @@ public:
 		addAndMakeVisible(vp);
 		vp.setColour(ScrollBar::ColourIds::thumbColourId, Colours::white.withAlpha(0.2f));
 		vp.setScrollBarThickness(10);
-
-		addAndMakeVisible(resizer);
+        vp.getVerticalScrollBar().setWantsKeyboardFocus(false);
+        vp.setScrollBarsShown(true, false);
 	};
 
 	~FoldMap()
 	{
 		doc.removeFoldListener(this);
 		doc.removeSelectionListener(this);
+	}
+
+    LanguageManager* getLanguageManager();
+    
+	bool keyPressed(const KeyPress& k) override;
+
+	int getBestWidth() const
+	{
+		Font f(Font::getDefaultMonospacedFontName(), 13.0f, Font::bold);
+
+		int maxWidth = 0;
+
+		for (auto i : items)
+		{
+			maxWidth = jmax(maxWidth, i->bestWidth + JUCE_LIVE_CONSTANT_OFF(35));
+		}
+
+		return maxWidth + 10;
 	}
 
 	void foldStateChanged(FoldableLineRange::WeakPtr rangeThatHasChanged) override
@@ -441,7 +467,8 @@ public:
 
 	void paint(Graphics& g) override
 	{
-		g.fillAll(Colours::black.withAlpha(0.2f));
+		g.fillAll(JUCE_LIVE_CONSTANT_OFF(Colour(0xe3212121)));
+
 	}
 
 	void rootWasRebuilt(FoldableLineRange::WeakPtr rangeThatHasChanged) override
@@ -471,6 +498,9 @@ public:
 
 		content.setSize(getWidth() - vp.getScrollBarThickness(), h);
 		updateSize();
+
+		selectionChanged();
+		displayedLineRangeChanged(lastRange);
 	}
 
 	void updateSize()
@@ -482,17 +512,19 @@ public:
 			i->setBounds(0, y, content.getWidth(), i->getHeight());
 			y += i->getHeight();
 		}
+
+		repaint();
 	}
 
 	void resized() override
 	{
 		updateSize();
-		vp.setBounds(getLocalBounds());
 
-		resizer.setBounds(getLocalBounds().removeFromLeft(5));
+		auto b = getLocalBounds();
+		b.removeFromLeft(10);
+
+		vp.setBounds(b);
 	}
-
-	ResizableEdgeComponent resizer;
 
 	Viewport vp;
 	Component content;
@@ -501,21 +533,21 @@ public:
 
 	FoldableLineRange::Ptr root;
 
+	Range<int> lastRange;
 
 	TextDocument& doc;
 };
 
 
-class mcl::CodeMap : public Component,
-	public CodeDocument::Listener,
-	public Timer,
-	public Selection::Listener
+class CodeMap : public Component,
+                public CodeDocument::Listener,
+                public Timer,
+                public Selection::Listener
 {
 public:
 
-	CodeMap(TextDocument& doc_, CodeTokeniser* tok) :
+	CodeMap(TextDocument& doc_) :
 		doc(doc_),
-		tokeniser(tok),
 		rebuilder(*this),
 		transformToUse(defaultTransform)
 	{
@@ -593,8 +625,8 @@ public:
 
 	struct HoverPreview : public Component
 	{
-		HoverPreview(TextDocument& doc, int centerRow) :
-			document(doc)
+		HoverPreview(CodeMap& parent_, int centerRow) :
+			parent(parent_)
 		{
 			setCenterRow(centerRow);
 		}
@@ -603,10 +635,7 @@ public:
 
 		void paint(Graphics& g) override;
 
-		TextDocument& document;
-
-		CodeEditorComponent::ColourScheme colourScheme;
-
+		CodeMap& parent;
 		Range<int> rows;
 		int centerRow;
 		float scale = 1.0f;
@@ -627,6 +656,10 @@ public:
 	float lineToY(int lineNumber) const;
 
 	int yToLine(float y) const;
+
+	CodeEditorComponent::ColourScheme* getColourScheme();
+
+	CodeTokeniser* getTokeniser();
 
 	ScopedPointer<HoverPreview> preview;
 
@@ -649,10 +682,16 @@ public:
 
 	Array<ColouredRectangle> colouredRectangles;
 
-	CodeEditorComponent::ColourScheme colourScheme;
-
 	TextDocument& doc;
-	ScopedPointer<CodeTokeniser> tokeniser;
+
+	void visibilityChanged() override
+	{
+		if (isVisible() && dirty)
+			rebuild();
+	}
+
+	bool dirty = true;
+	bool allowHover = true;
 
 	float currentAnimatedLine = -1.0f;
 	float targetAnimatedLine = -1.0f;
@@ -665,6 +704,8 @@ public:
 	Range<int> displayedLines;
 	Range<int> surrounding;
 	int offsetY = 0;
+
+	
 
 	AffineTransform defaultTransform;
 	AffineTransform& transformToUse;

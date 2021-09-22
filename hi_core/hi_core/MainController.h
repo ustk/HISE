@@ -636,7 +636,7 @@ public:
 		{
 		public:
 
-			virtual ~Listener() { masterReference.clear(); };
+			virtual ~Listener() {};
 
 			/** Called on the message thread whenever the new preset was loaded. */
 			virtual void presetChanged(const File& newPreset) = 0;
@@ -644,10 +644,17 @@ public:
 			/** Called whenever the number of presets changed. */
 			virtual void presetListUpdated() = 0;
 
+			/** This will be called synchronously just before the new preset is about to be loaded. 
+
+				You can use this method to actually modify the value tree that is being loaded
+				so you can implement eg. backward-compatibility migration routines. If you do so,
+				make sure to create a deep copy of the valuetree, then return the modified one.
+			*/
+			virtual ValueTree prePresetLoad(const ValueTree& dataToLoad, const File& fileToLoad) { return dataToLoad; };
+
 		private:
 
-			friend class WeakReference<Listener>;
-			WeakReference<Listener>::Master masterReference;
+			JUCE_DECLARE_WEAK_REFERENCEABLE(Listener);
 		};
 
 		UserPresetHandler(MainController* mc_);;
@@ -1021,6 +1028,8 @@ public:
 
 		void requestQuit();
 
+		bool hasRequestedQuit() const;
+
 		String getOperationName(int operationType) override;
 
 		void enableAudioThreadGuard(bool shouldBeEnabled)
@@ -1109,7 +1118,8 @@ public:
 
 		UnorderedStack<uint16, 4096> pendingTickets;
 		uint16 ticketCounter = 0;
-		CriticalSection ticketLock;
+
+		mutable hise::SimpleReadWriteLock ticketLock;
 
 		std::atomic<State> currentState;
 
@@ -1395,7 +1405,7 @@ public:
 	/** Returns the amount of playing voices. */
 	int getNumActiveVoices() const;;
 
-	void setLastActiveEditor(CodeEditorComponent *editor, CodeDocument::Position position)
+	void setLastActiveEditor(Component *editor, CodeDocument::Position position)
 	{
 		auto old = lastActiveEditor;
 
@@ -1409,7 +1419,7 @@ public:
 			lastActiveEditor->repaint();
 	}
 
-	CodeEditorComponent* getLastActiveEditor()
+	Component* getLastActiveEditor()
 	{
 		return lastActiveEditor.getComponent();
 	}
@@ -1453,7 +1463,7 @@ public:
 		return false;
 	}
     
-    SafeChangeBroadcaster &getFontSizeChangeBroadcaster() { return codeFontChangeNotificator; };
+	LambdaBroadcaster<float> &getFontSizeChangeBroadcaster() { return codeFontChangeNotificator; };
     
     /** This sets the global pitch factor. */
     void setGlobalPitchFactor(double pitchFactorInSemiTones)
@@ -1571,6 +1581,7 @@ protected:
 			masterEventBuffer.addEvent(HiseEvent(HiseEvent::Type::AllNotesOff, 0, 0, 1));
 
 			keyboardState.allNotesOff(0);
+			keyboardState.reset();
 
 			allNotesOffFlag = false;
 		}
@@ -1735,10 +1746,10 @@ private:
 
 	Font globalFont;
 
-	Component::SafePointer<CodeEditorComponent> lastActiveEditor;
+	Component::SafePointer<Component> lastActiveEditor;
 	int lastCharacterPositionOfSelectedEditor;
 
-    SafeChangeBroadcaster codeFontChangeNotificator;
+    LambdaBroadcaster<float> codeFontChangeNotificator;
         
 	WeakReference<Console> console;
 

@@ -278,10 +278,13 @@ struct DrawActions
 		virtual bool wantsToDrawOnParent() const { return false; }
 
 		void setCachedImage(Image& img) { cachedImage = img; }
+		void setScaleFactor(float sf) { scaleFactor = sf; }
 
 	protected:
 
 		Image cachedImage;
+
+		float scaleFactor = 1.0f;
 
 	private:
 
@@ -313,7 +316,7 @@ struct DrawActions
 
 			if (postActions.size() > 0)
 			{
-				PostGraphicsRenderer r(stack, cachedImage);
+				PostGraphicsRenderer r(stack, cachedImage, scaleFactor);
 				int numDataRequired = 0;
 
 				for (auto p : postActions)
@@ -478,9 +481,12 @@ struct DrawActions
 		void addDrawActionListener(Listener* l) { listeners.addIfNotAlreadyThere(l); }
 		void removeDrawActionListener(Listener* l) { listeners.removeAllInstancesOf(l); }
 
-		void setGlobalBounds(Rectangle<int> gb, float sf)
+		Rectangle<int> getScreenshotBounds(Rectangle<int> shaderBounds) const;
+
+		void setGlobalBounds(Rectangle<int> gb, Rectangle<int> tb, float sf)
 		{
 			globalBounds = gb;
+			topLevelBounds = tb;
 			scaleFactor = sf;
 		}
 
@@ -492,6 +498,7 @@ struct DrawActions
 	private:
 
 		Rectangle<int> globalBounds;
+		Rectangle<int> topLevelBounds;
 		float scaleFactor = 1.0f;
 
 		void handleAsyncUpdate() override
@@ -537,10 +544,6 @@ public:
 
 	void renderOpenGL() override
 	{
-		auto& ctx = srs->t.contextHolder->context;
-
-		
-		
 		
 	}
 

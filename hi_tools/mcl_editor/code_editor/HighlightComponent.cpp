@@ -26,25 +26,21 @@ void mcl::HighlightComponent::setViewTransform(const AffineTransform& transformT
 	transform = transformToUse;
 
 	outlinePath.clear();
-	auto clip = getLocalBounds().toFloat().transformedBy(transform.inverted());
-
+	
 	for (const auto& s : document.getSelections())
-	{
 		outlinePath.addPath(getOutlinePath(document, s));
-	}
-	repaint(outlinePath.getBounds().getSmallestIntegerContainer());
+	
+    repaint(outlinePath.getBounds().getSmallestIntegerContainer());
 }
 
 void mcl::HighlightComponent::updateSelections()
 {
 	outlinePath.clear();
-	auto clip = getLocalBounds().toFloat().transformedBy(transform.inverted());
-
+	
 	for (const auto& s : document.getSelections())
-	{
 		outlinePath.addPath(getOutlinePath(document, s.oriented()));
-	}
-	repaint(outlinePath.getBounds().getSmallestIntegerContainer());
+	
+    repaint(outlinePath.getBounds().getSmallestIntegerContainer());
 }
 
 void mcl::HighlightComponent::paintHighlight(Graphics& g)
@@ -59,18 +55,21 @@ void mcl::HighlightComponent::paintHighlight(Graphics& g)
 	sh.offset = { 0, 3 };
 	//sh.drawForPath(g, outlinePath);
 
-	auto c = highlight.withAlpha(1.0f);
+	auto c = highlight.withAlpha(JUCE_LIVE_CONSTANT_OFF(0.6f));
 
 	auto b = outlinePath.getBounds();
 
 	g.setGradientFill(ColourGradient(c, 0.0f, b.getY(), c.darker(0.05f), 0.0f, b.getBottom(), false));
 	g.fillPath(outlinePath);
 
-	g.setColour(Colour(0xff959595));
-	g.strokePath(outlinePath, PathStrokeType(1.f));
+	g.setColour(Colour(0xff959595).withAlpha(JUCE_LIVE_CONSTANT_OFF(0.2f)));
+	g.strokePath(outlinePath, PathStrokeType(1.0f / transform.getScaleFactor()));
 
-	for (auto sr : document.getSearchResults())
+	auto ar = document.getSearchResults();
+
+	for (int i = 0; i < ar.size(); i++)
 	{
+		auto sr = ar[i];
 		auto r = document.getSelectionRegion(sr);
 
 		for (auto h : r)
@@ -89,6 +88,9 @@ void mcl::HighlightComponent::paintHighlight(Graphics& g)
 
 Path mcl::HighlightComponent::getOutlinePath(const TextDocument& doc, const Selection& s)
 {
+	if (s.isSingular())
+		return {};
+
 	RectangleList<float> list;
 	auto top = doc.getUnderlines(s, TextDocument::Metric::top);
 	auto bottom = doc.getUnderlines(s, TextDocument::Metric::baseline);

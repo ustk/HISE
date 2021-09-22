@@ -317,7 +317,9 @@ using namespace snex::Types;
 
 void SnexWorkbenchEditor::createNewFile()
 {
-	auto fileName = PresetHandler::getCustomName("DspNetwork", "Enter the name of the new dsp network.");
+	auto f = BackendDllManager::getSubFolder(getProcessor(), BackendDllManager::FolderSubType::Networks).getNonexistentChildFile("DspNetwork", ".xml", false);
+
+	auto fileName = PresetHandler::getCustomName(f.getFileNameWithoutExtension(), "Enter the name of the new dsp network.");
 	fileName = fileName.upToFirstOccurrenceOf(".", false, false);
 
 	if (!fileName.isEmpty())
@@ -1009,7 +1011,6 @@ void DspNetworkCompileExporter::run()
     
 #if JUCE_WINDOWS
 	BuildOption o = CompileExporter::VSTiWindowsx64;
-    
 #elif JUCE_MAC
 	BuildOption o = CompileExporter::VSTmacOS;
 #else
@@ -1019,19 +1020,29 @@ void DspNetworkCompileExporter::run()
 	showStatusMessage("Compiling dll plugin");
 
 	configurationName = getComboBoxComponent("build")->getText();
-
 	
-
+#if JUCE_LINUX
+	ok = ErrorCodes::OK;
+#else
 	ok = compileSolution(o, CompileExporter::TargetTypes::numTargetTypes);
+#endif
 }
 
 void DspNetworkCompileExporter::threadFinished()
 {
+#if JUCE_LINUX
+	ok = compileSolution(CompileExporter::VSTLinux, CompileExporter::TargetTypes::numTargetTypes);
+#endif
+
 	if (ok == ErrorCodes::OK)
 	{
 		globalCommandLineExport = false;
 
+#if JUCE_LINUX
+		PresetHandler::showMessageWindow("Project creation OK", "Please run the makefile, then press OK when the compilation is finished to reload the dynamic library.");
+#else
 		PresetHandler::showMessageWindow("Compilation OK", "Press OK to reload the project dll.");
+#endif
 
 		auto loadedOk = editor->dllManager->loadDll(true);
 
@@ -1087,8 +1098,6 @@ juce::Array<juce::File> DspNetworkCompileExporter::getIncludedNetworkFiles(const
 
 			return false;
 		};
-
-		auto firstIsReferencedInSecond = ValueTreeIterator::forEach(v, ValueTreeIterator::ChildrenFirst, f2);
 	}
 
 	list.add(networkFile);
@@ -1353,6 +1362,7 @@ void TestRunWindow::run()
 		case DspNetworkCodeProvider::SourceMode::InterpretedNode: cMessage << "Interpreted"; break;
 		case DspNetworkCodeProvider::SourceMode::JitCompiledNode: cMessage << "JIT"; break;
 		case DspNetworkCodeProvider::SourceMode::DynamicLibrary: cMessage << "Dynamic Library"; break;
+        default: break;
 		}
 
 		writeConsoleMessage(cMessage);

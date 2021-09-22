@@ -193,6 +193,14 @@ void SampleMap::setCurrentMonolith()
 			monolithDirectories[0] = getCurrentFileHandler()->getSubDirectory(ProjectHandler::SubDirectories::Samples);
 			monolithDirectories[1] = sampler->getMainController()->getCurrentFileHandler().getSubDirectory(ProjectHandler::SubDirectories::Samples);
 
+			if (FullInstrumentExpansion::isEnabled(sampler->getMainController()))
+			{
+				if (auto exp = sampler->getMainController()->getExpansionHandler().getCurrentExpansion())
+				{
+					monolithDirectories[0] = exp->getSubDirectory(FileHandlerBase::Samples);
+				}
+			}
+
 
 			if (!monolithDirectories[1].isDirectory())
 			{
@@ -670,7 +678,10 @@ bool SampleMap::save(const File& fileToUse)
 
 	auto func = [tmp](Processor* p)
 	{
-		static_cast<ModulatorSampler*>(p)->loadSampleMap(tmp);
+		auto s = static_cast<ModulatorSampler*>(p);
+		
+		s->clearSampleMap(dontSendNotification);
+		s->loadSampleMap(tmp);
 
 		return SafeFunctionCall::OK;
 	};

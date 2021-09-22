@@ -37,27 +37,18 @@ void mcl::CaretComponent::updateSelections()
 
 void mcl::CaretComponent::paint(Graphics& g)
 {
-#if PROFILE_PAINTS
-	auto start = Time::getMillisecondCounterHiRes();
-#endif
-
 	auto colour = getParentComponent()->findColour(juce::CaretComponent::caretColourId);
-	auto outline = colour.contrasting();
-
+	
 	UnblurryGraphics ug(g, *this);
 
 	bool drawCaretLine = document.getNumSelections() == 1 && document.getSelections().getFirst().isSingular();
 
-	
-
-	for (const auto &r : getCaretRectangles())
+    for (const auto &r : getCaretRectangles())
 	{
 		g.setColour(colour.withAlpha(squareWave(phase)));
 
 		auto rf = ug.getRectangleWithFixedPixelWidth(r, 2);
 		g.fillRect(rf);
-
-
 
 		if (drawCaretLine)
 		{
@@ -65,19 +56,18 @@ void mcl::CaretComponent::paint(Graphics& g)
 			g.fillRect(r.withX(0.0f).withWidth(getWidth()));
 		}
 	}
-
-#if PROFILE_PAINTS
-	std::cout << "[CaretComponent::paint] " << Time::getMillisecondCounterHiRes() - start << std::endl;
-#endif
 }
 
 float mcl::CaretComponent::squareWave(float wt) const
 {
 	if (isTimerRunning())
 	{
-		const float delta = 0.222f;
-		const float A = 1.0;
-		return 0.5f + A / 3.14159f * std::atanf(std::cosf(wt) / delta);
+		auto f = 0.5f * std::sin(wt) + 0.5f;
+
+		if (f > 0.3f)
+			return f;
+
+		return 0.0f;
 	}
 	
 	return 0.6f;
@@ -91,7 +81,7 @@ void mcl::CaretComponent::timerCallback()
 	phase += 3.2e-1;
 
 	for (const auto &r : getCaretRectangles())
-		repaint(r.getSmallestIntegerContainer());
+		repaint(r.getSmallestIntegerContainer().expanded(3));
 }
 
 Array<Rectangle<float>> mcl::CaretComponent::getCaretRectangles() const
