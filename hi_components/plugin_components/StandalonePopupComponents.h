@@ -113,6 +113,7 @@ public:
 	{
 		Driver = 7, ///< The audio driver (ASIO, CoreAudio etc)
 		Device, ///< the audio device (your soundcard)
+		Input, ///< the input (normally a stereo channel pair)
 		Output, ///< the output (normally a stereo channel pair)
 		BufferSize, ///< the buffer size
 		SampleRate, ///< the sample rate
@@ -136,7 +137,8 @@ public:
 
 	void buttonClicked(Button* /*b*/) override;
 
-	static void flipEnablement(AudioDeviceManager* manager, const int row);
+	static void flipInputEnablement(AudioDeviceManager* manager, const int row);
+	static void flipOutputEnablement(AudioDeviceManager* manager, const int row);
 
 	void comboBoxChanged(ComboBox* comboBoxThatHasChanged) override;
 
@@ -195,6 +197,7 @@ private:
 
 	ScopedPointer<ComboBox> deviceSelector;
 	ScopedPointer<ComboBox> soundCardSelector;
+	ScopedPointer<ComboBox> inputSelector;
 	ScopedPointer<ComboBox> outputSelector;
 	ScopedPointer<ComboBox> bufferSelector;
 	ScopedPointer<ComboBox> sampleRateSelector;
