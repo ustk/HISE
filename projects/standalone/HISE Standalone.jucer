@@ -53,7 +53,7 @@
                        headerPath="/opt/intel/ipp/include" libraryPath="/opt/intel/ipp/lib"
                        cppLanguageStandard="c++11" cppLibType="libc++" enablePluginBinaryCopyStep="1"/>
         <CONFIGURATION name="Release" osxCompatibility="10.7 SDK" osxArchitecture="64BitIntel"
-                       isDebug="0" optimisation="3" targetName="HISE" linkTimeOptimisation="1"
+                       isDebug="0" optimisation="3" targetName="HISE Audio Inputs" linkTimeOptimisation="1"
                        cppLanguageStandard="c++11" cppLibType="libc++" libraryPath="/opt/intel/ipp/lib"
                        headerPath="/opt/intel/ipp/include" enablePluginBinaryCopyStep="1"/>
         <CONFIGURATION name="Jenkins" osxCompatibility="10.7 SDK" osxArchitecture="64BitUniversal"
