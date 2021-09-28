@@ -79,7 +79,7 @@ void AudioProcessorDriver::resetToDefault()
 	auto prevState = getMidiInputState();
 	auto names = MidiInput::getDevices();
 
-	deviceManager->initialiseWithDefaultDevices(0, 2);
+	deviceManager->initialiseWithDefaultDevices(2, 2);
 
 	for (int i = 0; i < prevState.getHighestBit() + 1; i++)
 	{
@@ -197,7 +197,7 @@ void AudioProcessorDriver::initialiseAudioDriver(XmlElement *deviceData)
 
 	if (deviceData != nullptr && deviceData->hasTagName("DEVICESETUP"))
 	{
-		String errorMessage = deviceManager->initialise(0, 2, deviceData, true);
+		String errorMessage = deviceManager->initialise(2, 2, deviceData, true);
 
 		
 
@@ -207,7 +207,7 @@ void AudioProcessorDriver::initialiseAudioDriver(XmlElement *deviceData)
 
 			logger.logMessage("Audio Driver Default Initialisation");
 
-			const String error = deviceManager->initialiseWithDefaultDevices(0, 2);
+			const String error = deviceManager->initialiseWithDefaultDevices(2, 2);
 
 			if (error.isNotEmpty())
 			{
@@ -227,7 +227,7 @@ void AudioProcessorDriver::initialiseAudioDriver(XmlElement *deviceData)
 	{
 		logger.logMessage("Audio Driver Default Initialisation");
 
-		const String error = deviceManager->initialiseWithDefaultDevices(0, 2);
+		const String error = deviceManager->initialiseWithDefaultDevices(2, 2);
 
 		if (error.isNotEmpty())
 		{
