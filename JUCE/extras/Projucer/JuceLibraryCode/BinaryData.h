@@ -15,7 +15,7 @@ namespace BinaryData
     const int            PIPAudioProcessor_cpp_inSize = 483;
 
     extern const char*   PIPComponent_cpp_in;
-    const int            PIPComponent_cpp_inSize = 2275;
+    const int            PIPComponent_cpp_inSize = 2207;
 
     extern const char*   PIPConsole_cpp_in;
     const int            PIPConsole_cpp_inSize = 299;
@@ -99,22 +99,22 @@ namespace BinaryData
     const int            wizard_StaticLibrary_svgSize = 7488;
 
     extern const char*   jucer_AnimatedComponentSimpleTemplate_h;
-    const int            jucer_AnimatedComponentSimpleTemplate_hSize = 1898;
+    const int            jucer_AnimatedComponentSimpleTemplate_hSize = 1842;
 
     extern const char*   jucer_AnimatedComponentTemplate_cpp;
     const int            jucer_AnimatedComponentTemplate_cppSize = 1362;
 
     extern const char*   jucer_AnimatedComponentTemplate_h;
-    const int            jucer_AnimatedComponentTemplate_hSize = 1008;
+    const int            jucer_AnimatedComponentTemplate_hSize = 978;
 
     extern const char*   jucer_AudioComponentSimpleTemplate_h;
-    const int            jucer_AudioComponentSimpleTemplate_hSize = 3554;
+    const int            jucer_AudioComponentSimpleTemplate_hSize = 3460;
 
     extern const char*   jucer_AudioComponentTemplate_cpp;
     const int            jucer_AudioComponentTemplate_cppSize = 2941;
 
     extern const char*   jucer_AudioComponentTemplate_h;
-    const int            jucer_AudioComponentTemplate_hSize = 1187;
+    const int            jucer_AudioComponentTemplate_hSize = 1155;
 
     extern const char*   jucer_AudioPluginEditorTemplate_cpp;
     const int            jucer_AudioPluginEditorTemplate_cppSize = 1355;
@@ -135,7 +135,7 @@ namespace BinaryData
     const int            jucer_ComponentTemplate_hSize = 2065;
 
     extern const char*   jucer_ContentCompSimpleTemplate_h;
-    const int            jucer_ContentCompSimpleTemplate_hSize = 1524;
+    const int            jucer_ContentCompSimpleTemplate_hSize = 1476;
 
     extern const char*   jucer_ContentCompTemplate_cpp;
     const int            jucer_ContentCompTemplate_cppSize = 1007;
@@ -171,19 +171,19 @@ namespace BinaryData
     const int            jucer_NewInlineComponentTemplate_hSize = 1719;
 
     extern const char*   jucer_OpenGLComponentSimpleTemplate_h;
-    const int            jucer_OpenGLComponentSimpleTemplate_hSize = 1987;
+    const int            jucer_OpenGLComponentSimpleTemplate_hSize = 1920;
 
     extern const char*   jucer_OpenGLComponentTemplate_cpp;
     const int            jucer_OpenGLComponentTemplate_cppSize = 1470;
 
     extern const char*   jucer_OpenGLComponentTemplate_h;
-    const int            jucer_OpenGLComponentTemplate_hSize = 1070;
+    const int            jucer_OpenGLComponentTemplate_hSize = 1038;
 
     extern const char*   jucer_PIPAudioProcessorTemplate_h;
-    const int            jucer_PIPAudioProcessorTemplate_hSize = 5055;
+    const int            jucer_PIPAudioProcessorTemplate_hSize = 4948;
 
     extern const char*   jucer_PIPTemplate_h;
-    const int            jucer_PIPTemplate_hSize = 517;
+    const int            jucer_PIPTemplate_hSize = 500;
 
     extern const char*   colourscheme_dark_xml;
     const int            colourscheme_dark_xmlSize = 1050;
@@ -192,7 +192,7 @@ namespace BinaryData
     const int            colourscheme_light_xmlSize = 1050;
 
     extern const char*   juce_runtime_arch_detection_cpp;
-    const int            juce_runtime_arch_detection_cppSize = 2129;
+    const int            juce_runtime_arch_detection_cppSize = 2072;
 
     // Number of elements in the namedResourceList and originalFileNames arrays.
     const int namedResourceListSize = 62;
