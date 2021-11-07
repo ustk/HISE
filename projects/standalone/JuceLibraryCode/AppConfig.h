@@ -77,7 +77,6 @@
 #define JUCE_MODULE_AVAILABLE_juce_gui_extra              1
 #define JUCE_MODULE_AVAILABLE_juce_opengl                 1
 #define JUCE_MODULE_AVAILABLE_juce_product_unlocking      1
-#define JUCE_MODULE_AVAILABLE_stk_wrapper                 1
 
 #define JUCE_GLOBAL_MODULE_SETTINGS_INCLUDED 1
 
@@ -266,13 +265,6 @@
 
 #ifndef    HLAC_INCLUDE_TEST_SUITE
  //#define HLAC_INCLUDE_TEST_SUITE 0
-#endif
-
-//==============================================================================
-// hi_modules flags:
-
-#ifndef    HI_ENABLE_CUSTOM_NODE_LOCATION
- //#define HI_ENABLE_CUSTOM_NODE_LOCATION 0
 #endif
 
 //==============================================================================
