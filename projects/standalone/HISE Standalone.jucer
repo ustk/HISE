@@ -50,7 +50,7 @@
                microphonePermissionNeeded="1">
       <CONFIGURATIONS>
         <CONFIGURATION name="Debug" osxCompatibility="10.7 SDK" osxArchitecture="64BitIntel"
-                       isDebug="1" optimisation="1" targetName="HISE  New Layout Audio IN Debug"
+                       isDebug="1" optimisation="1" targetName="HISE New Layout Audio IN Debug"
                        linkTimeOptimisation="0" headerPath="/opt/intel/ipp/include"
                        libraryPath="/opt/intel/ipp/lib" cppLanguageStandard="c++11"
                        cppLibType="libc++" enablePluginBinaryCopyStep="1"/>
@@ -283,7 +283,8 @@
                ENABLE_PLOTTER="1" ENABLE_SCRIPTING_SAFE_CHECKS="1" ENABLE_SCRIPTING_BREAKPOINTS="1"
                ENABLE_ALL_PEAK_METERS="1" JUCE_ASIO="1" JUCE_DIRECTSOUND="1"
                JUCE_USE_DIRECTWRITE="1" JUCE_JACK="1" HISE_ENABLE_EXPANSIONS="1"
-               HISE_ENABLE_MIDI_INPUT_FOR_FX="1" FORCE_INPUT_CHANNELS="1"/>
+               HISE_ENABLE_MIDI_INPUT_FOR_FX="1" FORCE_INPUT_CHANNELS="1"
+               JUCE_STRICT_REFCOUNTEDPOINTER="1"/>
   <LIVE_SETTINGS>
     <OSX defines="USE_IPP=0"/>
     <WINDOWS/>

@@ -561,7 +561,8 @@ void ScriptingObjects::ScriptFile::extractZipFile(var targetDirectory, bool over
 
 		if (cb)
 		{
-			cb.call1(var(data->clone()));
+			auto c = data->clone();
+			cb.call1(var(c.get()));
 		}
 
 		data->setProperty("Status", 1);
@@ -588,7 +589,7 @@ void ScriptingObjects::ScriptFile::extractZipFile(var targetDirectory, bool over
 			c->setProperty("CurrentFile", zipFile.getEntry(i)->filename);
 
 			if (callForEachFile && cb)
-				cb.call1(var(c));
+				cb.call1(var(c.get()));
 
 			auto result = zipFile.uncompressEntry(i, tf, overwriteFiles);
 
@@ -601,7 +602,7 @@ void ScriptingObjects::ScriptFile::extractZipFile(var targetDirectory, bool over
 				data = c;
 
 				if (cb)
-					cb.call1(var(c));
+					cb.call1(var(c.get()));
 
 				break;
 			}
@@ -613,7 +614,7 @@ void ScriptingObjects::ScriptFile::extractZipFile(var targetDirectory, bool over
 				data = c;
 
 				if (cb)
-					cb.call1(var(c));
+					cb.call1(var(c.get()));
 
 				break;
 			}
@@ -627,7 +628,7 @@ void ScriptingObjects::ScriptFile::extractZipFile(var targetDirectory, bool over
 			c->setProperty("Progress", 1.0);
 			c->setProperty("TotalBytesWritten", numBytesWritten);
 			c->setProperty("CurrentFile", "");
-			cb.call1(var(c));
+			cb.call1(var(c.get()));
 		}
 
 		return SafeFunctionCall::OK;
@@ -664,7 +665,7 @@ ScriptingObjects::ScriptDownloadObject::ScriptDownloadObject(ProcessorWithScript
 	jp(dynamic_cast<JavascriptProcessor*>(pwsc))
 {
 	data = new DynamicObject();
-	addConstant("data", var(data));
+	addConstant("data", var(data.get()));
 
 	callback.setThisObject(this);
 	callback.incRefCount();
@@ -1246,7 +1247,7 @@ var ScriptingObjects::ScriptRingBuffer::getResizedBuffer(int numDestSamples, int
 
 		
 
-		return var(b);
+		return var(b.get());
 	}
 	else
 		return var(new VariantBuffer(0));
@@ -1713,17 +1714,20 @@ var ScriptingObjects::ScriptingSamplerSound::loadIntoBufferArray()
 			{
 				if (!isStereo)
 				{
-					VariantBuffer::Ptr l = new VariantBuffer(numSamplesToRead);
+					auto l = new VariantBuffer(numSamplesToRead);
+					channelData.add(var(l));
+
 					AudioSampleBuffer b;
 					float* data[1] = { l->buffer.getWritePointer(0) };
 					b.setDataToReferTo(data, 1, numSamplesToRead);
 					reader->read(&b, 0, numSamplesToRead, 0, true, false);
-					channelData.add(var(l));
 				}
 				else
 				{
-					VariantBuffer::Ptr l = new VariantBuffer(numSamplesToRead);
-					VariantBuffer::Ptr r = new VariantBuffer(numSamplesToRead);
+					auto l = new VariantBuffer(numSamplesToRead);
+					auto r = new VariantBuffer(numSamplesToRead);
+					channelData.add(var(l));
+					channelData.add(var(r));
 
 					AudioSampleBuffer b;
 
@@ -1732,9 +1736,6 @@ var ScriptingObjects::ScriptingSamplerSound::loadIntoBufferArray()
 					b.setDataToReferTo(data, 2, numSamplesToRead);
 
 					reader->read(&b, 0, numSamplesToRead, 0, true, true);
-
-					channelData.add(var(l));
-					channelData.add(var(r));
 				}
 			}
 		}
@@ -1787,7 +1788,7 @@ void ScriptingObjects::ScriptingSamplerSound::deleteSample()
 
 	auto f = [handler, soundCopy](Processor* /*s*/)
 	{
-		handler->getSampler()->getSampleMap()->removeSound(soundCopy);
+		handler->getSampler()->getSampleMap()->removeSound(soundCopy.get());
 
 		return SafeFunctionCall::OK;
 	};
@@ -4564,7 +4565,7 @@ var ScriptingObjects::ScriptedMidiPlayer::getTimeSignature()
 	{
 		auto sig = getSequence()->getTimeSignature();
 
-		DynamicObject::Ptr newObj = new DynamicObject();
+		auto newObj = new DynamicObject();
 		newObj->setProperty(TimeSigIds::Nominator, sig.nominator);
 		newObj->setProperty(TimeSigIds::Denominator, sig.denominator);
 		newObj->setProperty(TimeSigIds::NumBars, sig.numBars);
@@ -4702,7 +4703,7 @@ bool ScriptingObjects::ScriptedLookAndFeel::callWithGraphics(Graphics& g_, const
 	{
 		var args[2];
 		
-		args[0] = var(g);
+		args[0] = var(g.get());
 		args[1] = argsObject;
 
 		var thisObject(this);
@@ -4853,7 +4854,7 @@ void ScriptingObjects::ScriptedLookAndFeel::Laf::drawPopupMenuBackground(Graphic
 {
 	if (functionDefined("drawPopupMenuBackground"))
 	{
-		DynamicObject::Ptr obj = new DynamicObject();
+		auto obj = new DynamicObject();
 		obj->setProperty("width", width);
 		obj->setProperty("height", height);
 
@@ -4868,7 +4869,7 @@ void ScriptingObjects::ScriptedLookAndFeel::Laf::drawPopupMenuItem(Graphics& g_,
 {
 	if (functionDefined("drawPopupMenuItem"))
 	{
-		DynamicObject::Ptr obj = new DynamicObject();
+		auto obj = new DynamicObject();
 		obj->setProperty("area", ApiHelpers::getVarRectangle(area.toFloat()));
 		obj->setProperty("isSeparator", isSeparator);
 		obj->setProperty("isActive", isActive);
@@ -4888,7 +4889,7 @@ void ScriptingObjects::ScriptedLookAndFeel::Laf::drawToggleButton(Graphics &g_, 
 {
 	if (functionDefined("drawToggleButton"))
 	{
-		DynamicObject::Ptr obj = new DynamicObject();
+		auto obj = new DynamicObject();
 		obj->setProperty("area", ApiHelpers::getVarRectangle(b.getLocalBounds().toFloat()));
 		obj->setProperty("enabled", b.isEnabled());
 		obj->setProperty("text", b.getButtonText());
@@ -4915,7 +4916,7 @@ void ScriptingObjects::ScriptedLookAndFeel::Laf::drawRotarySlider(Graphics &g_, 
 {
 	if (functionDefined("drawRotarySlider"))
 	{
-		DynamicObject::Ptr obj = new DynamicObject();
+		auto obj = new DynamicObject();
 
 		s.setTextBoxStyle (Slider::NoTextBox, false, -1, -1);
 
@@ -4957,7 +4958,7 @@ void ScriptingObjects::ScriptedLookAndFeel::Laf::drawLinearSlider(Graphics &g, i
 {
 	if (functionDefined("drawLinearSlider"))
 	{
-		DynamicObject::Ptr obj = new DynamicObject();
+		auto obj = new DynamicObject();
 
 		obj->setProperty("id", slider.getComponentID());
 		obj->setProperty("enabled", slider.isEnabled());
@@ -5029,7 +5030,7 @@ void ScriptingObjects::ScriptedLookAndFeel::Laf::drawComboBox(Graphics& g_, int 
 {
 	if (functionDefined("drawComboBox"))
 	{
-		DynamicObject::Ptr obj = new DynamicObject();
+		auto obj = new DynamicObject();
 		obj->setProperty("area", ApiHelpers::getVarRectangle(cb.getLocalBounds().toFloat()));
 
 		auto text = cb.getText();
@@ -5086,7 +5087,7 @@ void ScriptingObjects::ScriptedLookAndFeel::Laf::drawButtonBackground(Graphics& 
 {
 	if (functionDefined("drawDialogButton"))
 	{
-		DynamicObject::Ptr obj = new DynamicObject();
+		auto obj = new DynamicObject();
 		obj->setProperty("area", ApiHelpers::getVarRectangle(button.getLocalBounds().toFloat()));
 		obj->setProperty("text", button.getButtonText());
 		obj->setProperty("enabled", button.isEnabled());
@@ -5116,7 +5117,7 @@ void ScriptingObjects::ScriptedLookAndFeel::Laf::drawNumberTag(Graphics& g_, Col
 	{
 		if (number != -1)
 		{
-			DynamicObject::Ptr obj = new DynamicObject();
+			auto obj = new DynamicObject();
 			obj->setProperty("area", ApiHelpers::getVarRectangle(area.toFloat()));
 			obj->setProperty("macroIndex", number - 1);
 
@@ -5132,7 +5133,7 @@ void ScriptingObjects::ScriptedLookAndFeel::Laf::drawPresetBrowserBackground(Gra
 {
 	if (functionDefined("drawPresetBrowserBackground"))
 	{
-		DynamicObject::Ptr obj = new DynamicObject();
+		auto obj = new DynamicObject();
 		obj->setProperty("area", ApiHelpers::getVarRectangle(p->getLocalBounds().toFloat()));
 		obj->setProperty("bgColour", backgroundColour.getARGB());
 		obj->setProperty("itemColour", highlightColour.getARGB());
@@ -5150,7 +5151,7 @@ void ScriptingObjects::ScriptedLookAndFeel::Laf::drawColumnBackground(Graphics& 
 {
 	if (functionDefined("drawPresetBrowserColumnBackground"))
 	{
-		DynamicObject::Ptr obj = new DynamicObject();
+		auto obj = new DynamicObject();
 		obj->setProperty("area", ApiHelpers::getVarRectangle(listArea.toFloat()));
 		obj->setProperty("text", emptyText);
 		obj->setProperty("bgColour", backgroundColour.getARGB());
@@ -5169,7 +5170,7 @@ void ScriptingObjects::ScriptedLookAndFeel::Laf::drawListItem(Graphics& g_, int 
 {
 	if (functionDefined("drawPresetBrowserListItem"))
 	{
-		DynamicObject::Ptr obj = new DynamicObject();
+		auto obj = new DynamicObject();
 		obj->setProperty("area", ApiHelpers::getVarRectangle(position.toFloat()));
 		obj->setProperty("columnIndex", columnIndex);
 		obj->setProperty("rowIndex", rowIndex);
@@ -5191,7 +5192,7 @@ void ScriptingObjects::ScriptedLookAndFeel::Laf::drawSearchBar(Graphics& g_, Rec
 {
 	if (functionDefined("drawPresetBrowserSearchBar"))
 	{
-		DynamicObject::Ptr obj = new DynamicObject();
+		auto obj = new DynamicObject();
 		obj->setProperty("area", ApiHelpers::getVarRectangle(area.toFloat()));
 		obj->setProperty("bgColour", backgroundColour.getARGB());
 		obj->setProperty("itemColour", highlightColour.getARGB());
@@ -5225,7 +5226,7 @@ void ScriptingObjects::ScriptedLookAndFeel::Laf::drawTablePath(Graphics& g_, Tab
 {
 	if (functionDefined("drawTablePath"))
 	{
-		DynamicObject::Ptr obj = new DynamicObject();
+		auto obj = new DynamicObject();
 
 		auto sp = new ScriptingObjects::PathObject(get()->getScriptProcessor());
 
@@ -5255,7 +5256,7 @@ void ScriptingObjects::ScriptedLookAndFeel::Laf::drawTablePoint(Graphics& g_, Ta
 {
 	if (functionDefined("drawTablePoint"))
 	{
-		DynamicObject::Ptr obj = new DynamicObject();
+		auto obj = new DynamicObject();
 
 		obj->setProperty("tablePoint", ApiHelpers::getVarRectangle(tablePoint));
 		obj->setProperty("isEdge", isEdge);
@@ -5279,7 +5280,7 @@ void ScriptingObjects::ScriptedLookAndFeel::Laf::drawTableRuler(Graphics& g_, Ta
 {
 	if (functionDefined("drawTableRuler"))
 	{
-		DynamicObject::Ptr obj = new DynamicObject();
+		auto obj = new DynamicObject();
 
 		obj->setProperty("area", ApiHelpers::getVarRectangle(area));
 		obj->setProperty("position", rulerPosition);
@@ -5302,7 +5303,7 @@ void ScriptingObjects::ScriptedLookAndFeel::Laf::drawScrollbar(Graphics& g_, Scr
 {
 	if (functionDefined("drawScrollbar"))
 	{
-		DynamicObject::Ptr obj = new DynamicObject();
+		auto obj = new DynamicObject();
 
 		auto fullArea = Rectangle<int>(x, y, width, height).toFloat();
 
@@ -5336,7 +5337,7 @@ void ScriptingObjects::ScriptedLookAndFeel::Laf::drawAhdsrPathSection(Graphics& 
 {
 	if (functionDefined("drawAhdsrPath"))
 	{
-		DynamicObject::Ptr obj = new DynamicObject();
+		auto obj = new DynamicObject();
 
 		auto p = new ScriptingObjects::PathObject(get()->getScriptProcessor());
 
@@ -5366,7 +5367,7 @@ void ScriptingObjects::ScriptedLookAndFeel::Laf::drawAhdsrBallPosition(Graphics&
 {
 	if (functionDefined("drawAhdsrBall"))
 	{
-		DynamicObject::Ptr obj = new DynamicObject();
+		auto obj = new DynamicObject();
 
 		obj->setProperty("area", ApiHelpers::getVarRectangle(graph.getLocalBounds().toFloat()));
 		obj->setProperty("position", ApiHelpers::getVarFromPoint(pos));
@@ -5390,7 +5391,7 @@ void ScriptingObjects::ScriptedLookAndFeel::Laf::drawMidiDropper(Graphics& g_, R
 {
 	if (functionDefined("drawMidiDropper"))
 	{
-		DynamicObject::Ptr obj = new DynamicObject();
+		auto obj = new DynamicObject();
 		obj->setProperty("area", ApiHelpers::getVarRectangle(area));
 		obj->setProperty("hover", d.hover);
 		obj->setProperty("active", d.isActive());
@@ -5412,7 +5413,7 @@ void ScriptingObjects::ScriptedLookAndFeel::Laf::drawHiseThumbnailBackground(Gra
 {
     if (functionDefined("drawThumbnailBackground"))
     {
-        DynamicObject::Ptr obj = new DynamicObject();
+        auto obj = new DynamicObject();
         obj->setProperty("area", ApiHelpers::getVarRectangle(area.toFloat()));
         obj->setProperty("enabled", areaIsEnabled);
         
@@ -5430,7 +5431,7 @@ void ScriptingObjects::ScriptedLookAndFeel::Laf::drawHiseThumbnailPath(Graphics&
 {
     if (functionDefined("drawThumbnailPath"))
     {
-        DynamicObject::Ptr obj = new DynamicObject();
+        auto obj = new DynamicObject();
         auto area = path.getBounds();
         obj->setProperty("area", ApiHelpers::getVarRectangle(area));
         obj->setProperty("enabled", areaIsEnabled);
@@ -5441,7 +5442,7 @@ void ScriptingObjects::ScriptedLookAndFeel::Laf::drawHiseThumbnailPath(Graphics&
 
         sp->getPath() = path;
 
-        obj->setProperty("path", var(sp));
+        obj->setProperty("path", keeper);
         
         obj->setProperty("bgColour", th.findColour  (AudioDisplayComponent::ColourIds::bgColour).getARGB());
         obj->setProperty("itemColour", th.findColour(AudioDisplayComponent::ColourIds::fillColour).getARGB());
@@ -5464,7 +5465,7 @@ void ScriptingObjects::ScriptedLookAndFeel::Laf::drawThumbnailRange(Graphics& g_
 {
     if (functionDefined("drawThumbnailRange"))
     {
-        DynamicObject::Ptr obj = new DynamicObject();
+        auto obj = new DynamicObject();
         obj->setProperty("area", ApiHelpers::getVarRectangle(area));
         obj->setProperty("rangeIndex", areaIndex);
         obj->setProperty("rangeColour", c.getARGB());
@@ -5485,7 +5486,7 @@ void ScriptingObjects::ScriptedLookAndFeel::Laf::drawTextOverlay(Graphics& g_, H
 {
     if (functionDefined("drawThumbnailText"))
     {
-        DynamicObject::Ptr obj = new DynamicObject();
+        auto obj = new DynamicObject();
         obj->setProperty("area", ApiHelpers::getVarRectangle(area));
         obj->setProperty("text", text);
         
@@ -5506,7 +5507,7 @@ juce::Image ScriptingObjects::ScriptedLookAndFeel::Laf::createIcon(PresetHandler
 
 	if (auto l = get())
 	{
-		DynamicObject::Ptr obj = new DynamicObject();
+		auto obj = new DynamicObject();
 		
 		String s;
 
@@ -5542,7 +5543,7 @@ void ScriptingObjects::ScriptedLookAndFeel::Laf::drawTag(Graphics& g_, bool blin
 {
 	if (functionDefined("drawPresetBrowserTag"))
 	{
-		DynamicObject::Ptr obj = new DynamicObject();
+		auto obj = new DynamicObject();
 		obj->setProperty("area", ApiHelpers::getVarRectangle(position.toFloat()));
 		obj->setProperty("text", name);
 		obj->setProperty("blinking", blinking);
@@ -5564,7 +5565,7 @@ void ScriptingObjects::ScriptedLookAndFeel::Laf::drawModalOverlay(Graphics& g_, 
 {
 	if (auto l = get())
 	{
-		DynamicObject::Ptr obj = new DynamicObject();
+		auto obj = new DynamicObject();
 		obj->setProperty("area", ApiHelpers::getVarRectangle(area.toFloat()));
 		obj->setProperty("labelArea", ApiHelpers::getVarRectangle(labelArea.toFloat()));
 		obj->setProperty("title", title);
@@ -5625,8 +5626,7 @@ juce::Array<juce::Identifier> ApiHelpers::getGlobalApiClasses()
 		"Settings",
 		"Server",
 		"FileSystem",
-		"Message",
-		"Buffer"
+		"Message"
 	};
 	
 	return ids;
@@ -5980,7 +5980,7 @@ int ScriptingObjects::ScriptUnorderedStack::getIndexForEvent(var value) const
 		if (compareFunctionType == CompareFunctions::Custom)
 		{
 			var args[2];
-			args[0] = var(compareHolder);
+			args[0] = var(compareHolder.get());
 			args[1] = value;
 
 			for (int i = 0; i < numUsed; i++)
@@ -6076,10 +6076,10 @@ var ScriptingObjects::ScriptUnorderedStack::asBuffer(bool getAllElements)
 		reportScriptError("Can't use asBuffer on a stack for events");
 
 	if (getAllElements)
-		return var(wholeBf);
+		return var(wholeBf.get());
 	else
 	{
-		return var(elementBuffer);
+		return var(elementBuffer.get());
 	}
 }
 
@@ -6334,8 +6334,9 @@ void ScriptingObjects::ScriptBackgroundTask::run()
 }
 
 ScriptingObjects::ScriptFFT::ScriptFFT(ProcessorWithScriptingContent* p) :
-	ConstScriptingObject(p, DomainType::numDomainTypes),
-	processFunction(p, var(), 2)
+	ConstScriptingObject(p, WindowType::numWindowType),
+	phaseFunction(p, var(), 2),
+	magnitudeFunction(p, var(), 2)
 {
 	addConstant("Rectangle", WindowType::Rectangle);
 	addConstant("Triangle", WindowType::Triangle);
@@ -6344,16 +6345,15 @@ ScriptingObjects::ScriptFFT::ScriptFFT(ProcessorWithScriptingContent* p) :
 	addConstant("BlackmanHarris", WindowType::BlackmanHarris);
 	addConstant("Kaiser", WindowType::Kaiser);
 	addConstant("FlatTop", WindowType::FlatTop);
-	addConstant("Magnitude", DomainType::Magnitude);
-	addConstant("Phase", DomainType::Phase);
 
 	ADD_API_METHOD_1(setWindowType);
 	ADD_API_METHOD_2(prepare);
-	ADD_API_METHOD_1(setDomain);
 	ADD_API_METHOD_1(setOverlap);
 	ADD_API_METHOD_1(process);
-	ADD_API_METHOD_1(setProcessFunction);
+	ADD_API_METHOD_2(setMagnitudeFunction);
+	ADD_API_METHOD_1(setPhaseFunction);
 	ADD_API_METHOD_1(setEnableSpectrum2D);
+	ADD_API_METHOD_1(setEnableInverseFFT);
 
 	spectrumParameters = new Spectrum2D::Parameters();
 }
@@ -6388,7 +6388,18 @@ struct ScriptingObjects::ScriptFFT::FFTDebugComponent : public Component,
 		{
 			if (obj->enableSpectrum)
 			{
-				g.drawImage(obj->spectrum, getLocalBounds().toFloat());
+				auto b = getLocalBounds().toFloat();
+
+				if (obj->enableInverse)
+				{
+					auto inArea = b.removeFromTop(b.getHeight() / 2.0f);
+					g.drawImage(obj->spectrum, inArea);
+					g.drawImage(obj->outputSpectrum, b);
+				}
+				else
+				{
+					g.drawImage(obj->spectrum, b);
+				}
 			}
 			else
 			{
@@ -6412,42 +6423,60 @@ Component* ScriptingObjects::ScriptFFT::createPopupComponent(const MouseEvent& e
 	return new FFTDebugComponent(this);
 }
 
-void ScriptingObjects::ScriptFFT::setProcessFunction(var newProcessFunction)
+void ScriptingObjects::ScriptFFT::setMagnitudeFunction(var newMagnitudeFunction, bool convertDb)
 {
 	SimpleReadWriteLock::ScopedWriteLock sl(lock);
 
-	if (HiseJavascriptEngine::isJavascriptFunction(newProcessFunction))
+	if (HiseJavascriptEngine::isJavascriptFunction(newMagnitudeFunction))
 	{
-		processFunction = WeakCallbackHolder(getScriptProcessor(), newProcessFunction, 2);
-		processFunction.incRefCount();
+		convertMagnitudesToDecibel = convertDb;
+		magnitudeFunction = WeakCallbackHolder(getScriptProcessor(), newMagnitudeFunction, 2);
+		magnitudeFunction.incRefCount();
+		reinitialise();
+	}
+}
+
+void ScriptingObjects::ScriptFFT::setPhaseFunction(var newPhaseFunction)
+{
+	SimpleReadWriteLock::ScopedWriteLock sl(lock);
+
+	if (HiseJavascriptEngine::isJavascriptFunction(newPhaseFunction))
+	{
+		phaseFunction = WeakCallbackHolder(getScriptProcessor(), newPhaseFunction, 2);
+		phaseFunction.incRefCount();
+		reinitialise();
 	}
 }
 
 void ScriptingObjects::ScriptFFT::setWindowType(int windowType_)
 {
 	currentWindowType = (WindowType)windowType_;
-
 	spectrumParameters->currentWindowType = currentWindowType;
-}
 
-void ScriptingObjects::ScriptFFT::setDomain(int domainType_)
-{
-	currentDomainType = (DomainType)domainType_;
+	reinitialise();
 }
 
 void ScriptingObjects::ScriptFFT::setOverlap(double percentageOfOverlap)
 {
 	overlap = jlimit(0.0, 0.99, percentageOfOverlap);
-
 	spectrumParameters->oversamplingFactor = nextPowerOfTwo(1.0 / (1.0 - overlap));
 }
 
 void ScriptingObjects::ScriptFFT::prepare(int powerOfTwoSize, int maxNumChannels)
 {
+	lastSpecs.sampleRate = 44100.0;
+	lastSpecs.blockSize = powerOfTwoSize;
+	lastSpecs.numChannels = maxNumChannels;
+
 	maxNumChannels = jlimit(1, NUM_MAX_CHANNELS, maxNumChannels);
 
 	if (isPowerOfTwo(powerOfTwoSize))
 	{
+		windowBuffer.setSize(1, powerOfTwoSize * 2);
+		windowBuffer.clear();
+		FloatVectorOperations::fill(windowBuffer.getWritePointer(0), 1.0f, powerOfTwoSize);
+		FFTHelpers::applyWindow(currentWindowType, windowBuffer, false);
+
 		spectrumParameters->order = log2(powerOfTwoSize);
 		spectrumParameters->Spectrum2DSize = powerOfTwoSize;
 
@@ -6458,8 +6487,17 @@ void ScriptingObjects::ScriptFFT::prepare(int powerOfTwoSize, int maxNumChannels
 		for (int i = 0; i < maxNumChannels; i++)
 		{
 			WorkBuffer wb;
-			wb.workBuffer = new VariantBuffer(maxNumSamples * 2);
-			wb.processBuffer = new VariantBuffer(maxNumSamples);
+			wb.chunkInput = new VariantBuffer(maxNumSamples * 2);
+
+			if (enableInverse)
+				wb.chunkOutput = new VariantBuffer(maxNumSamples * 2);
+
+			if(magnitudeFunction || enableInverse)
+				wb.magBuffer = new VariantBuffer(maxNumSamples);
+
+			if (phaseFunction || enableInverse)
+				wb.phaseBuffer = new VariantBuffer(maxNumSamples);
+
 			scratchBuffers.add(std::move(wb));
 		}
 			
@@ -6473,7 +6511,7 @@ void ScriptingObjects::ScriptFFT::prepare(int powerOfTwoSize, int maxNumChannels
 	}
 }
 
-void ScriptingObjects::ScriptFFT::process(var dataToProcess)
+var ScriptingObjects::ScriptFFT::process(var dataToProcess)
 {
 	if (scratchBuffers.isEmpty() || fft == nullptr || maxNumSamples == 0)
 		reportScriptError("You must call prepare before process");
@@ -6498,44 +6536,142 @@ void ScriptingObjects::ScriptFFT::process(var dataToProcess)
 		Spectrum2D fb(this, fullBuffer);
 		fb.parameters = spectrumParameters;
 		auto b = fb.createSpectrumBuffer();
-		spectrum = fb.createSpectrumImage(b);
+
+		if (b.getNumSamples() > 0)
+		{
+			spectrum = fb.createSpectrumImage(b);
+		}
+		else
+		{
+			spectrum = {};
+		}
 	}
-	
 
 	SimpleReadWriteLock::ScopedReadLock sl(lock);
 
-	if (processFunction)
+	if (magnitudeFunction || phaseFunction)
 	{
+		var returnValue;
+
+
 		int offset = 0;
 		int numDelta = roundToInt((double)maxNumSamples * (1.0 - overlap));
 
 		auto numToProcess = getNumToProcess(dataToProcess);
+		int numChannels = dataToProcess.isArray() ? dataToProcess.size() : 1;
+
+		if (enableInverse)
+		{
+			outputData.clear();
+
+			for (int i = 0; i < numChannels; i++)
+			{
+				outputData.add(new VariantBuffer(numToProcess));
+			}
+
+			if (numChannels == 1)
+				returnValue = outputData[0];
+			else
+				returnValue = var(outputData);
+		}
 
 		while (offset < numToProcess)
 		{
+			copyToWorkBuffer(dataToProcess, offset, 0);
+
 			var args[2];
-			args[0] = copyToWorkBuffer(dataToProcess, offset, 0);
 			args[1] = offset;
 
-			int numChannels = args[0].isArray() ? args[0].size() : 1;
+			applyFFT(numChannels, offset == 0);
 
-			applyFFT(numChannels);
+			if (magnitudeFunction)
+			{
+				args[0] = getBufferArgs(true, numChannels);
+				auto r = magnitudeFunction.callSync(args, 2);
 
-			auto r = processFunction.callSync(args, 2);
+				if (!r.wasOk())
+					reportScriptError(r.getErrorMessage());
+			}
 
-			if (!r.wasOk())
-				reportScriptError(r.getErrorMessage());
+			if (phaseFunction)
+			{
+				args[0] = getBufferArgs(false, numChannels);
+
+				auto r = phaseFunction.callSync(args, 2);
+
+				if (!r.wasOk())
+					reportScriptError(r.getErrorMessage());
+			}
+
+			applyInverseFFT(numChannels);
+
+			for (int i = 0; i < numChannels; i++)
+			{
+				copyFromWorkBuffer(offset, i);
+			}
+			
 
 			offset += numDelta;
 		}
+
+		if (enableSpectrum)
+		{
+			Spectrum2D fb(this, outputData[0].getBuffer()->buffer);
+			fb.parameters = spectrumParameters;
+			auto b = fb.createSpectrumBuffer();
+
+			if (b.getNumSamples() > 0)
+				outputSpectrum = fb.createSpectrumImage(b);
+			else
+				outputSpectrum = {};
+		}
+
+		return returnValue;
 	}
 	else
 		reportScriptError("the process function is not defined");
+
+	return var();
 }
 
 void ScriptingObjects::ScriptFFT::setEnableSpectrum2D(bool shouldBeEnabled)
 {
 	enableSpectrum = shouldBeEnabled;
+}
+
+void ScriptingObjects::ScriptFFT::setEnableInverseFFT(bool shouldApplyReverseTransformToInput)
+{
+	if (enableInverse != shouldApplyReverseTransformToInput)
+	{
+		enableInverse = shouldApplyReverseTransformToInput;
+
+		reinitialise();
+	}
+}
+
+var ScriptingObjects::ScriptFFT::getBufferArgs(bool useMagnitude, int numToUse)
+{
+	if (isPositiveAndBelow(numToUse-1, scratchBuffers.size()))
+	{
+		thisProcessBuffer.clearQuick();
+
+		for (int i = 0; i < numToUse; i++)
+		{
+			auto bufferToUse = useMagnitude ? scratchBuffers[i].magBuffer :
+											  scratchBuffers[i].phaseBuffer;
+
+			thisProcessBuffer.set(i, var(bufferToUse.get()));
+		}
+
+		if (thisProcessBuffer.size() == 1)
+			return var(thisProcessBuffer[0]);
+		else
+			return var(thisProcessBuffer);
+	}
+	else
+		reportScriptError("channel overflow");
+
+	RETURN_IF_NO_THROW(var());
 }
 
 int ScriptingObjects::ScriptFFT::getNumToProcess(var inputData)
@@ -6548,7 +6684,7 @@ int ScriptingObjects::ScriptFFT::getNumToProcess(var inputData)
 	return 0;
 }
 
-var ScriptingObjects::ScriptFFT::copyToWorkBuffer(var inputData, int offset, int channel)
+void ScriptingObjects::ScriptFFT::copyToWorkBuffer(var inputData, int offset, int channel)
 {
 	if (auto a = inputData.getArray())
 	{
@@ -6559,31 +6695,41 @@ var ScriptingObjects::ScriptFFT::copyToWorkBuffer(var inputData, int offset, int
 
 		for (auto& b : *a)
 		{
-			thisProcessBuffer.set(channel, copyToWorkBuffer(b, offset, channel));
+			copyToWorkBuffer(b, offset, channel);
 			channel++;
 		}
-
-		return var(thisProcessBuffer);
 	}
 	else if (auto b = inputData.getBuffer())
 	{
-		if (auto dst = scratchBuffers[channel].workBuffer)
+		if (auto dst = scratchBuffers[channel].chunkInput)
 		{
 			dst->clear();
 			int numToCopy = jmin(b->size - offset, maxNumSamples);
 			dst->buffer.copyFrom(0, 0, b->buffer, 0, offset, numToCopy);
-
-			return var(scratchBuffers[channel].processBuffer);
 		}
 		else
 		{
 			reportScriptError("channel mismatch");
-			RETURN_IF_NO_THROW(var());
 		}
 	}
 }
 
-void ScriptingObjects::ScriptFFT::applyFFT(int numChannelsThisTime)
+void ScriptingObjects::ScriptFFT::copyFromWorkBuffer(int offset, int channel)
+{
+	if (!enableInverse)
+		return;
+
+	if (auto b = scratchBuffers[channel].chunkOutput)
+	{
+		if (auto out = outputData[channel].getBuffer())
+		{
+			int numToCopy = jmin(b->size, out->size - offset);
+			out->buffer.addFrom(0, offset, b->buffer, 0, 0, numToCopy);
+		}
+	}
+}
+
+void ScriptingObjects::ScriptFFT::applyFFT(int numChannelsThisTime, bool skipFirstWindowHalf)
 {
 	if (numChannelsThisTime > scratchBuffers.size())
 		reportScriptError("Channel amount mismatch");
@@ -6592,14 +6738,59 @@ void ScriptingObjects::ScriptFFT::applyFFT(int numChannelsThisTime)
 	{
 		auto wb = scratchBuffers[i];
 
-		FFTHelpers::applyWindow(currentWindowType, wb.workBuffer->buffer);
-		fft->performRealOnlyForwardTransform(wb.workBuffer->buffer.getWritePointer(0), true);
-
-		if (currentDomainType != Phase)
+		// Apply window here...
+		
 		{
-			FFTHelpers::toFreqSpectrum(wb.workBuffer->buffer, wb.processBuffer->buffer);
-			FFTHelpers::scaleFrequencyOutput(wb.processBuffer->buffer, currentDomainType == MagnitudeDb);
+			auto wdst = wb.chunkInput->buffer.getWritePointer(0);
+			auto wsrc = windowBuffer.getReadPointer(0);
+			auto windowSize = windowBuffer.getNumSamples();
+
+			if (skipFirstWindowHalf)
+			{
+				auto firstHalf = windowSize / 4;
+
+				//FloatVectorOperations::multiply(wdst, 2.0f, firstHalf);
+
+				wdst += firstHalf;
+				wsrc += firstHalf;
+				windowSize -= firstHalf;
+			}
+
+			FloatVectorOperations::multiply(wdst, wsrc, windowSize);
 		}
+		
+
+		fft->performRealOnlyForwardTransform(wb.chunkInput->buffer.getWritePointer(0), false);
+
+		if (phaseFunction || enableInverse)
+		{
+			FFTHelpers::toPhaseSpectrum(wb.chunkInput->buffer, wb.phaseBuffer->buffer);
+		}
+
+		if (magnitudeFunction || enableInverse)
+		{
+			FFTHelpers::toFreqSpectrum(wb.chunkInput->buffer, wb.magBuffer->buffer);
+			FFTHelpers::scaleFrequencyOutput(wb.magBuffer->buffer, convertMagnitudesToDecibel);
+		}
+	}
+}
+
+void ScriptingObjects::ScriptFFT::applyInverseFFT(int numChannelsThisTime)
+{
+	if (!enableInverse)
+		return;
+
+	if (numChannelsThisTime > scratchBuffers.size())
+		reportScriptError("Channel amount mismatch");
+
+	for (int i = 0; i < numChannelsThisTime; i++)
+	{
+		auto wb = scratchBuffers[i];
+		
+		FFTHelpers::scaleFrequencyOutput(wb.magBuffer->buffer, convertMagnitudesToDecibel, true);
+		FFTHelpers::toComplexArray(wb.phaseBuffer->buffer, wb.magBuffer->buffer, wb.chunkOutput->buffer);
+
+		fft->performRealOnlyInverseTransform(wb.chunkOutput->buffer.getWritePointer(0));
 	}
 }
 
