@@ -460,7 +460,8 @@ private:
 	void loopChanged();
 	void lengthChanged();
 
-    void rebuildCrossfadeBuffer(bool preloadContainsLoop);
+	void calculateCrossfadeArea();
+    void rebuildCrossfadeBuffer();
 	void applyCrossfadeToInternalBuffers();
 
 	/** This fills the supplied AudioSampleBuffer with samples.
