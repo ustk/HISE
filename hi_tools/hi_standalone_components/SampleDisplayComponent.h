@@ -1416,20 +1416,44 @@ public:
 		if (showLoop != shouldShowLoop)
 		{
 			showLoop = shouldShowLoop;
-			repaint();
+
+			WeakReference<Component> safeThis(this);
+
+			MessageManager::callAsync([safeThis]()
+			{
+				if (safeThis != nullptr)
+					safeThis->repaint();
+			});
 		}
 	}
 
 	void bufferWasLoaded() override
 	{
-		if (connectedBuffer != nullptr)
-			preview->setBufferAndSampleRate(connectedBuffer->sampleRate, connectedBuffer->getChannelBuffer(0, true), connectedBuffer->getChannelBuffer(1, true));
-		else
-			preview->setBuffer({}, {});
-		
-		setShowLoop(connectedBuffer != nullptr && connectedBuffer->getLoopRange() != connectedBuffer->getCurrentRange());
+		Component::SafePointer<MultiChannelAudioBufferDisplay> safeThis(this);
 
-		updateRanges(nullptr);
+		auto f = [safeThis]()
+		{
+			if (safeThis == nullptr)
+				return;
+
+			auto cb = safeThis.getComponent()->connectedBuffer;
+
+			if (cb != nullptr)
+				safeThis->preview->setBufferAndSampleRate(cb->sampleRate, cb->getChannelBuffer(0, true), cb->getChannelBuffer(1, true));
+			else
+				safeThis->preview->setBuffer({}, {});
+
+			auto shouldShowLoop = cb != nullptr && cb->getLoopRange() != cb->getCurrentRange();
+			safeThis->setShowLoop(shouldShowLoop);
+
+			safeThis->updateRanges(nullptr);
+		};
+
+		if (MessageManager::getInstanceWithoutCreating()->isThisTheMessageThread())
+			f();
+		else
+			MessageManager::callAsync(f);
+		
 	}
 
 	void bufferWasModified() override

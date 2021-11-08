@@ -293,6 +293,7 @@ void StreamingSamplerSound::setPreloadSize(int newPreloadSize, bool forceReload)
 			fileReader.readFromDisk(preloadBuffer, 0, samplesToRead, sampleStartToUse, true);
 	}
 
+	rebuildCrossfadeBuffer();
 	applyCrossfadeToInternalBuffers();
 }
 
@@ -461,8 +462,12 @@ void StreamingSamplerSound::setSampleStart(int newSampleStart)
 		sampleStart = newSampleStart;
 		lengthChanged();
 
-		if (loopEnabled)
+		Range<int> s(sampleStart, sampleStart + preloadBuffer.getNumSamples());
+
+		if (s.contains(loopStart))
+		{
 			loopChanged();
+		}
 	}
 }
 
@@ -560,21 +565,27 @@ void StreamingSamplerSound::lengthChanged()
 	}
 }
 
+void StreamingSamplerSound::calculateCrossfadeArea()
+{
+	crossfadeArea = Range<int>((int)(getLoopEnd(isReversed()) - crossfadeLength), (int)getLoopEnd(isReversed()));
+	auto numBeforeLoopStart = getLoopStart(isReversed());
+
+	if (crossfadeArea.getLength() > numBeforeLoopStart)
+		crossfadeArea.setStart(getLoopEnd(isReversed()) - numBeforeLoopStart);
+}
+
 void StreamingSamplerSound::applyCrossfadeToInternalBuffers()
 {
-	if (loopBuffer != nullptr && getLoopLength() > 0)
+	if (!crossfadeArea.isEmpty())
 	{
+		jassert(loopBuffer != nullptr);
+
 		auto fadePos = loopEnd - sampleStart - crossfadeArea.getLength();
+
+		if (isReversed())
+			fadePos = sampleEnd - loopStart - crossfadeArea.getLength();
+
 		auto numInBuffer = preloadBuffer.getNumSamples();
-        
-        if(loopBuffer == nullptr)
-        {
-            bool preloadContainsLoop = loopEnd <= preloadBuffer.getNumSamples() - sampleStart;
-            rebuildCrossfadeBuffer(preloadContainsLoop);
-        }
-        
-        if(loopBuffer == nullptr)
-            return;
         
 		if (fadePos < numInBuffer)
 		{
@@ -616,16 +627,9 @@ void StreamingSamplerSound::loopChanged()
 	}
 
 	loopStart = jmax<int>(loopStart, sampleStart);
-	loopEnd = jmin<int>(loopEnd, sampleEnd);
+	loopEnd = jlimit<int>(loopStart, sampleEnd, loopEnd);
 	
-	crossfadeArea = Range<int>((int)(getLoopEnd(isReversed()) - crossfadeLength), (int)getLoopEnd(isReversed()));
-
-	auto numBeforeLoopStart = getLoopStart(isReversed());
-
-	if (crossfadeArea.getLength() > numBeforeLoopStart)
-	{
-		crossfadeArea.setStart(getLoopEnd(isReversed()) - numBeforeLoopStart);
-	}
+	calculateCrossfadeArea();
 
 	if (loopEnabled)
 	{
@@ -652,7 +656,7 @@ void StreamingSamplerSound::loopChanged()
 
         if(crossfadeLength != 0)
         {
-            rebuildCrossfadeBuffer(preloadContainsLoop);
+            rebuildCrossfadeBuffer();
             applyCrossfadeToInternalBuffers();
         }
 	}
@@ -666,8 +670,10 @@ void StreamingSamplerSound::loopChanged()
 	}
 }
 
-void StreamingSamplerSound::rebuildCrossfadeBuffer(bool preloadContainsLoop)
+void StreamingSamplerSound::rebuildCrossfadeBuffer()
 {
+	calculateCrossfadeArea();
+
 	int fadeInStartOffset, fadeOutStartOffset;
 	
 	if (isReversed())
@@ -684,12 +690,6 @@ void StreamingSamplerSound::rebuildCrossfadeBuffer(bool preloadContainsLoop)
 	{
 		fadeInStartOffset = loopStart - crossfadeArea.getLength();
 		fadeOutStartOffset = loopEnd - crossfadeArea.getLength();
-
-		// If we're copying the crossfade to the preload buffer we will need to take the sample start into account
-		// (otherwise it will be compensated during playback)
-		auto offsetInPreloadBuffer = preloadContainsLoop ? sampleStart : 0;
-		fadeInStartOffset += offsetInPreloadBuffer;
-		fadeOutStartOffset += offsetInPreloadBuffer;
 	}
 
 	int numToCopy = crossfadeArea.getLength();
@@ -860,8 +860,12 @@ void StreamingSamplerSound::fillInternal(hlac::HiseSampleBuffer &sampleBuffer, i
 {
 	jassert(uptime + samplesToCopy <= sampleEnd);
 
+	Range<int> thisRange(uptime, uptime + samplesToCopy);
+
+	
+
 	// Some samples from the loop crossfade buffer are required
-	if (loopEnabled && !crossfadeArea.isEmpty() && Range<int>(uptime, uptime + samplesToCopy).intersects(crossfadeArea))
+	if (loopEnabled && !crossfadeArea.isEmpty() && thisRange.intersects(crossfadeArea))
 	{
 		const int numSamplesBeforeCrossfade = jmax(0, crossfadeArea.getStart() - uptime);
 
@@ -877,7 +881,15 @@ void StreamingSamplerSound::fillInternal(hlac::HiseSampleBuffer &sampleBuffer, i
 			const int indexInLoopBuffer = jmax(0, uptime - crossfadeArea.getStart());
 
 			if (loopBuffer != nullptr)
-				hlac::HiseSampleBuffer::copy(sampleBuffer, *loopBuffer, numSamplesBeforeCrossfade, indexInLoopBuffer, numSamplesInCrossfade);
+			{
+				int numBeforeWrap = jmin(numSamplesInCrossfade, loopBuffer->getNumSamples() - indexInLoopBuffer);
+				jassert(numBeforeWrap == numSamplesInCrossfade);
+
+				if (numBeforeWrap > 0)
+				{
+					hlac::HiseSampleBuffer::copy(sampleBuffer, *loopBuffer, numSamplesBeforeCrossfade + offsetInBuffer, indexInLoopBuffer, numBeforeWrap);
+				}
+			}
 			else
 				jassertfalse;
 		}
@@ -905,8 +917,6 @@ void StreamingSamplerSound::fillInternal(hlac::HiseSampleBuffer &sampleBuffer, i
 		}
 		else
 		{
-			jassertfalse;
-
 			sampleBuffer.clear();
 		}
 	}

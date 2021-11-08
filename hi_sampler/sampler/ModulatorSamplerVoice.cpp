@@ -218,12 +218,10 @@ void ModulatorSamplerVoice::calculateBlock(int startSample, int numSamples)
 			jassertfalse;
 	}
 
-#if USE_BACKEND
 	if (sampler->isLastStartedVoice(this))
 	{
 		handlePlaybackPosition(sound);
 	}
-#endif
 }
 
 void ModulatorSamplerVoice::handlePlaybackPosition(const StreamingSamplerSound * sound)
@@ -246,9 +244,12 @@ void ModulatorSamplerVoice::handlePlaybackPosition(const StreamingSamplerSound *
 		}
 		else
 		{
-			if (samplePosition + sound->getSampleStart() > sound->getLoopEnd())
+			auto sampleStart = sound->getSampleStart();
+
+			if (samplePosition + sampleStart > sound->getLoopEnd())
 			{
-                samplePosition = hmath::wrap(samplePosition - sound->getLoopStart(), sound->getLoopLength()) + sound->getLoopStart() - sound->getSampleStart();
+				auto ls = sound->getLoopStart() - sampleStart;
+				samplePosition = hmath::wrap(samplePosition - ls, sound->getLoopLength()) + ls;
 			}
 		}
 
