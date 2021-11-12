@@ -1656,8 +1656,11 @@ struct ScriptingApi::Settings::Wrapper
 	API_METHOD_WRAPPER_0(Settings, getAvailableDeviceNames);
 	API_METHOD_WRAPPER_0(Settings, getCurrentAudioDevice);
 	API_VOID_METHOD_WRAPPER_1(Settings, setAudioDevice);
+	API_METHOD_WRAPPER_0(Settings, getAvailableInputChannels);
 	API_METHOD_WRAPPER_0(Settings, getAvailableOutputChannels);
+	API_METHOD_WRAPPER_0(Settings, getCurrentInputChannel);
 	API_METHOD_WRAPPER_0(Settings, getCurrentOutputChannel);
+	API_VOID_METHOD_WRAPPER_1(Settings, setInputChannel);
 	API_VOID_METHOD_WRAPPER_1(Settings, setOutputChannel);
 	API_METHOD_WRAPPER_0(Settings, getAvailableBufferSizes);
 	API_METHOD_WRAPPER_0(Settings, getCurrentBufferSize);
@@ -1694,8 +1697,11 @@ ScriptingApi::Settings::Settings(ProcessorWithScriptingContent* s) :
 	ADD_API_METHOD_0(getAvailableDeviceNames);
 	ADD_API_METHOD_0(getCurrentAudioDevice);
 	ADD_API_METHOD_1(setAudioDevice);
+	ADD_API_METHOD_0(getAvailableInputChannels);
 	ADD_API_METHOD_0(getAvailableOutputChannels);
+	ADD_API_METHOD_0(getCurrentInputChannel);
 	ADD_API_METHOD_0(getCurrentOutputChannel);
+	ADD_API_METHOD_1(setInputChannel);
 	ADD_API_METHOD_1(setOutputChannel);
 	ADD_API_METHOD_0(getAvailableBufferSizes);
 	ADD_API_METHOD_0(getCurrentBufferSize);
@@ -1803,9 +1809,25 @@ var ScriptingApi::Settings::getAvailableOutputChannels()
 	
 	if (currentDevice != nullptr) 
 	{
-		StringArray outputPairs = HiseSettings::ConversionHelpers::getChannelPairs(currentDevice);
+		StringArray outputPairs = HiseSettings::ConversionHelpers::getOutputChannelPairs(currentDevice);
 
 		for (auto x : outputPairs)
+			result.add(x);
+	}
+
+	return result;
+}
+
+var ScriptingApi::Settings::getAvailableInputChannels()
+{
+	AudioIODevice* currentDevice = driver->deviceManager->getCurrentAudioDevice();
+	Array<var> result;	
+	
+	if (currentDevice != nullptr) 
+	{
+		StringArray inputPairs = HiseSettings::ConversionHelpers::getInputChannelPairs(currentDevice);
+
+		for (auto x : inputPairs)
 			result.add(x);
 	}
 
@@ -1822,9 +1844,24 @@ int ScriptingApi::Settings::getCurrentOutputChannel()
 	return 0;
 }
 
+int ScriptingApi::Settings::getCurrentInputChannel()
+{
+	AudioIODevice* currentDevice = driver->deviceManager->getCurrentAudioDevice();
+	
+	if (currentDevice != nullptr)
+		return (currentDevice->getActiveInputChannels().getHighestBit() - 1) / 2;
+	
+	return 0;
+}
+
 void ScriptingApi::Settings::setOutputChannel(int index)
 {
-	CustomSettingsWindow::flipEnablement(driver->deviceManager, index);
+	CustomSettingsWindow::flipOutputEnablement(driver->deviceManager, index);
+}
+
+void ScriptingApi::Settings::setInputChannel(int index)
+{
+	CustomSettingsWindow::flipInputEnablement(driver->deviceManager, index);
 }
 
 var ScriptingApi::Settings::getAvailableBufferSizes()
@@ -2461,6 +2498,7 @@ struct ScriptingApi::Sampler::Wrapper
 	API_METHOD_WRAPPER_1(Sampler, loadSfzFile);
 	API_VOID_METHOD_WRAPPER_1(Sampler, loadSampleMapFromJSON);
 	API_VOID_METHOD_WRAPPER_1(Sampler, loadSampleMapFromBase64);
+	API_METHOD_WRAPPER_1(Sampler, getAudioWaveformContentAsBase64);
 	API_METHOD_WRAPPER_0(Sampler, getSampleMapAsBase64);
 	API_METHOD_WRAPPER_1(Sampler, createSelection);
 	API_METHOD_WRAPPER_1(Sampler, createSelectionFromIndexes);
@@ -2470,6 +2508,7 @@ struct ScriptingApi::Sampler::Wrapper
 	API_METHOD_WRAPPER_1(Sampler, saveCurrentSampleMap);
 	API_METHOD_WRAPPER_2(Sampler, importSamples);
 	API_METHOD_WRAPPER_0(Sampler, clearSampleMap);
+	API_METHOD_WRAPPER_1(Sampler, parseSampleFile);
 	API_VOID_METHOD_WRAPPER_2(Sampler, setGUISelection);
 	API_VOID_METHOD_WRAPPER_1(Sampler, setSortByRRGroup);
 };
@@ -2515,12 +2554,14 @@ sampler(sampler_)
 	ADD_API_METHOD_0(createListFromGUISelection);
 	ADD_API_METHOD_0(createListFromScriptSelection);
 	ADD_API_METHOD_1(saveCurrentSampleMap);
+	ADD_API_METHOD_1(parseSampleFile);
 	ADD_API_METHOD_2(importSamples);
 	ADD_API_METHOD_0(clearSampleMap);
 	ADD_API_METHOD_2(setGUISelection);
 	ADD_API_METHOD_1(loadSampleMapFromJSON);
 	ADD_API_METHOD_1(loadSampleMapFromBase64);
 	ADD_API_METHOD_0(getSampleMapAsBase64);
+	ADD_API_METHOD_1(getAudioWaveformContentAsBase64);
 
 	sampleIds.add(SampleIds::ID);
 	sampleIds.add(SampleIds::FileName);
@@ -2884,6 +2925,7 @@ void ScriptingApi::Sampler::setGUISelection(var sampleList, bool addToSelection)
 {
 	WARN_IF_AUDIO_THREAD(true, ScriptGuard::IllegalApiCall);
 
+#if USE_BACKEND
 	ModulatorSampler *s = static_cast<ModulatorSampler*>(sampler.get());
 
 	if (s == nullptr)
@@ -2916,6 +2958,7 @@ void ScriptingApi::Sampler::setGUISelection(var sampleList, bool addToSelection)
 	{
 		s->getSampleEditHandler()->setMainSelectionToLast();
 	});
+#endif
 }
 
 void ScriptingApi::Sampler::selectSounds(String regexWildcard)
@@ -3215,6 +3258,8 @@ void ScriptingApi::Sampler::loadSampleMap(const String &fileName)
 	}
 }
 
+
+
 void ScriptingApi::Sampler::loadSampleMapFromJSON(var jsonSampleList)
 {
 	ModulatorSampler *s = dynamic_cast<ModulatorSampler*>(sampler.get());
@@ -3222,36 +3267,16 @@ void ScriptingApi::Sampler::loadSampleMapFromJSON(var jsonSampleList)
 	if (s == nullptr)
 		reportScriptError("Invalid sampler call");
 
-	if (auto a = jsonSampleList.getArray())
-	{
-		auto v = ValueTreeConverters::convertVarArrayToFlatValueTree(jsonSampleList, "samplemap", "sample");
-		v.setProperty("ID", "CustomJSON", nullptr);
-		v.setProperty("SaveMode", 0, nullptr);
-		v.setProperty("RRGroupAmount", 1, nullptr);
-		v.setProperty("MicPositions", ";", nullptr);
-		
-		auto addMissingProp = [](ValueTree& c, const Identifier& id, var defaultValue)
-		{
-			if (!c.hasProperty(id))
-				c.setProperty(id, defaultValue, nullptr);
-		};
+	auto v = convertJSONListToValueTree(jsonSampleList);
 
-		for (auto& c : v)
-		{
-			addMissingProp(c, SampleIds::LoVel, 0);
-			addMissingProp(c, SampleIds::HiVel, 127);
-			addMissingProp(c, SampleIds::LoKey, 0);
-			addMissingProp(c, SampleIds::HiKey, 127);
-			addMissingProp(c, SampleIds::Root, 64);
-			addMissingProp(c, SampleIds::RRGroup, 1);
-		}
+	if (!v.isValid())
+		return;
 
-		s->killAllVoicesAndCall([v](Processor* p)
+	s->killAllVoicesAndCall([v](Processor* p)
 		{
 			dynamic_cast<ModulatorSampler*>(p)->getSampleMap()->loadUnsavedValueTree(v);
 			return SafeFunctionCall::OK;
 		}, true);
-	}
 }
 
 void ScriptingApi::Sampler::loadSampleMapFromBase64(const String& b64)
@@ -3283,6 +3308,74 @@ String ScriptingApi::Sampler::getSampleMapAsBase64()
 
 	MemoryBlock mb;
 	auto v = s->getSampleMap()->getValueTree();
+
+	zstd::ZDefaultCompressor comp;
+	comp.compress(v, mb);
+	return mb.toBase64Encoding();
+}
+
+var ScriptingApi::Sampler::parseSampleFile(var sampleFile)
+{
+	ModulatorSampler *s = dynamic_cast<ModulatorSampler*>(sampler.get());
+
+	if (s == nullptr)
+		reportScriptError("Invalid sampler call");
+
+	File f;
+
+	if (auto sf = dynamic_cast<ScriptingObjects::ScriptFile*>(sampleFile.getObject()))
+		f = sf->f;
+	else if (sampleFile.isString() && File::isAbsolutePath(sampleFile.toString()))
+		f = File(sampleFile.toString());
+	else
+		reportScriptError("not a valid file input");
+
+	auto v = s->parseMetadata(f);
+
+	if (v.isValid())
+	{
+		DynamicObject::Ptr obj = new DynamicObject();
+
+		for (int i = 0; i < v.getNumProperties(); i++)
+		{
+			auto id = v.getPropertyName(i);
+			obj->setProperty(id, v[id]);
+		}
+
+		return var(obj.get());
+	}
+
+	return var();
+}
+
+String ScriptingApi::Sampler::getAudioWaveformContentAsBase64(var presetObj)
+{
+	auto fileName = presetObj.getProperty("data", "").toString();
+
+	Array<var> data;
+
+	if (File::isAbsolutePath(fileName))
+	{
+		auto sampleStart = (int)presetObj.getProperty("rangeStart", 0);
+		auto sampleEnd = (int)presetObj.getProperty("rangeEnd", 0);
+
+		auto newSample = parseSampleFile(var(fileName));
+
+		if (auto obj = newSample.getDynamicObject())
+		{
+			if (sampleStart != 0)
+				obj->setProperty(SampleIds::SampleStart, sampleStart);
+
+			if (sampleEnd != 0)
+				obj->setProperty(SampleIds::SampleEnd, sampleEnd);
+		}
+
+		data.add(newSample);
+	}
+
+	auto v = convertJSONListToValueTree(var(data));
+
+	MemoryBlock mb;
 
 	zstd::ZDefaultCompressor comp;
 	comp.compress(v, mb);
@@ -3640,13 +3733,47 @@ bool ScriptingApi::Sampler::clearSampleMap()
 		RETURN_IF_NO_THROW(false);
 	}
 
-	if (auto sm = s->getSampleMap())
+	auto f = [](Processor* p)
 	{
+		auto sm = static_cast<ModulatorSampler*>(p)->getSampleMap();
 		sm->clear(sendNotificationAsync);
-		return true;
+		return SafeFunctionCall::OK;
+	};
+
+	s->killAllVoicesAndCall(f);
+	return true;
+}
+
+juce::ValueTree ScriptingApi::Sampler::convertJSONListToValueTree(var jsonSampleList)
+{
+	if (auto a = jsonSampleList.getArray())
+	{
+		auto v = ValueTreeConverters::convertVarArrayToFlatValueTree(jsonSampleList, "samplemap", "sample");
+		v.setProperty("ID", "CustomJSON", nullptr);
+		v.setProperty("SaveMode", 0, nullptr);
+		v.setProperty("RRGroupAmount", 1, nullptr);
+		v.setProperty("MicPositions", ";", nullptr);
+
+		auto addMissingProp = [](ValueTree& c, const Identifier& id, var defaultValue)
+		{
+			if (!c.hasProperty(id))
+				c.setProperty(id, defaultValue, nullptr);
+		};
+
+		for (auto c : v)
+		{
+			addMissingProp(c, SampleIds::LoVel, 0);
+			addMissingProp(c, SampleIds::HiVel, 127);
+			addMissingProp(c, SampleIds::LoKey, 0);
+			addMissingProp(c, SampleIds::HiKey, 127);
+			addMissingProp(c, SampleIds::Root, 64);
+			addMissingProp(c, SampleIds::RRGroup, 1);
+		}
+
+		return v;
 	}
 
-	return false;
+	return {};
 }
 
 // ====================================================================================================== Synth functions

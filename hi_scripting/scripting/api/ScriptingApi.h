@@ -585,11 +585,20 @@ public:
 		/** Sets the current audio device */
 		void setAudioDevice(String name);
 		
+		/** Returns array of available input channel pairs. */
+		var getAvailableInputChannels();
+
 		/** Returns array of available output channel pairs. */
 		var getAvailableOutputChannels();
 
+		/** Returns current input channel pair. */
+		int getCurrentInputChannel();
+		
 		/** Returns current output channel pair. */
 		int getCurrentOutputChannel();
+		
+		/** Sets the input channel pair */
+		void setInputChannel(int index);
 		
 		/** Sets the output channel pair */
 		void setOutputChannel(int index);
@@ -758,7 +767,11 @@ public:
 		/** Returns a base64 compressed string containing the entire samplemap. */
 		String getSampleMapAsBase64();
 
+		/** Creates a JSON object from the sample file that can be used with loadSampleMapFromJSON. */
+		var parseSampleFile(var sampleFile);
 
+		/** Converts the user preset data of a audio waveform to a base 64 samplemap. */
+		String getAudioWaveformContentAsBase64(var presetObj);
 
 		/** Loads an SFZ file into the sampler. */
 		var loadSfzFile(var sfzFile);
@@ -801,6 +814,8 @@ public:
 		struct Wrapper;
 
 	private:
+
+		ValueTree convertJSONListToValueTree(var jsonSampleList);
 
 		WeakReference<Processor> sampler;
 		SelectedItemSet<ModulatorSamplerSound::Ptr> soundSelection;

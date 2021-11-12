@@ -102,6 +102,7 @@ var ScriptUserPresetHandler::convertToJson(const ValueTree& d)
 	DynamicObject::Ptr p = new DynamicObject();
 
 	{
+		
 		auto dataTree = d.getChildWithName("Content");
 		
 		Array<var> dataArray;
@@ -120,11 +121,10 @@ var ScriptUserPresetHandler::convertToJson(const ValueTree& d)
 
 				if (id == Identifier("value"))
 				{
-					if (value.toString().startsWith("[") ||
-						value.toString().startsWith("{"))
-					{
-						value = JSON::parse(value.toString());
-					}
+					auto valueString = value.toString();
+
+					if (unpackComplexData && valueString.startsWith("JSON"))
+						value = JSON::parse(valueString.substring(4));
 				}
 
 				if (unpackComplexData && id == Identifier("data"))
@@ -133,7 +133,7 @@ var ScriptUserPresetHandler::convertToJson(const ValueTree& d)
 				cd->setProperty(id, value);
 			}
 
-			dataArray.add(var(cd));
+			dataArray.add(var(cd.get()));
 		}
 
 		p->setProperty("Content", var(dataArray));
@@ -144,7 +144,7 @@ var ScriptUserPresetHandler::convertToJson(const ValueTree& d)
 
 	}
 
-	return var(p);
+	return var(p.get());
 }
 
 
@@ -159,7 +159,7 @@ juce::ValueTree ScriptUserPresetHandler::applyJSON(const ValueTree& original, Dy
 	auto dataTree = copy.getChildWithName("Content");
 	dataTree.removeAllChildren(nullptr);
 
-	if (auto dataArray = obj->getProperty("content").getArray())
+	if (auto dataArray = obj->getProperty("Content").getArray())
 	{
 		for (const auto& p : *dataArray)
 		{
@@ -174,7 +174,7 @@ juce::ValueTree ScriptUserPresetHandler::applyJSON(const ValueTree& original, Dy
 					if (nv.name == Identifier("value"))
 					{
 						if(vTouse.isArray() || vTouse.isObject())
-							vTouse = JSON::toString(vTouse);
+							vTouse = "JSON" + JSON::toString(vTouse);
 					}
 
 					if (unpackComplexData && nv.name == Identifier("data"))
@@ -194,9 +194,9 @@ juce::ValueTree ScriptUserPresetHandler::applyJSON(const ValueTree& original, Dy
 	copy.removeChild(copy.getChildWithName("MidiAutomation"), nullptr);
 	copy.removeChild(copy.getChildWithName("MPEData"), nullptr);
 
-	copy.addChild(JSONConversionHelpers::jsonToValueTree(var(obj), "Modules"), -1, nullptr);
-	copy.addChild(JSONConversionHelpers::jsonToValueTree(var(obj), "MidiAutomation"), -1, nullptr);
-	copy.addChild(JSONConversionHelpers::jsonToValueTree(var(obj), "MPEData"), -1, nullptr);
+	copy.addChild(JSONConversionHelpers::jsonToValueTree(var(obj.get()), "Modules"), -1, nullptr);
+	copy.addChild(JSONConversionHelpers::jsonToValueTree(var(obj.get()), "MidiAutomation"), -1, nullptr);
+	copy.addChild(JSONConversionHelpers::jsonToValueTree(var(obj.get()), "MPEData"), -1, nullptr);
 	return copy;
 }
 
@@ -602,7 +602,7 @@ void ScriptExpansionHandler::InstallState::timerCallback()
 
 var ScriptExpansionHandler::InstallState::getObject()
 {
-	DynamicObject::Ptr newObj = new DynamicObject();
+	auto newObj = new DynamicObject();
 	newObj->setProperty("Status", status);
 	newObj->setProperty("Progress", getProgress());
 	newObj->setProperty("SourceFile", new ScriptingObjects::ScriptFile(parent.getScriptProcessor(), sourceFile));

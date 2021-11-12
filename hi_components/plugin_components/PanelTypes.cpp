@@ -77,6 +77,7 @@ var CustomSettingsWindowPanel::toDynamicObject() const
 
 	SET(CustomSettingsWindow::Properties::Driver);
 	SET(CustomSettingsWindow::Properties::Device);
+	SET(CustomSettingsWindow::Properties::Input);
 	SET(CustomSettingsWindow::Properties::Output);
 	SET(CustomSettingsWindow::Properties::BufferSize);
 	SET(CustomSettingsWindow::Properties::SampleRate);
@@ -103,6 +104,7 @@ void CustomSettingsWindowPanel::fromDynamicObject(const var& object)
 
 	SET(CustomSettingsWindow::Properties::Driver);
 	SET(CustomSettingsWindow::Properties::Device);
+	SET(CustomSettingsWindow::Properties::Input);
 	SET(CustomSettingsWindow::Properties::Output);
 	SET(CustomSettingsWindow::Properties::BufferSize);
 	SET(CustomSettingsWindow::Properties::SampleRate);
@@ -147,6 +149,7 @@ Identifier CustomSettingsWindowPanel::getDefaultablePropertyId(int index) const
 
 	SET(CustomSettingsWindow::Properties::Driver);
 	SET(CustomSettingsWindow::Properties::Device);
+	SET(CustomSettingsWindow::Properties::Input);
 	SET(CustomSettingsWindow::Properties::Output);
 	SET(CustomSettingsWindow::Properties::BufferSize);
 	SET(CustomSettingsWindow::Properties::SampleRate);
@@ -174,6 +177,7 @@ var CustomSettingsWindowPanel::getDefaultProperty(int index) const
 
 	SET(CustomSettingsWindow::Properties::Driver);
 	SET(CustomSettingsWindow::Properties::Device);
+	SET(CustomSettingsWindow::Properties::Input);
 	SET(CustomSettingsWindow::Properties::Output);
 	SET(CustomSettingsWindow::Properties::BufferSize);
 	SET(CustomSettingsWindow::Properties::SampleRate);
