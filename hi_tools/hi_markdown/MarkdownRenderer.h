@@ -727,7 +727,7 @@ public:
 		Rectangle<float> currentSearchResult;
 
 		Rectangle<int> currentLasso;
-		bool enableSelect = true;
+		bool enableSelect = false;
 		float scaleFactor = 1.0f;
 	};
 
@@ -737,6 +737,8 @@ public:
 		CustomViewport(MarkdownPreview& parent_) :
 			parent(parent_)
 		{
+            sf.addScrollBarToAnimate(getVerticalScrollBar());
+            setScrollBarThickness(13);
 			//setScrollOnDragEnabled(true);
 		}
 
@@ -748,6 +750,7 @@ public:
 			ViewportWithScrollCallback::visibleAreaChanged(newVisibleArea);
 		}
 
+        ScrollbarFader sf;
 		MarkdownPreview& parent;
 	};
 

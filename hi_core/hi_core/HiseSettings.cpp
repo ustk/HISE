@@ -145,10 +145,13 @@ Array<juce::Identifier> HiseSettings::Other::getAllIds()
 	Array<Identifier> ids;
 
 	ids.add(UseOpenGL);
+	ids.add(GlassEffect);
 	ids.add(GlobalSamplePath);
 	ids.add(EnableAutosave);
 	ids.add(AutosaveInterval);
 	ids.add(AudioThreadGuardEnabled);
+	ids.add(ExternalEditorPath);
+    ids.add(AutoShowWorkspace);
 
 	return ids;
 }
@@ -483,9 +486,18 @@ Array<juce::Identifier> HiseSettings::SnexWorkbench::getAllIds()
 		D("> Be aware that this does not affect whether your compiled project uses OpenGL (as this can be defined separately).");
 		P_();
 
+		P(HiseSettings::Other::GlassEffect);
+		D("Uses a glass effect for the popup windows. Disable this on older systems for increased graphics performance");
+		P_();
+
 		P(HiseSettings::Other::GlobalSamplePath);
 		D("If you want to redirect all sample locations to a global sample path (eg. on a dedicated hard drive or the Dropbox folder), you can set it here.")
 		D("Then you can just put a redirection file using the `{GLOBAL_SAMPLE_FOLDER}` wildcard into each sample folder that you want to redirect");
+		P_();
+
+		P(HiseSettings::Other::ExternalEditorPath);
+		D("You can specifiy the executable of an audio editor here and then use the button in the sample editor to open the currently selected files in the editor");
+		D("> You can use any editor that accepts filenames as command-line argument");
 		P_();
 
 		P(HiseSettings::Other::EnableAutosave);
@@ -497,6 +509,11 @@ Array<juce::Identifier> HiseSettings::SnexWorkbench::getAllIds()
 		D("The interval for the autosaver in minutes. This must be a number between `1` and `30`.");
 		P_();
 
+        P(HiseSettings::Other::AutoShowWorkspace);
+        D("If this is activated, clicking on a workspace icon (or loading a new patch) will ensure that the workspace is visible (so if it's folded, it will be unfolded.");
+        D("> Disable this setting if you are using a custom workspace environment with a second window.");
+        P_();
+        
 		P(HiseSettings::Other::AudioThreadGuardEnabled);
 		D("Watches for illegal calls in the audio thread. Use this during script development to catch allocations etc.");
 		P_();
@@ -667,6 +684,8 @@ juce::StringArray HiseSettings::Data::getOptionsFor(const Identifier& id)
 		id == Scripting::EnableDebugMode ||
 		id == Other::AudioThreadGuardEnabled ||
 		id == Other::UseOpenGL ||
+		id == Other::GlassEffect ||
+        id == Other::AutoShowWorkspace ||
 		id == Compiler::RebuildPoolFiles ||
 		id == Compiler::Support32BitMacOS ||
 		id == Project::SupportMonoFX ||
@@ -779,6 +798,7 @@ bool HiseSettings::Data::isFileId(const Identifier& id)
 		   id == Project::RedirectSampleFolder ||
 		   id == Compiler::CustomNodePath ||
 		   id == Other::GlobalSamplePath ||
+		   id == Other::ExternalEditorPath ||
 		   id == Documentation::DocRepository;
 }
 
@@ -864,9 +884,12 @@ var HiseSettings::Data::getDefaultSetting(const Identifier& id) const
 	else if (id == Project::ExpansionType)			return "Disabled";
 	else if (id == Project::LinkExpansionsToProject)   return "No";
 	else if (id == Other::UseOpenGL)				return "No";
+	else if (id == Other::GlassEffect)				return "Yes";
 	else if (id == Other::EnableAutosave)			return "Yes";
 	else if (id == Other::AutosaveInterval)			return 5;
 	else if (id == Other::AudioThreadGuardEnabled)  return "Yes";
+    else if (id == Other::AutoShowWorkspace)        return "Yes";
+	else if (id == Other::ExternalEditorPath)		return "";
 	else if (id == Documentation::DocRepository)	return "";
 	else if (id == Documentation::RefreshOnStartup) return "Yes";
 	else if (id == Scripting::CodeFontSize)			return 17.0;
@@ -1017,8 +1040,8 @@ void HiseSettings::Data::settingWasChanged(const Identifier& id, const var& newV
 
 	else if (id == Scripting::CodeFontSize)
 		mc->getFontSizeChangeBroadcaster().sendMessage(sendNotification, (float)newValue);
-	else if (id == Other::UseOpenGL)
-		PresetHandler::showMessageWindow("Reopen HISE window", "Restart HISE (or reopen this window) in order to apply the new OpenGL setting", PresetHandler::IconType::Info);
+	else if (id == Other::UseOpenGL || id == Other::GlassEffect)
+		PresetHandler::showMessageWindow("Reopen HISE window", "Restart HISE (or reopen this window) in order to apply the new Graphics setting", PresetHandler::IconType::Info);
 	else if (id == Other::EnableAutosave || id == Other::AutosaveInterval)
 		mc->getAutoSaver().updateAutosaving();
 	else if (id == Other::AudioThreadGuardEnabled)

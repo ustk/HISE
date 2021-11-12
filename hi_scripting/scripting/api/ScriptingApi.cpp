@@ -33,8 +33,7 @@
 namespace hise { using namespace juce;
 
 #define SEND_MESSAGE(broadcaster) {	if (MessageManager::getInstance()->isThisTheMessageThread()) broadcaster->sendSynchronousChangeMessage(); else broadcaster->sendChangeMessage();}
-#define ADD_TO_TYPE_SELECTOR(x) (ScriptComponentPropertyTypeSelector::addToTypeSelector(ScriptComponentPropertyTypeSelector::x, propertyIds.getLast()))
-#define ADD_AS_SLIDER_TYPE(min, max, interval) (ScriptComponentPropertyTypeSelector::addToTypeSelector(ScriptComponentPropertyTypeSelector::SliderSelector, propertyIds.getLast(), min, max, interval))
+
 
 #if USE_BACKEND
 
@@ -842,6 +841,7 @@ struct ScriptingApi::Engine::Wrapper
 	API_METHOD_WRAPPER_1(Engine, getMacroName);
   API_VOID_METHOD_WRAPPER_1(Engine, setFrontendMacros)
 	API_VOID_METHOD_WRAPPER_2(Engine, setKeyColour);
+	API_VOID_METHOD_WRAPPER_3(Engine, showMessageBox);
 	API_VOID_METHOD_WRAPPER_2(Engine, showErrorMessage);
 	API_VOID_METHOD_WRAPPER_1(Engine, showMessage);
 	API_VOID_METHOD_WRAPPER_1(Engine, setLowestKeyToDisplay);
@@ -891,9 +891,11 @@ struct ScriptingApi::Engine::Wrapper
 	API_METHOD_WRAPPER_0(Engine, getControlRateDownsamplingFactor);
 	API_METHOD_WRAPPER_1(Engine, createDspNetwork);
 	API_METHOD_WRAPPER_0(Engine, createExpansionHandler);
+	API_METHOD_WRAPPER_0(Engine, createFFT);
 	API_METHOD_WRAPPER_0(Engine, getExpansionList);
 	API_METHOD_WRAPPER_1(Engine, setCurrentExpansion);
 	API_METHOD_WRAPPER_0(Engine, createGlobalScriptLookAndFeel);
+	API_METHOD_WRAPPER_1(Engine, createBackgroundTask);
 	API_VOID_METHOD_WRAPPER_3(Engine, showYesNoWindow);
 	API_VOID_METHOD_WRAPPER_1(Engine, addModuleStateToUserPreset);
 	API_VOID_METHOD_WRAPPER_0(Engine, rebuildCachedPools);
@@ -972,6 +974,8 @@ parentMidiProcessor(dynamic_cast<ScriptBaseMidiProcessor*>(p))
 	ADD_API_METHOD_0(isMpeEnabled);
 	ADD_API_METHOD_0(createMidiList);
 	ADD_API_METHOD_0(createUnorderedStack);
+	ADD_API_METHOD_1(createBackgroundTask);
+	ADD_API_METHOD_0(createFFT);
 	ADD_API_METHOD_0(getPlayHead);
 	ADD_API_METHOD_2(dumpAsJSON);
 	ADD_API_METHOD_1(loadFromJSON);
@@ -1024,6 +1028,7 @@ parentMidiProcessor(dynamic_cast<ScriptBaseMidiProcessor*>(p))
 	ADD_API_METHOD_2(getDspNetworkReference);
 	ADD_API_METHOD_0(createExpansionHandler);
 	ADD_API_METHOD_3(showYesNoWindow);
+	ADD_API_METHOD_3(showMessageBox);
 	ADD_API_METHOD_1(getSystemTime);
 	ADD_API_METHOD_1(copyTextToClipboard);
 }
@@ -1421,6 +1426,14 @@ var ScriptingApi::Engine::getSampleFilesFromDirectory(const String& relativePath
 	
 }
 
+void ScriptingApi::Engine::showMessageBox(String title, String markdownMessage, int type)
+{
+	MessageManager::callAsync([title, markdownMessage, type]()
+	{
+		PresetHandler::showMessageWindow(title, markdownMessage, (PresetHandler::IconType)type);
+	});
+}
+
 void ScriptingApi::Engine::showYesNoWindow(String title, String markdownMessage, var callback)
 {
 	//auto p = dynamic_cast<JavascriptProcessor*>(getScriptProcessor());
@@ -1431,30 +1444,8 @@ void ScriptingApi::Engine::showYesNoWindow(String title, String markdownMessage,
 		auto ok = PresetHandler::showYesNoWindow(title, markdownMessage);
 
 		std::array<var, 1> args = { var(ok) };
-
-		//Array<var> args = { var(ok) };
-
-
-
 		WeakCallbackHolder cb(p, callback, 1);
 		cb.call({ var(ok) });
-
-#if 0
-		dynamic_cast<ControlledObject*>(p)->getMainController()->getJavascriptThreadPool().addJob(JavascriptThreadPool::Task::HiPriorityCallbackExecution,
-			p, [ok, callback](JavascriptProcessor* p)
-		{
-			auto r = Result::ok();
-
-			var arg(ok);
-
-			p->getScriptEngine()->callExternalFunction(callback, var::NativeFunctionArgs({}, &arg, 1), &r);
-
-			if (!r.wasOk())
-				debugError(dynamic_cast<Processor*>(p), r.getErrorMessage());
-
-			return r;
-		});
-#endif
 	};
 
 	MessageManager::callAsync(f);
@@ -1471,6 +1462,11 @@ var ScriptingApi::Engine::createGlobalScriptLookAndFeel()
 		auto slaf = new ScriptingObjects::ScriptedLookAndFeel(getScriptProcessor());
 		return var(slaf);
 	}
+}
+
+var ScriptingApi::Engine::createFFT()
+{
+	return new ScriptingObjects::ScriptFFT(getScriptProcessor());
 }
 
 int ScriptingApi::Engine::getLatencySamples() const
@@ -1535,6 +1531,11 @@ var ScriptingApi::Engine::getDspNetworkReference(String processorId, String id)
 	}
 
 	return var();
+}
+
+var ScriptingApi::Engine::createBackgroundTask(String name)
+{
+	return new ScriptingObjects::ScriptBackgroundTask(getScriptProcessor(), name);
 }
 
 void ScriptingApi::Engine::setKeyColour(int keyNumber, int colourAsHex) { getProcessor()->getMainController()->setKeyboardCoulour(keyNumber, Colour(colourAsHex));}
@@ -2502,6 +2503,10 @@ struct ScriptingApi::Sampler::Wrapper
 	API_VOID_METHOD_WRAPPER_1(Sampler, setUseStaticMatrix);
     API_METHOD_WRAPPER_1(Sampler, loadSampleForAnalysis);
 	API_METHOD_WRAPPER_1(Sampler, loadSfzFile);
+	API_VOID_METHOD_WRAPPER_1(Sampler, loadSampleMapFromJSON);
+	API_VOID_METHOD_WRAPPER_1(Sampler, loadSampleMapFromBase64);
+	API_METHOD_WRAPPER_1(Sampler, getAudioWaveformContentAsBase64);
+	API_METHOD_WRAPPER_0(Sampler, getSampleMapAsBase64);
 	API_METHOD_WRAPPER_1(Sampler, createSelection);
 	API_METHOD_WRAPPER_1(Sampler, createSelectionFromIndexes);
 	API_METHOD_WRAPPER_1(Sampler, createSelectionWithFilter);
@@ -2510,6 +2515,8 @@ struct ScriptingApi::Sampler::Wrapper
 	API_METHOD_WRAPPER_1(Sampler, saveCurrentSampleMap);
 	API_METHOD_WRAPPER_2(Sampler, importSamples);
 	API_METHOD_WRAPPER_0(Sampler, clearSampleMap);
+	API_METHOD_WRAPPER_1(Sampler, parseSampleFile);
+	API_VOID_METHOD_WRAPPER_2(Sampler, setGUISelection);
 	API_VOID_METHOD_WRAPPER_1(Sampler, setSortByRRGroup);
 };
 
@@ -2554,8 +2561,14 @@ sampler(sampler_)
 	ADD_API_METHOD_0(createListFromGUISelection);
 	ADD_API_METHOD_0(createListFromScriptSelection);
 	ADD_API_METHOD_1(saveCurrentSampleMap);
+	ADD_API_METHOD_1(parseSampleFile);
 	ADD_API_METHOD_2(importSamples);
 	ADD_API_METHOD_0(clearSampleMap);
+	ADD_API_METHOD_2(setGUISelection);
+	ADD_API_METHOD_1(loadSampleMapFromJSON);
+	ADD_API_METHOD_1(loadSampleMapFromBase64);
+	ADD_API_METHOD_0(getSampleMapAsBase64);
+	ADD_API_METHOD_1(getAudioWaveformContentAsBase64);
 
 	sampleIds.add(SampleIds::ID);
 	sampleIds.add(SampleIds::FileName);
@@ -2904,15 +2917,54 @@ var ScriptingApi::Sampler::createListFromGUISelection()
 
 	{
 		MessageManagerLock mm;
-		const auto& selection = s->getSampleEditHandler()->getSelection();
 
-		for (auto sound : selection)
+		for (auto sound : *s->getSampleEditHandler())
 			newSelection.add(new ScriptingObjects::ScriptingSamplerSound(getScriptProcessor(), s, sound));
 	}
 
 	return newSelection;
 #else
 	return {};
+#endif
+}
+
+void ScriptingApi::Sampler::setGUISelection(var sampleList, bool addToSelection)
+{
+	WARN_IF_AUDIO_THREAD(true, ScriptGuard::IllegalApiCall);
+
+#if USE_BACKEND
+	ModulatorSampler *s = static_cast<ModulatorSampler*>(sampler.get());
+
+	if (s == nullptr)
+	{
+		reportScriptError("setGUISelection() only works with Samplers.");
+		return;
+	}
+
+	auto& selection = s->getSampleEditHandler()->getSelectionReference();
+
+	
+
+	if (!addToSelection)
+		selection.deselectAll();
+
+	if (auto ar = sampleList.getArray())
+	{
+		MessageManagerLock mm;
+
+		for (auto& s : *ar)
+		{
+			if (auto sound = dynamic_cast<ScriptingObjects::ScriptingSamplerSound*>(s.getObject()))
+			{
+				selection.addToSelectionBasedOnModifiers(sound->getSoundPtr(), ModifierKeys::commandModifier);
+			}
+		}
+	}
+		
+	MessageManager::callAsync([s]()
+	{
+		s->getSampleEditHandler()->setMainSelectionToLast();
+	});
 #endif
 }
 
@@ -3211,6 +3263,130 @@ void ScriptingApi::Sampler::loadSampleMap(const String &fileName)
 
 		s->killAllVoicesAndCall([ref](Processor* p) {dynamic_cast<ModulatorSampler*>(p)->loadSampleMap(ref); return SafeFunctionCall::OK; }, true);
 	}
+}
+
+
+
+void ScriptingApi::Sampler::loadSampleMapFromJSON(var jsonSampleList)
+{
+	ModulatorSampler *s = dynamic_cast<ModulatorSampler*>(sampler.get());
+
+	if (s == nullptr)
+		reportScriptError("Invalid sampler call");
+
+	auto v = convertJSONListToValueTree(jsonSampleList);
+
+	if (!v.isValid())
+		return;
+
+	s->killAllVoicesAndCall([v](Processor* p)
+		{
+			dynamic_cast<ModulatorSampler*>(p)->getSampleMap()->loadUnsavedValueTree(v);
+			return SafeFunctionCall::OK;
+		}, true);
+}
+
+void ScriptingApi::Sampler::loadSampleMapFromBase64(const String& b64)
+{
+	ModulatorSampler *s = dynamic_cast<ModulatorSampler*>(sampler.get());
+
+	if (s == nullptr)
+		reportScriptError("Invalid sampler call");
+
+	s->killAllVoicesAndCall([b64](Processor* p)
+	{
+		juce::MemoryBlock mb;
+		mb.fromBase64Encoding(b64);
+
+		zstd::ZDefaultCompressor comp;
+		ValueTree v;
+		comp.expand(mb, v);
+		dynamic_cast<ModulatorSampler*>(p)->getSampleMap()->loadUnsavedValueTree(v);
+		return SafeFunctionCall::OK;
+	}, true);
+}
+
+String ScriptingApi::Sampler::getSampleMapAsBase64()
+{
+	ModulatorSampler *s = dynamic_cast<ModulatorSampler*>(sampler.get());
+
+	if (s == nullptr)
+		reportScriptError("Invalid sampler call");
+
+	MemoryBlock mb;
+	auto v = s->getSampleMap()->getValueTree();
+
+	zstd::ZDefaultCompressor comp;
+	comp.compress(v, mb);
+	return mb.toBase64Encoding();
+}
+
+var ScriptingApi::Sampler::parseSampleFile(var sampleFile)
+{
+	ModulatorSampler *s = dynamic_cast<ModulatorSampler*>(sampler.get());
+
+	if (s == nullptr)
+		reportScriptError("Invalid sampler call");
+
+	File f;
+
+	if (auto sf = dynamic_cast<ScriptingObjects::ScriptFile*>(sampleFile.getObject()))
+		f = sf->f;
+	else if (sampleFile.isString() && File::isAbsolutePath(sampleFile.toString()))
+		f = File(sampleFile.toString());
+	else
+		reportScriptError("not a valid file input");
+
+	auto v = s->parseMetadata(f);
+
+	if (v.isValid())
+	{
+		DynamicObject::Ptr obj = new DynamicObject();
+
+		for (int i = 0; i < v.getNumProperties(); i++)
+		{
+			auto id = v.getPropertyName(i);
+			obj->setProperty(id, v[id]);
+		}
+
+		return var(obj.get());
+	}
+
+	return var();
+}
+
+String ScriptingApi::Sampler::getAudioWaveformContentAsBase64(var presetObj)
+{
+	auto fileName = presetObj.getProperty("data", "").toString();
+
+	Array<var> data;
+
+	if (File::isAbsolutePath(fileName))
+	{
+		auto sampleStart = (int)presetObj.getProperty("rangeStart", 0);
+		auto sampleEnd = (int)presetObj.getProperty("rangeEnd", 0);
+
+		auto newSample = parseSampleFile(var(fileName));
+
+		if (auto obj = newSample.getDynamicObject())
+		{
+			if (sampleStart != 0)
+				obj->setProperty(SampleIds::SampleStart, sampleStart);
+
+			if (sampleEnd != 0)
+				obj->setProperty(SampleIds::SampleEnd, sampleEnd);
+		}
+
+		data.add(newSample);
+	}
+
+	auto v = convertJSONListToValueTree(var(data));
+
+	MemoryBlock mb;
+
+	zstd::ZDefaultCompressor comp;
+	comp.compress(v, mb);
+	return mb.toBase64Encoding();
 }
 
 var ScriptingApi::Sampler::loadSfzFile(var sfzFile)
@@ -3564,13 +3740,47 @@ bool ScriptingApi::Sampler::clearSampleMap()
 		RETURN_IF_NO_THROW(false);
 	}
 
-	if (auto sm = s->getSampleMap())
+	auto f = [](Processor* p)
 	{
+		auto sm = static_cast<ModulatorSampler*>(p)->getSampleMap();
 		sm->clear(sendNotificationAsync);
-		return true;
+		return SafeFunctionCall::OK;
+	};
+
+	s->killAllVoicesAndCall(f);
+	return true;
+}
+
+juce::ValueTree ScriptingApi::Sampler::convertJSONListToValueTree(var jsonSampleList)
+{
+	if (auto a = jsonSampleList.getArray())
+	{
+		auto v = ValueTreeConverters::convertVarArrayToFlatValueTree(jsonSampleList, "samplemap", "sample");
+		v.setProperty("ID", "CustomJSON", nullptr);
+		v.setProperty("SaveMode", 0, nullptr);
+		v.setProperty("RRGroupAmount", 1, nullptr);
+		v.setProperty("MicPositions", ";", nullptr);
+
+		auto addMissingProp = [](ValueTree& c, const Identifier& id, var defaultValue)
+		{
+			if (!c.hasProperty(id))
+				c.setProperty(id, defaultValue, nullptr);
+		};
+
+		for (auto c : v)
+		{
+			addMissingProp(c, SampleIds::LoVel, 0);
+			addMissingProp(c, SampleIds::HiVel, 127);
+			addMissingProp(c, SampleIds::LoKey, 0);
+			addMissingProp(c, SampleIds::HiKey, 127);
+			addMissingProp(c, SampleIds::Root, 64);
+			addMissingProp(c, SampleIds::RRGroup, 1);
+		}
+
+		return v;
 	}
 
-	return false;
+	return {};
 }
 
 // ====================================================================================================== Synth functions

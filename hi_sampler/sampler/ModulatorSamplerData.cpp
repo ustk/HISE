@@ -414,6 +414,8 @@ void SampleMap::saveAndReloadMap()
 	pool->removeListener(this);
 	pool->loadFromReference(getReference(), PoolHelpers::ForceReloadStrong);
 	pool->addListener(this);
+    sampler->refreshPreloadSizes();
+    
 
 	changeWatcher = new ChangeWatcher(data);
 }
@@ -427,7 +429,8 @@ void SampleMap::valueTreePropertyChanged(ValueTree& treeWhosePropertyHasChanged,
 
 	if (i != -1)
 	{
-		notifier.addPropertyChange(i, property, treeWhosePropertyHasChanged.getProperty(property));
+		auto v = treeWhosePropertyHasChanged.getProperty(property);
+		notifier.addPropertyChange(i, property, v);
 	}
 }
 
@@ -467,7 +470,7 @@ void SampleMap::addSampleFromValueTree(ValueTree childWhichHasBeenAdded)
 		throw String("Can't find monolith");
 	}
 
-	auto newSound = new ModulatorSamplerSound(map, childWhichHasBeenAdded, map->currentMonolith);
+	auto newSound = new ModulatorSamplerSound(map, childWhichHasBeenAdded, map->currentMonolith.get());
 
 	{
 		LockHelpers::SafeLock sl(sampler->getMainController(), LockHelpers::SampleLock);
@@ -852,9 +855,12 @@ void SampleMap::load(const PoolReference& reference)
 
 	currentPool = getSampler()->getMainController()->getCurrentSampleMapPool();
 
-	if (auto expansion = getSampler()->getMainController()->getExpansionHandler().getExpansionForWildcardReference(reference.getReferenceString()))
+	if (!FullInstrumentExpansion::isEnabled(getSampler()->getMainController()))
 	{
-		currentPool = &expansion->pool->getSampleMapPool();
+		if (auto expansion = getSampler()->getMainController()->getExpansionHandler().getExpansionForWildcardReference(reference.getReferenceString()))
+		{
+			currentPool = &expansion->pool->getSampleMapPool();
+		}
 	}
 
 	sampleMapData = currentPool->loadFromReference(reference, PoolHelpers::LoadAndCacheWeak);
@@ -1524,8 +1530,10 @@ void SampleMap::Notifier::addPropertyChange(int index, const Identifier& id, con
 
 			bool found = false;
 
-			for (auto p : pendingChanges)
+			for (int i = 0; i < pendingChanges.size(); i++)
 			{
+				auto p = pendingChanges[i];
+
 				if (*p == index)
 				{
 					p->set(id, newValue);
@@ -1589,7 +1597,7 @@ void SampleMap::Notifier::sendSampleAmountChangeMessage(NotificationType n)
 		handleLightweightPropertyChanges();
 }
 
-void SampleMap::Notifier::handleHeavyweightPropertyChangesIdle(const Array<AsyncPropertyChange, CriticalSection>& changesThisTime)
+void SampleMap::Notifier::handleHeavyweightPropertyChangesIdle(Array<AsyncPropertyChange, CriticalSection> changesThisTime)
 {
 	jassert_sample_loading_thread(parent.getSampler()->getMainController());
 	LockHelpers::freeToGo(parent.getSampler()->getMainController());
@@ -1614,6 +1622,27 @@ void SampleMap::Notifier::handleHeavyweightPropertyChangesIdle(const Array<Async
 				
 		}
 	}
+
+	MessageManager::callAsync([changesThisTime, this]()
+	{
+		for (const auto& c : changesThisTime)
+		{
+			for (int i = 0; i < c.values.size(); i++)
+			{
+				if (auto s = c.selection[i])
+				{
+					auto v = c.values[i];
+					auto id = c.id;
+
+					for (auto l : this->parent.listeners)
+					{
+						if (l != nullptr)
+							l->samplePropertyWasChanged(dynamic_cast<ModulatorSamplerSound*>(s.get()), id, v);
+					}
+				}
+			}
+		}
+	});
 }
 
 void SampleMap::Notifier::handleHeavyweightPropertyChanges()

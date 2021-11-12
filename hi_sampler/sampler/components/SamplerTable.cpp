@@ -147,7 +147,7 @@ void SamplerTable::paint (Graphics& g)
     
 	Rectangle<int> a(x, y, width, height);
 
-	ProcessorEditorLookAndFeel::drawShadowBox(g, a, Colour(0xFF333333));
+	//ProcessorEditorLookAndFeel::drawShadowBox(g, a, Colour(0xFF333333));
 
     //[/UserPrePaint]
 
@@ -220,7 +220,7 @@ void SamplerTable::labelTextChanged (Label* labelThatHasChanged)
         //[UserLabelCode_searchLabel] -- add your label text handling code here..
 		String wildcard = searchLabel->getText(false);
 
-		ModulatorSamplerSound::selectSoundsBasedOnRegex(wildcard, sampler, handler->getSelection());
+		ModulatorSamplerSound::selectSoundsBasedOnRegex(wildcard, sampler, handler->getSelectionReference());
 
         //[/UserLabelCode_searchLabel]
     }

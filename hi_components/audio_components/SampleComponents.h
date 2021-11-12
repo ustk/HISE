@@ -35,6 +35,8 @@
 namespace hise {
 using namespace juce;
 
+
+
 class WaveformComponent : public Component,
 	public RingBufferComponentBase,
 	public SafeChangeListener
@@ -188,15 +190,6 @@ public:
 		JUCE_DECLARE_WEAK_REFERENCEABLE(Broadcaster)
 	};
 
-
-	enum ColourIds
-	{
-		bgColour = 1024,
-		fillColour,
-		lineColour,
-		numColourIds
-	};
-
 	WaveformComponent(Processor *p, int index = 0);
 
 	~WaveformComponent();
@@ -225,7 +218,10 @@ public:
 
 	void refresh() override;
 
-	Colour getColourForAnalyserBase(int colourId) override { return Colours::transparentBlack; }
+	Colour getColourForAnalyserBase(int colourId) override
+    {
+        return findColour(colourId);
+    }
 
 	void resized() override
 	{
@@ -289,6 +285,105 @@ private:
 
 };
 
+class SamplerSoundWaveform;
+
+
+
+struct SamplerDisplayWithTimeline : public Component
+{
+	static constexpr int TimelineHeight = 24;
+
+	enum class TimeDomain
+	{
+		Samples,
+		Milliseconds,
+		Seconds
+	};
+
+	struct Properties
+	{
+		double sampleLength;
+		double sampleRate;
+		TimeDomain currentDomain = TimeDomain::Seconds;
+	};
+
+	SamplerDisplayWithTimeline(ModulatorSampler* sampler);
+
+	SamplerSoundWaveform* getWaveform();
+	const SamplerSoundWaveform* getWaveform() const;
+	void resized() override;
+	void mouseDown(const MouseEvent& e) override;
+	static String getText(const Properties& p, float normalisedX);
+
+	static Colour getColourForEnvelope(Modulation::Mode m);
+
+	void paint(Graphics& g) override;
+
+	void setEnvelope(Modulation::Mode m, ModulatorSamplerSound* sound, bool setVisible);
+
+	Properties props;
+
+	ScopedPointer<TableEditor> tableEditor;
+	SampleLookupTable table;
+	Modulation::Mode envelope = Modulation::Mode::numModes;
+
+	JUCE_DECLARE_WEAK_REFERENCEABLE(SamplerDisplayWithTimeline);
+};
+
+struct SamplerTools
+{
+    enum class Mode
+    {
+        Nothing,
+        Zoom,
+        Preview,
+        PlayArea,
+        SampleStartArea,
+        LoopArea,
+        LoopCrossfadeArea,
+        GainEnvelope,
+        PitchEnvelope,
+        FilterEnvelope,
+        ToolModes
+    };
+    
+    static Colour getToolColour(Mode m)
+    {
+        switch(m)
+        {
+            case Mode::GainEnvelope:
+            case Mode::PitchEnvelope:
+            case Mode::FilterEnvelope:  return SamplerDisplayWithTimeline::getColourForEnvelope((Modulation::Mode)((int)m - (int)Mode::GainEnvelope));
+            case Mode::PlayArea:
+            case Mode::LoopArea:
+            case Mode::LoopCrossfadeArea:
+            case Mode::SampleStartArea: return AudioDisplayComponent::SampleArea::getAreaColour((AudioDisplayComponent::AreaTypes)((int)m - (int)Mode::PlayArea));
+            default: return Colours::white;
+        }
+    }
+    
+    void toggleMode(Mode newMode)
+    {
+        if(currentMode == newMode)
+            currentMode = Mode::Nothing;
+        else
+            currentMode = newMode;
+        
+        broadcaster.sendMessage(sendNotificationSync, currentMode);
+    }
+    
+    void setMode(Mode newMode)
+    {
+        if(currentMode != newMode)
+        {
+            currentMode = newMode;
+            broadcaster.sendMessage(sendNotificationSync, currentMode);
+        }
+    }
+    
+    Mode currentMode = Mode::Nothing;
+    LambdaBroadcaster<Mode> broadcaster;
+};
 
 /** A component that displays the waveform of a sample.
 *
@@ -298,9 +393,11 @@ private:
 *	It uses a timer to display the current playbar.
 */
 class SamplerSoundWaveform : public AudioDisplayComponent,
-	public Timer
+	public Timer,
+	public SettableTooltipClient
 {
 public:
+
 
 	/** Creates a new SamplerSoundWaveform.
 	*
@@ -332,31 +429,97 @@ public:
 
 	void paint(Graphics &g) override;
 
+	void paintOverChildren(Graphics &g) override;
+
 	void resized() override;
 
+    void setIsSamplerWorkspacePreview();
+    
 	/** Sets the currently displayed sound.
 	*
 	*	It listens for the global sound selection and displays the last selected sound if the selection changes.
 	*/
 	void setSoundToDisplay(const ModulatorSamplerSound *s, int multiMicIndex = 0);
 
-	const ModulatorSamplerSound *getCurrentSound() const { return currentSound.get(); }
+	void mouseDown(const MouseEvent& e) override;
 
+	void mouseUp(const MouseEvent& e) override;
+
+	void mouseMove(const MouseEvent& e) override;
+
+	void mouseExit(const MouseEvent& e) override;
+
+	const ModulatorSamplerSound *getCurrentSound() const { return currentSound.get(); }
 
 	float getNormalizedPeak() override;
 
+	void refresh(NotificationType n)
+	{
+		getThumbnail()->setDisplayGain(getCurrentSampleGain(), n);
+	}
+
+	void setVerticalZoom(float zf)
+	{
+		if (zf != verticalZoomGain)
+		{
+			verticalZoomGain = zf;
+			refresh(sendNotificationSync);
+		}
+	}
+
+	void setClickArea(AreaTypes newArea, bool resetIfSame=true)
+	{
+		if (newArea == currentClickArea && resetIfSame)
+			currentClickArea = AreaTypes::numAreas;
+		else
+			currentClickArea = newArea;
+
+		for (int i = 0; i < areas.size(); i++)
+		{
+			areas[i]->setAreaEnabled(currentClickArea == i);
+		}
+
+		auto isSomething = currentClickArea != AreaTypes::numAreas;
+
+		setMouseCursor(!isSomething ? MouseCursor::DraggingHandCursor : MouseCursor::CrosshairCursor);
+		
+	}
+
+	float getCurrentSampleGain() const;
+
+	SamplerDisplayWithTimeline::Properties timeProperties;
+
+	AreaTypes currentClickArea = AreaTypes::numAreas;
+
+    bool zeroCrossing = true;
+    
 private:
+
+	bool lastActive = false;
+	int xPos = -1;
+	bool previewHover = false;
+
+	ScopedPointer<LookAndFeel> slaf;
+
+	AudioDisplayComponent::AreaTypes getAreaForModifiers(const MouseEvent& e) const;
+
+	Identifier getSampleIdToChange(AreaTypes a, const MouseEvent& e) const;
+
+	float verticalZoomGain = 1.0f;
 
 	const ModulatorSampler *sampler;
 	ReferenceCountedObjectPtr<ModulatorSamplerSound> currentSound;
 
 	int numSamplesInCurrentSample;
 
-
+    bool inWorkspace = false;
 	double sampleStartPosition;
 
-	JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SamplerSoundWaveform)
+	JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SamplerSoundWaveform);
+	JUCE_DECLARE_WEAK_REFERENCEABLE(SamplerSoundWaveform);
 };
+
+
 
 
 }

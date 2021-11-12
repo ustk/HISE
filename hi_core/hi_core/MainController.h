@@ -79,6 +79,30 @@ public:
 
 #endif
 
+	/** This class will set a flag in the MainController to embed all
+	    external resources (that are usually saved in dedicated files) into the preset.
+		This is being used when exporting a HiseSnippet to ensure that it contains all
+		relevant external data (DspNetwork, SNEX code files, external scripts. 
+
+		You can query this flag with MainController::shouldEmbedAllResources.
+	*/
+	struct ScopedEmbedAllResources: public ControlledObject
+	{
+		ScopedEmbedAllResources(MainController* mc):
+			ControlledObject(mc)
+		{
+			prevState = mc->embedAllResources;
+			mc->embedAllResources = true;
+		}
+
+		~ScopedEmbedAllResources()
+		{
+			getMainController()->embedAllResources = prevState;
+		}
+
+		bool prevState = false;
+	};
+
 	/** Contains all methods related to sample management. */
 	class SampleManager
 	{
@@ -224,6 +248,8 @@ public:
 		void removePreloadListener(PreloadListener* p);
 
 		double& getPreloadProgress();
+
+		double getPreloadProgressConst() const;
 
 		const CriticalSection& getSampleLock() const noexcept { return sampleLock; }
 
@@ -1342,11 +1368,15 @@ public:
 
 	void stopBufferToPlay();
 
-	void setBufferToPlay(const AudioSampleBuffer& buffer);
+	void setBufferToPlay(const AudioSampleBuffer& buffer, const std::function<void(int)>& previewFunction = {});
+
+	int getPreviewBufferPosition() const;
 
 	void setKeyboardCoulour(int keyNumber, Colour colour);
 
 	CustomKeyboardState &getKeyboardState();
+
+	bool shouldEmbedAllResources() const { return embedAllResources; }
 
 	void setLowestKeyToDisplay(int lowestKeyToDisplay);
 
@@ -1465,6 +1495,8 @@ public:
     
 	LambdaBroadcaster<float> &getFontSizeChangeBroadcaster() { return codeFontChangeNotificator; };
     
+	
+
     /** This sets the global pitch factor. */
     void setGlobalPitchFactor(double pitchFactorInSemiTones)
     {
@@ -1637,6 +1669,7 @@ private:
 	Array<WeakReference<ControlledObject>> registeredObjects;
 
 	int maxEventTimestamp = 0;
+	bool embedAllResources = false;
 
 	PooledUIUpdater globalUIUpdater;
 
@@ -1692,7 +1725,7 @@ private:
 
 	struct CustomTypeFace
 	{
-		CustomTypeFace(Typeface* tf, Identifier id_) :
+		CustomTypeFace(ReferenceCountedObjectPtr<juce::Typeface> tf, Identifier id_) :
 			typeface(tf),
 			id(id_)
 		{};
@@ -1720,7 +1753,7 @@ private:
 	ScopedPointer<SampleManager> sampleManager;
 	ExpansionHandler expansionHandler;
 	
-
+	std::function<void(int)> previewFunction;
 	MacroManager macroManager;
 
 	KillStateHandler killStateHandler;

@@ -49,6 +49,8 @@ static constexpr juce_wchar AlignMarker = '@';
 
 struct StringHelpers
 {
+	static String makeValidCppName(const String& input);
+
 	static String withToken(juce_wchar token, const String& s = {})
 	{
 		String t;
@@ -744,6 +746,11 @@ struct UsingTemplate: public DefinitionBase,
 
 	String getUsingExpression() const;
 
+    void setTemplateId(const NamespacedIdentifier& newTid)
+    {
+        tId = newTid;
+    }
+    
 	void addTemplateIntegerArgument(const String& id, bool addAsParameter)
 	{
 		templateArguments.addIfNotAlreadyThere(snex::jit::TemplateParameter(NamespacedIdentifier(id), 0, false));

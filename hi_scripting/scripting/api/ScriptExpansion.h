@@ -62,6 +62,8 @@ public:
 			return preCallback.createDebugObject("preCallback");
 		if (index == 1)
 			return postCallback.createDebugObject("postCallback");
+        
+        return nullptr;
 	}
 
 	// =================================================================================== API Methods
@@ -73,16 +75,16 @@ public:
 	void setPostCallback(var presetPostCallback);
 
 	/** Enables a preprocessing of every user preset that is being loaded. */
-	void setEnableUserPresetPreprocessing(bool processBeforeLoading);
+	void setEnableUserPresetPreprocessing(bool processBeforeLoading, bool shouldUnpackComplexData);
 
 	/** Checks if the given version string is a older version than the current project version number. */
 	bool isOldVersion(const String& version);
 
 	// ===============================================================================================
 
-	static var convertToJson(const ValueTree& d);
+	var convertToJson(const ValueTree& d);
 
-	static ValueTree applyJSON(const ValueTree& original, DynamicObject::Ptr obj);
+	ValueTree applyJSON(const ValueTree& original, DynamicObject::Ptr obj);
 
 	ValueTree prePresetLoad(const ValueTree& dataToLoad, const File& fileToLoad) override;
 
@@ -96,6 +98,7 @@ public:
 private:
 
 	bool enablePreprocessing = false;
+	bool unpackComplexData = false;
 	WeakCallbackHolder preCallback;
 	WeakCallbackHolder postCallback;
 	File currentlyLoadedFile;
@@ -362,10 +365,17 @@ public:
 
 	Result encodeExpansion() override;
 
+	ValueTree getEmbeddedNetwork(const String& id) override
+	{
+		return networks.getChildWithProperty("ID", id);
+	}
+
 	bool fullyLoaded = false;
 	ValueTree presetToLoad;
 	bool isProjectExport = false;
 	String currentKey;
+
+	ValueTree networks;
 };
 
 
@@ -431,6 +441,9 @@ public:
 
 	/** Sets whether the samples are allowed to be duplicated for this expansion. Set this to false if you operate on the same samples differently. */
 	void setAllowDuplicateSamples(bool shouldAllowDuplicates);
+
+	/** Unloads this expansion so it will not show up in the list of expansions until the next restart. */
+	void unloadExpansion();
 
 private:
 

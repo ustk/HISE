@@ -35,15 +35,22 @@
 namespace scriptnode
 {
 
+namespace control
+{
+	/** Oh boy, this is ugly. The mothernode system does not work with dynamic data types, so the UI
+		offset crashes the component creation. Therefore we need to roll an own class .*/
+	struct dynamic_dupli_pack : public wrap::data<control::clone_pack<parameter::clone_holder>, data::dynamic::sliderpack>
+	{
+		static parameter::dynamic_base_holder* getParameterFunction(void* obj);
+	};
+}
+
 namespace data { 
 namespace ui { namespace pimpl { struct editor_base; } }
 namespace pimpl { struct dynamic_base; }
 }
 
-namespace parameter
-{
-	struct dynamic_list;
-}
+namespace parameter { struct dynamic_list; }
 
 using namespace juce;
 using namespace hise;
@@ -53,8 +60,6 @@ struct ComponentHelpers
     static NodeComponent* createDefaultComponent(NodeBase* n);
     static void addExtraComponentToDefault(NodeComponent* nc, Component* c);
 };
-
-
 
 struct OpaqueNodeDataHolder: public data::base,
 						     public ExternalDataHolderWithForcedUpdate,
@@ -325,8 +330,6 @@ public:
 
 	ParameterDataList createInternalParameterList() override;
 
-	void timerCallback() override;
-
 	bool isUsingNormalisedRange() const override;
 
 	parameter::dynamic_base_holder* getParameterHolder() override;
@@ -345,192 +348,6 @@ public:
 };
 
 
-struct UnisonoNodeBase: public NodeBase::Holder
-{
-	using InterpretedObjectType = wrap::duplicate_base<UnisonoNodeBase, options::dynamic, options::yes, NUM_MAX_UNISONO_VOICES>;
-
-	SN_GET_SELF_AS_OBJECT(UnisonoNodeBase);
-
-	UnisonoNodeBase() = default;
-
-	void clear()
-	{
-		setRootNode(nullptr);
-		nodes.clear();
-	}
-
-	~UnisonoNodeBase()
-	{
-		clear();
-	}
-
-	UnisonoNodeBase(const UnisonoNodeBase& other)
-	{
-		if (other.getRootNode() != nullptr)
-			clone(other.getRootNode());
-	}
-
-	UnisonoNodeBase& operator=(const UnisonoNodeBase& other)
-	{
-		clone(other.getRootNode());
-
-		return *this;
-	}
-
-	UnisonoNodeBase& operator=(UnisonoNodeBase&& other)
-	{
-		std::swap(nodes, other.nodes);
-		std::swap(root, other.root);
-
-		return *this;
-	}
-
-	bool clone(NodeBase* other)
-	{
-		clear();
-
-		if (other != nullptr)
-		{
-			DspNetwork::AnonymousNodeCloner cloner(*other->getRootNetwork(), this);
-			setRootNode(cloner.clone(other));
-
-			if (getRootNode() != nullptr)
-				getRootNode()->setParentNode(other->getParentNode());
-
-			return getRootNode() != nullptr;
-		}
-		
-		return false;
-	}
-
-	template <int C> void process(ProcessData<C>& d)
-	{
-		if (getRootNode() != nullptr)
-			getRootNode()->process(d.template as<ProcessDataDyn>());
-	}
-
-	void process(ProcessDataDyn& d)
-	{
-		if (getRootNode() != nullptr)
-			getRootNode()->process(d);
-	}
-
-	void prepare(PrepareSpecs ps)
-	{
-		if (getRootNode() != nullptr)
-			getRootNode()->prepare(ps);
-	}
-
-	void reset()
-	{
-		if (getRootNode() != nullptr)
-			getRootNode()->reset();
-	}
-
-	void handleHiseEvent(HiseEvent& e)
-	{
-		if (getRootNode() != nullptr)
-			getRootNode()->handleHiseEvent(e);
-	}
-
-	HISE_EMPTY_CREATE_PARAM;
-
-	template <typename T> void processFrame(T& data)
-	{
-		if (getRootNode() == nullptr)
-			return;
-
-		if (data.size() == 1)
-			getRootNode()->processMonoFrame(span<float, 1>::as(data.begin()));
-		if (data.size() == 2)
-			getRootNode()->processStereoFrame(span<float, 2>::as(data.begin()));
-	}
-};
-
-struct InterpretedUnisonoWrapperNode : public WrapperNode,
-									   public InterpretedNodeBase<UnisonoNodeBase::InterpretedObjectType>,
-								       public AssignableObject
-{
-	static Identifier getStaticId() { RETURN_STATIC_IDENTIFIER("unisono2"); }
-
-	using Base = UnisonoNodeBase::InterpretedObjectType;
-
-	InterpretedUnisonoWrapperNode(DspNetwork* n, ValueTree d);;
-
-	wrap::duplicate_sender* getUnisonoObject() { return static_cast<wrap::duplicate_sender*>(&obj); }
-
-	ReferenceCountedArray<Parameter> getParameterList(const ValueTree& pTree);
-
-	static NodeBase* createNode(DspNetwork* n, ValueTree d)
-	{
-		auto mn = new InterpretedUnisonoWrapperNode(n, d);
-		
-		mn->extraComponentFunction = createWrapperSlot;
-		return mn;
-	};
-
-	static Component* createWrapperSlot(void* obj, PooledUIUpdater* updater);
-
-	void process(ProcessDataDyn& data) override
-	{
-		NodeProfiler n(this);
-		obj.process(data);
-	}
-	
-	void* getObjectPtr() override { return this; }
-
-	void prepare(PrepareSpecs specs) override
-	{
-		obj.prepare(specs);
-	}
-
-	void reset() override
-	{
-		obj.reset();
-	}
-
-	void processMonoFrame(MonoFrameType& data) final override
-	{
-		obj.processFrame(data);
-	}
-
-	void processFrame(FrameType& data) final override
-	{
-		jassertfalse;
-	}
-
-	virtual void assign(int index, var newValue) override;
-
-	var getAssignedValue(int index) const override;
-
-	virtual int getCachedIndex(const var &indexExpression) const override;
-	
-
-	void processStereoFrame(StereoFrameType& data) final override
-	{
-		obj.processFrame(data);
-	}
-
-	void handleHiseEvent(HiseEvent& e) override
-	{
-		obj.handleHiseEvent(e);
-	}
-
-	void updateChildNode(ValueTree v, bool wasAdded);
-	void updateDuplicateMode(Identifier, var);
-
-	ParameterDataList createInternalParameterList() override;
-
-	JUCE_DECLARE_WEAK_REFERENCEABLE(InterpretedUnisonoWrapperNode);
-
-	NodeBase::Ptr wrappedNode;
-
-	NodePropertyT<bool> duplicateProperty;
-
-	bool skipTreeListener = false;
-
-	valuetree::ChildListener nodeListener;
-};
 
 struct InterpretedCableNode : public ModulationSourceNode,
 							  public InterpretedNodeBase<OpaqueNode>
@@ -548,14 +365,16 @@ struct InterpretedCableNode : public ModulationSourceNode,
 	{
 		constexpr bool isBaseOfDynamicParameterHolder = std::is_base_of<control::pimpl::parameter_node_base<parameter::dynamic_base_holder>, typename T::WrappedObjectType>();
 
-		constexpr bool isSpread = std::is_same<T, duplilogic::dynamic::NodeType>();
+		constexpr bool isBaseOfDynamicDupliHolder = std::is_base_of<control::pimpl::parameter_node_base<parameter::clone_holder>, typename T::WrappedObjectType>();
 
 		static_assert(std::is_base_of<control::pimpl::no_processing, typename T::WrappedObjectType>(), "not a base of no_processing");
 
 		auto mn = new InterpretedCableNode(n, d);
 
-		if constexpr (isSpread)
-			mn->getParameterFunction = parameter::dynamic_duplispread::getParameterFunctionStatic;
+		if constexpr (std::is_same<T, control::dynamic_dupli_pack>())
+			mn->getParameterFunction = control::dynamic_dupli_pack::getParameterFunction;
+		else if constexpr (isBaseOfDynamicDupliHolder)
+			mn->getParameterFunction = parameter::clone_holder::getParameterFunctionStatic;
 		else if constexpr (isBaseOfDynamicParameterHolder)
 			mn->getParameterFunction = InterpretedCableNode::getParameterFunctionStatic<T>;
 		else
@@ -585,6 +404,11 @@ struct InterpretedCableNode : public ModulationSourceNode,
 
 	parameter::dynamic_base_holder* getParameterHolder() override;
 
+	bool isProcessingHiseEvent() const override
+	{
+		return this->obj.isProcessingHiseEvent();
+	}
+
 	void process(ProcessDataDyn& data) final override
 	{
 		this->obj.process(data);
@@ -593,12 +417,6 @@ struct InterpretedCableNode : public ModulationSourceNode,
 	void reset() final override
 	{
 
-	}
-
-	void timerCallback() override
-	{
-		if(auto p = getParameterHolder())
-			p->updateUI();
 	}
 
 	bool isUsingNormalisedRange() const override
@@ -799,43 +617,4 @@ protected:
 	JUCE_DECLARE_WEAK_REFERENCEABLE(NodeFactory);
 };
     
-class SingletonFactory : public NodeFactory
-{
-public:
-        
-    SingletonFactory() :
-    NodeFactory(nullptr)
-    {};
-};
-    
-#define DEFINE_FACTORY_FOR_NAMESPACE NodeFactory* Factory::instance = nullptr; \
-NodeFactory* Factory::getInstance(DspNetwork* ) \
-{ if (instance == nullptr) instance = new Factory(); return instance; }
-    
-#define DECLARE_SINGLETON_FACTORY_FOR_NAMESPACE(name) class Factory : private SingletonFactory \
-{ \
-public: \
-Identifier getId() const override { RETURN_STATIC_IDENTIFIER(#name); } \
-static NodeFactory* getInstance(DspNetwork* n); \
-static NodeFactory* instance; \
-}; 
-    
-    
-    template <class FactoryClass, class T> struct RegisterAtFactory
-    {
-        RegisterAtFactory() { FactoryClass::getInstance(nullptr)->template registerNode<T>(); }
-    };
-    
-    template <class FactoryClass, class T, class PolyT> struct PolyRegisterAtFactory
-    {
-        PolyRegisterAtFactory() { FactoryClass::getInstance(nullptr)->template registerPolyNode<T, PolyT>(); }
-    };
-    
-#define REGISTER_POLY PolyRegisterAtFactory<Factory, instance<1>, instance<NUM_POLYPHONIC_VOICES>> reg;
-#define REGISTER_MONO RegisterAtFactory<Factory, instance> reg;
-
-#define REGISTER_POLY_SNEX PolyRegisterAtFactory<Factory, hardcoded_jit<instance, 1>, hardcoded_jit<instance, NUM_POLYPHONIC_VOICES>> reg;
-#define REGISTER_MONO_SNEX RegisterAtFactory<Factory, hardcoded_jit<instance, 1>> reg;
-
-
 }

@@ -42,17 +42,6 @@ namespace hise { using namespace juce;
 
 #define GET_OBJECT_COLOUR(id) (ScriptingApi::Content::Helpers::getCleanedObjectColour(GET_SCRIPT_PROPERTY(id)))
 
-
-Array<Identifier> ScriptComponentPropertyTypeSelector::toggleProperties = Array<Identifier>();
-Array<Identifier> ScriptComponentPropertyTypeSelector::sliderProperties = Array<Identifier>();
-Array<Identifier> ScriptComponentPropertyTypeSelector::colourProperties = Array<Identifier>();
-Array<Identifier> ScriptComponentPropertyTypeSelector::choiceProperties = Array<Identifier>();
-Array<Identifier> ScriptComponentPropertyTypeSelector::multilineProperties = Array<Identifier>();
-Array<Identifier> ScriptComponentPropertyTypeSelector::fileProperties = Array<Identifier>();
-Array<Identifier> ScriptComponentPropertyTypeSelector::codeProperties = Array<Identifier>();
-Array<ScriptComponentPropertyTypeSelector::SliderRange> ScriptComponentPropertyTypeSelector::sliderRanges = Array<ScriptComponentPropertyTypeSelector::SliderRange>();
-
-
 ScriptCreatedComponentWrapper::~ScriptCreatedComponentWrapper()
 {
 	Desktop::getInstance().removeFocusChangeListener(this);
@@ -137,7 +126,7 @@ void ScriptCreatedComponentWrapper::asyncValueTreePropertyChanged(ValueTree& v, 
 	jassert(v == getScriptComponent()->getPropertyValueTree());
 
 	auto idIndex = getScriptComponent()->getIndexForProperty(id);
-	auto value = v.getProperty(id);
+	auto value = v.getProperty(id, getScriptComponent()->getScriptObjectProperty(id));
 
 	if (idIndex == -1)
 	{
@@ -1200,18 +1189,20 @@ ScriptCreatedComponentWrapper(content, index)
 	t->setName(table->name.toString());
 	t->popupFunction = BIND_MEMBER_FUNCTION_2(TableWrapper::getTextForTablePopup);
 
-	auto slaf = &mc->getGlobalLookAndFeel();
-
-	if (auto s = dynamic_cast<TableEditor::LookAndFeelMethods*>(slaf))
-	{
-		t->setTableLookAndFeel(s, true);
-	}
+	
 
 	component = t;
 	
 	t->addEditListener(this);
 
 	initAllProperties();
+    
+    auto slaf = &mc->getGlobalLookAndFeel();
+
+    if (auto s = dynamic_cast<TableEditor::LookAndFeelMethods*>(slaf))
+    {
+        t->setSpecialLookAndFeel(slaf, false);
+    }
 }
 
 ScriptCreatedComponentWrappers::TableWrapper::~TableWrapper()
@@ -1354,16 +1345,14 @@ public:
 ScriptCreatedComponentWrappers::ViewportWrapper::ViewportWrapper(ScriptContentComponent* content, ScriptingApi::Content::ScriptedViewport* viewport, int index):
 	ScriptCreatedComponentWrapper(content, index)
 {
-	
-
 	shouldUseList = (bool)viewport->getScriptObjectProperty(ScriptingApi::Content::ScriptedViewport::Properties::useList);
+
+	Viewport* vp = nullptr;
 
 	if (!shouldUseList)
 	{
-		Viewport* vp = new Viewport();
-
+		vp = new Viewport();
 		vp->setName(viewport->name.toString());
-
 		vp->setViewedComponent(new DummyComponent(), true);
 
 		auto mc = viewport->getScriptProcessor()->getMainController_();
@@ -1392,12 +1381,18 @@ ScriptCreatedComponentWrappers::ViewportWrapper::ViewportWrapper(ScriptContentCo
 		if (HiseDeviceSimulator::isMobileDevice())
 			table->setRowSelectedOnMouseDown(false);
 
-
 		table->getViewport()->setScrollOnDragEnabled(true);
+
+		vp = table->getViewport();
 
 		component = table;
 	}
 	
+	viewport->positionBroadcaster.addListener(*this, [vp](ViewportWrapper& v, double x, double y)
+	{
+		vp->setViewPositionProportionately(x, y);
+	});
+
 	initAllProperties();
 	updateValue(viewport->value);
 }
@@ -1748,12 +1743,16 @@ void ScriptCreatedComponentWrappers::PanelWrapper::updateRange(BorderPanel * bpc
 {
 	const double min = GET_SCRIPT_PROPERTY(min);
 	const double max = GET_SCRIPT_PROPERTY(max);
-	const double stepSize = getScriptComponent()->getScriptObjectProperty(ScriptingApi::Content::ScriptPanel::stepSize);
+    
+    if(min < max)
+    {
+        const double stepSize = getScriptComponent()->getScriptObjectProperty(ScriptingApi::Content::ScriptPanel::stepSize);
 
-	NormalisableRange<double> r(min, max);
-	r.interval = stepSize;
+        NormalisableRange<double> r(min, max);
+        r.interval = stepSize;
 
-	bpc->setRange(r);
+        bpc->setRange(r);
+    }
 }
 
 void ScriptCreatedComponentWrappers::PanelWrapper::updateColourAndBorder(BorderPanel * bpc)
@@ -2045,7 +2044,8 @@ void ScriptCreatedComponentWrappers::SliderPackWrapper::updateValue(var newValue
 }
 
 class ScriptCreatedComponentWrappers::AudioWaveformWrapper::SamplerListener : public SafeChangeListener,
-																			  public SampleMap::Listener
+																			  public SampleMap::Listener,
+																			  public AudioDisplayComponent::Listener
 {
 public:
 
@@ -2056,6 +2056,9 @@ public:
 	{
 		samplemap->addListener(this);
 		s->addChangeListener(this);
+
+		if(waveform->getSampleArea(0)->isAreaEnabled())
+			waveform->addAreaListener(this);
 
 		if (auto v = s->getLastStartedVoice())
 			lastSound = v->getCurrentlyPlayingSound();
@@ -2068,8 +2071,37 @@ public:
 		if (s != nullptr)
 			s->removeChangeListener(this);
 
+		if (waveform != nullptr)
+			waveform->removeAreaListener(this);
+
 		if (samplemap.get() != nullptr)
 			samplemap->removeListener(this);
+	}
+
+	void rangeChanged(AudioDisplayComponent *broadcaster, int changedArea) override
+	{
+		if (auto a = waveform->getSampleArea(changedArea))
+		{
+			if (auto sound = const_cast<ModulatorSamplerSound*>(waveform->getCurrentSound()))
+			{
+				auto sr = a->getSampleRange();
+
+				if (sound->getSampleProperty(SampleIds::LoopEnabled))
+				{
+					auto lr = Range<int>(sound->getSampleProperty(SampleIds::LoopStart), sound->getSampleProperty(SampleIds::LoopEnd));
+
+					lr = lr.getIntersectionWith(sr);
+
+					sound->setSampleProperty(SampleIds::LoopStart, lr.getStart());
+					sound->setSampleProperty(SampleIds::LoopEnd, lr.getEnd());
+				}
+
+				sound->setSampleProperty(SampleIds::SampleStart, sr.getStart());
+				sound->setSampleProperty(SampleIds::SampleEnd, sr.getEnd());
+
+				waveform->updateRanges();
+			}
+		}
 	}
 
 	void refreshAfterSampleMapChange()
@@ -2098,6 +2130,20 @@ public:
 	{
 		refreshAfterSampleMapChange();
 	};
+
+	void samplePropertyWasChanged(ModulatorSamplerSound* soundThatWasChanged, const Identifier& id, const var& newValue) override
+	{
+		if (!SampleIds::Helpers::isAudioProperty(id))
+			return;
+
+		if (waveform == nullptr)
+			return;
+
+		if (waveform->getCurrentSound() != soundThatWasChanged)
+			return;
+
+		waveform->updateRanges();
+	}
 
 	void sampleMapCleared() override 
 	{
@@ -2144,23 +2190,39 @@ public:
 ScriptCreatedComponentWrappers::AudioWaveformWrapper::AudioWaveformWrapper(ScriptContentComponent *content, ScriptingApi::Content::ScriptAudioWaveform *form, int index) :
 	ScriptCreatedComponentWrapper(content, index)
 {
+    auto slaf = &form->getScriptProcessor()->getMainController_()->getGlobalLookAndFeel();
+    
+    
+    
 	if (auto s = form->getSampler())
 	{
 		SamplerSoundWaveform* ssw = new SamplerSoundWaveform(s);
 		ssw->setName(form->name.toString());
 
-		ssw->getSampleArea(SamplerSoundWaveform::PlayArea)->setAreaEnabled(false);
+		ssw->getSampleArea(SamplerSoundWaveform::PlayArea)->setAreaEnabled(true);
 
 		ssw->setIsOnInterface(true);
 
 		component = ssw;
 
+        if (auto s = dynamic_cast<HiseAudioThumbnail::LookAndFeelMethods*>(slaf))
+        {
+            ssw->getThumbnail()->setLookAndFeel(slaf);
+        }
+        
 		samplerListener = new SamplerListener(s, ssw);
 	}
 	else
 	{
 		auto asb = new MultiChannelAudioBufferDisplay();
 		asb->setName(form->name.toString());
+        
+        
+        if (auto s = dynamic_cast<HiseAudioThumbnail::LookAndFeelMethods*>(slaf))
+        {
+            asb->getThumbnail()->setLookAndFeel(slaf);
+        }
+        
 		component = asb;
 	}
 
@@ -2197,10 +2259,20 @@ void ScriptCreatedComponentWrappers::AudioWaveformWrapper::updateComponent(int p
 			PROPERTY_CASE::ScriptComponent::bgColour :
 			PROPERTY_CASE::ScriptComponent::textColour : updateColours(adc); break;
 			PROPERTY_CASE::ScriptAudioWaveform::Properties::showLines: adc->getThumbnail()->setDrawHorizontalLines((bool)newValue); break;
+			PROPERTY_CASE::ScriptAudioWaveform::Properties::enableRange:
+			{
+				if (auto w = dynamic_cast<AudioDisplayComponent*>(component.get()))
+				{
+					w->getSampleArea(0)->setAreaEnabled(newValue);
+				}
+				break;
+			}
 		}
 
 		if (auto asb = dynamic_cast<MultiChannelAudioBufferDisplay*>(component.get()))
 		{
+			
+
 			switch (propertyIndex)
 			{
 				PROPERTY_CASE::ScriptAudioWaveform::Properties::showFileName: asb->setShowFileName((bool)newValue); break;

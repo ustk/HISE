@@ -75,7 +75,6 @@ public:
 		Macros,
 		Keyboard,
 		Settings,
-		WorkspaceMain,
 		WorkspaceScript,
 		WorkspaceSampler,
 		WorkspaceCustom,
@@ -134,6 +133,7 @@ public:
 		MenuEditCreateBase64State,
         MenuEditCloseAllChains,
 		MenuViewOffset = 0x40000,
+        MenuViewRotate,
         MenuViewFullscreen,
 		MenuViewReset,
 		MenuViewBack,
@@ -349,6 +349,8 @@ public:
 		static void updateSampleMapIds(BackendRootWindow * bpe);
 		static void toggleCallStackEnabled(BackendRootWindow * bpe);
 		static void testPlugin(const String& pluginToLoad);
+
+		static void newFile(BackendRootWindow* bpe);
 
 		static void removeAllSampleMaps(BackendRootWindow * bpe);
 		static void redirectScriptFolder(BackendRootWindow * bpe);

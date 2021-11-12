@@ -216,7 +216,7 @@ void CodeEditorPanel::fillIndexList(StringArray& indexList)
 		if (auto h = dynamic_cast<scriptnode::DspNetwork::Holder*>(p))
 		{
 #if HISE_INCLUDE_SNEX
-			if (auto network = h->getActiveNetwork())
+			if (auto network = h->getActiveOrDebuggedNetwork())
 			{
 				for (auto so : network->getSnexObjects())
 				{
@@ -367,8 +367,18 @@ struct ScriptContentPanel::Canvas : public ScriptEditHandler,
 	Canvas(Processor* p) :
 		processor(p)
 	{
-		addAndMakeVisible(content = new ScriptContentComponent(dynamic_cast<ProcessorWithScriptingContent*>(p)));
+		auto sp = dynamic_cast<ProcessorWithScriptingContent*>(p);
+
+		addAndMakeVisible(content = new ScriptContentComponent(sp));
 		addAndMakeVisible(overlay = new ScriptingContentOverlay(this));
+
+		auto shouldEdit = sp->getScriptingContent()->getNumComponents() == 0;
+		shouldEdit &= !ScriptEditHandler::editModeEnabled();
+
+		if (shouldEdit)
+			toggleComponentSelectMode(true);
+		
+		overlay->setEditMode(shouldEdit);
 		overlay->setShowEditButton(false);
 	}
 
@@ -530,7 +540,7 @@ ScriptContentPanel::Editor::Editor(Canvas* c):
 
 	canvas.setScrollOnDragEnabled(shouldDrag);
 	canvas.setMouseWheelScrollEnabled(!shouldDrag);
-	canvas.setColour(ZoomableViewport::ColourIds::backgroundColourId, Colour(0xff262626));
+	//canvas.setColour(ZoomableViewport::ColourIds::backgroundColourId, Colour(0xff262626));
 
 	rebuildAfterContentChange();
 }
@@ -541,6 +551,7 @@ void ScriptContentPanel::Editor::rebuildAfterContentChange()
 	addCustomComponent(zoomSelector);
 
 	addButton("edit");
+	addButton("learn");
 	addButton("cancel");
 	addButton("rebuild");
 
@@ -586,6 +597,21 @@ void ScriptContentPanel::Editor::addButton(const String& name)
 	{
 		b->actionFunction = Actions::rebuild;
 		b->setTooltip("Rebuild Interface (F5)");
+	}
+	if (name == "learn")
+	{
+		b->actionFunction = [](Editor& e)
+		{
+			auto bc = e.getScriptComponentEditBroadcaster();
+			bc->setLearnMode(!bc->learnModeEnabled());
+			return true;
+		};
+		b->stateFunction = [](Editor& e)
+		{
+			return e.getScriptComponentEditBroadcaster()->learnModeEnabled();
+		};
+
+		b->enabledFunction = isSingleSelection;
 	}
 	if (name == "lock")
 	{
@@ -982,6 +1008,11 @@ bool ScriptContentPanel::Editor::keyPressed(const KeyPress& key)
 bool ScriptContentPanel::Editor::isSelected(Editor& e)
 {
 	return !e.canvas.getContent<Canvas>()->overlay->draggers.isEmpty();
+}
+
+bool ScriptContentPanel::Editor::isSingleSelection(Editor& e)
+{
+	return e.canvas.getContent<Canvas>()->overlay->draggers.size() == 1;
 }
 
 juce::Identifier ServerControllerPanel::getProcessorTypeId() const
@@ -1421,7 +1452,7 @@ struct ServerController: public Component,
 				}
 				case Columns::StatusLed:
 				{
-					g.setColour(getColourForState(obj).withMultipliedSaturation(0.7f));
+					g.setColour(getColourForState(obj.get()).withMultipliedSaturation(0.7f));
 					auto circle = area.withSizeKeepingCentre(12.0f, 12.0f);
 					g.fillEllipse(circle);
 					g.setColour(Colours::white.withAlpha(0.4f));
@@ -1636,7 +1667,7 @@ struct ServerController: public Component,
 
 				if (auto data = requestModel.getData(index))
 				{
-					auto ok = s->resendCallback(data);
+					auto ok = s->resendCallback(data.get());
 
 					if (!ok.wasOk())
 					{
@@ -1753,6 +1784,17 @@ Component* ServerControllerPanel::createContentComponent(int)
 	return new ServerController(dynamic_cast<JavascriptProcessor*>(getProcessor()));
 }
 
+ScriptWatchTablePanel::ScriptWatchTablePanel(FloatingTile* parent) :
+PanelWithProcessorConnection(parent)
+{
+    dynamic_cast<BackendProcessor*>(getMainController())->workbenches.addListener(this);
+};
+
+ScriptWatchTablePanel::~ScriptWatchTablePanel()
+{
+    dynamic_cast<BackendProcessor*>(getMainController())->workbenches.removeListener(this);
+}
+
 Identifier ScriptWatchTablePanel::getProcessorTypeId() const
 {
 	return JavascriptProcessor::getConnectorId();
@@ -1766,7 +1808,7 @@ Component* ScriptWatchTablePanel::createContentComponent(int /*index*/)
 
 	auto f = [this](Component* p, Component* c, Point<int> s)
 	{
-		findParentComponentOfClass<FloatingTile>()->getRootFloatingTile()->showComponentInRootPopup(p, c, s);
+		findParentComponentOfClass<FloatingTile>()->getRootFloatingTile()->showComponentInRootPopup(p, c, s, true);
 	};
 
 	swt->setPopupFunction(f);
@@ -1845,6 +1887,7 @@ juce::Path ScriptContentPanel::Factory::createPath(const String& id) const
 	LOAD_PATH_IF_URL("undo", EditorIcons::undoIcon);
 	LOAD_PATH_IF_URL("redo", EditorIcons::redoIcon);
 	LOAD_PATH_IF_URL("rebuild", ColumnIcons::moveIcon);
+	LOAD_PATH_IF_URL("learn", EditorIcons::connectIcon);
 	LOAD_PATH_IF_URL("vertical-align", ColumnIcons::verticalAlign);
 	LOAD_PATH_IF_URL("horizontal-align", ColumnIcons::horizontalAlign);
 	LOAD_PATH_IF_URL("vertical-distribute", ColumnIcons::verticalDistribute);

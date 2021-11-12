@@ -324,10 +324,8 @@ void ScriptWatchTable::mouseDown(const MouseEvent& e)
 		{
 			if (auto info = f->source)
 			{
-				if (auto o = info->getObject())
-					popup = o->createPopupComponent(e, table);
-				else
-					popup = info->createPopupComponent(e, table);
+				
+				popup = info->createPopupComponent(e, table);
 			}
 		}
 
@@ -417,7 +415,7 @@ void ScriptWatchTable::paint(Graphics &g)
 
 	g.setColour(Colour(0xFF3D3D3D));
 
-	g.setColour(JUCE_LIVE_CONSTANT_OFF(Colour(0xff262626)));
+	g.setColour(bgColour);
 	g.fillRect(0, 25, getWidth(), getHeight());
 
 	g.setColour(Colours::white.withAlpha(0.6f));
@@ -663,7 +661,7 @@ String ScriptWatchTable::getTextForColumn(ScriptWatchTable::ColumnId columnId, I
 	return text;
 }
 
-DebugInformationBase* ScriptWatchTable::getDebugInformationForRow(int rowIndex)
+DebugInformationBase::Ptr ScriptWatchTable::getDebugInformationForRow(int rowIndex)
 {
 	if (auto r = filteredFlatList[rowIndex])
 		return r->source;

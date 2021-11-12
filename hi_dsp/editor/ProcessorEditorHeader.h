@@ -37,6 +37,8 @@ namespace hise { using namespace juce;
 
 class VuMeter;
 
+
+
 //	===================================================================================================
 /** A ProcessorEditorHeader is a bar that resides on top of every ProcessorEditor.
 *	@ingroup dspEditor
@@ -167,18 +169,15 @@ private:
     ScopedPointer<VuMeter> valueMeter;
     ScopedPointer<Label> idLabel;
     ScopedPointer<Label> typeLabel;
-    ScopedPointer<TextButton> debugButton;
-    ScopedPointer<DrawableButton> plotButton;
     ScopedPointer<HeaderButton> bypassButton;
     ScopedPointer<ShapeButton> foldButton;
     ScopedPointer<ShapeButton> deleteButton;
 	ScopedPointer<ShapeButton> addButton;
-	ScopedPointer<ShapeButton> routeButton;
 	ScopedPointer<ShapeButton> workspaceButton;
 	ScopedPointer<ShapeButton> monophonicButton;
 	ScopedPointer<ShapeButton> retriggerButton;
 
-    ScopedPointer<Slider> intensitySlider;
+    ScopedPointer<IntensitySlider> intensitySlider;
 	ScopedPointer<ShapeButton> bipolarModButton;
 
     //==============================================================================

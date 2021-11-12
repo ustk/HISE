@@ -91,9 +91,9 @@ snex::ui::WorkbenchData::CompileResult DspNetworkCompileHandler::compile(const S
 			if (np != nullptr)
 			{
 
-				auto rootNode = np->getActiveNetwork()->getRootNode();
+				auto rootNode = np->getActiveOrDebuggedNetwork()->getRootNode();
 
-				np->getActiveNetwork()->setExternalDataHolder(&getParent()->getTestData());
+				np->getActiveOrDebuggedNetwork()->setExternalDataHolder(&getParent()->getTestData());
 
 				for (int i = 0; i < rootNode->getNumParameters(); i++)
 				{
@@ -104,7 +104,7 @@ snex::ui::WorkbenchData::CompileResult DspNetworkCompileHandler::compile(const S
 					auto f = [](void* obj, double value)
 					{
 						auto typed = static_cast<scriptnode::NodeBase::Parameter*>(obj);
-						typed->setValueAndStoreAsync(value);
+						typed->setValue(value);
 					};
 
 					d.info = scriptnode::parameter::pod(p->data);
@@ -159,7 +159,7 @@ void DspNetworkCompileHandler::processTestParameterEvent(int parameterIndex, dou
 	if (interpreter != nullptr)
 	{
 		if (auto p = interpreter->getRootNode()->getParameter(parameterIndex))
-			p->setValueAndStoreAsync(value);
+			p->setValue(value);
 	}
 
 	if (isPositiveAndBelow(parameterIndex, lastResult.parameters.size()))
@@ -235,7 +235,7 @@ void DspNetworkCompileHandler::postCompile(WorkbenchData::CompileResult& lastRes
 				jitNode = nullptr;
 
 				if (np != nullptr)
-					interpreter = np->getActiveNetwork();
+					interpreter = np->getActiveOrDebuggedNetwork();
 			}
 			else if (dnp->source == DspNetworkCodeProvider::SourceMode::DynamicLibrary)
 			{
@@ -251,7 +251,12 @@ void DspNetworkCompileHandler::postCompile(WorkbenchData::CompileResult& lastRes
 
 		if (testData.shouldRunTest())
 		{
-			testData.initProcessing(getMainController()->getMainSynthChain()->getLargestBlockSize(), getMainController()->getMainSynthChain()->getSampleRate());
+            PrepareSpecs ps;
+            ps.sampleRate = getMainController()->getMainSynthChain()->getSampleRate();
+            ps.blockSize = getMainController()->getMainSynthChain()->getLargestBlockSize();
+            ps.numChannels = 2;
+            
+			testData.initProcessing(ps);
 			testData.processTestData(getParent());
 		}
 	}
@@ -277,14 +282,14 @@ void DspNetworkCodeProvider::initNetwork()
 	else
 	{
 		n = np->getOrCreate(getXmlFile().getFileNameWithoutExtension());
-		currentTree = np->getActiveNetwork()->getValueTree();
+		currentTree = np->getActiveOrDebuggedNetwork()->getValueTree();
 	}
 
 	auto asP = dynamic_cast<Processor*>(np.get());
 
 	jassert(asP != nullptr);
 
-	asP->prepareToPlay(asP->getSampleRate(), asP->getLargestBlockSize());
+    asP->prepareToPlay(asP->getSampleRate(), asP->getLargestBlockSize());
 
 	source = SourceMode::InterpretedNode;
 	setRootValueTree(currentTree);
@@ -298,14 +303,15 @@ String DspNetworkCodeProvider::createCppForNetwork() const
 	{
 		getTestNodeFile().replaceWithText(xml->createDocument(""));
 
+        
+        
 		snex::cppgen::ValueTreeBuilder v(chain, snex::cppgen::ValueTreeBuilder::Format::JitCompiledInstance);
 
 		v.setCodeProvider(new BackendDllManager::FileCodeProvider(getMainController()));
 
 		auto r = v.createCppCode();
 
-		if (r.r.wasOk())
-			return r.code;
+		return r.code;
 	}
 
 	return {};

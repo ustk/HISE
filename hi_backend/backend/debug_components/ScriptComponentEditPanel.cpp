@@ -249,7 +249,9 @@ void ScriptComponentEditPanel::rebuildScriptedComponents()
 
 void ScriptComponentEditPanel::addProperty(Array<PropertyComponent*> &arrayToAddTo, const Identifier &id)
 {
-	ScriptComponentPropertyTypeSelector::SelectorTypes t = ScriptComponentPropertyTypeSelector::getTypeForId(id);
+	SharedResourcePointer<ScriptComponentPropertyTypeSelector> ptr;
+
+	ScriptComponentPropertyTypeSelector::SelectorTypes t = ptr->getTypeForId(id);
 
 	static const Identifier pc("parentComponent");
 
@@ -259,7 +261,6 @@ void ScriptComponentEditPanel::addProperty(Array<PropertyComponent*> &arrayToAdd
 	if (t == ScriptComponentPropertyTypeSelector::SliderSelector)
 	{
 		HiSliderPropertyComponent *slider = new HiSliderPropertyComponent(id, this);
-
 		arrayToAddTo.add(slider);
 
 		slider->setLookAndFeel(&pplaf);
@@ -433,7 +434,8 @@ void ScriptComponentEditPanel::copyAction()
 
 	if (sc != nullptr)
 	{
-		DynamicObject::Ptr newObject = new DynamicObject();
+		auto newObject = new DynamicObject();
+		var newData(newObject);
 
 		String prop;
 		NewLine nl;
@@ -458,7 +460,7 @@ void ScriptComponentEditPanel::copyAction()
 			newObject->setProperty(id, value);
 		}
 
-		var newData(newObject);
+		
 
 		auto clipboardContent = JSON::toString(newData, false, DOUBLE_TO_STRING_DIGITS);
 		SystemClipboard::copyTextToClipboard(clipboardContent);

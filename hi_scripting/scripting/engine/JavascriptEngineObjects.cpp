@@ -247,7 +247,7 @@ public:
 
 	/** Removes or adds empty elements to match the target size. */
 	var resize(var elementToRemove) { return var(); }
-
+  
 	/** Reverses the order of the elements in the array. */
 	void reverse() {}
 

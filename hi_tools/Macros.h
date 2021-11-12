@@ -82,6 +82,11 @@ namespace hise { using namespace juce;
 #define HISE_CONTROL_RATE_DOWNSAMPLING_FACTOR HISE_EVENT_RASTER
 #endif
 
+/** If enabled, this will try to retain as much pitch modulation resolution as possible (it will still get downsampled to the control rate).
+*/
+#ifndef HISE_ENABLE_FULL_CONTROL_RATE_PITCH_MOD
+#define HISE_ENABLE_FULL_CONTROL_RATE_PITCH_MOD 0
+#endif
 
 #if (HISE_EVENT_RASTER != 1)
 #define HISE_USE_CONTROLRATE_DOWNSAMPLING 1
@@ -158,13 +163,13 @@ class LinuxFontHandler
         globalFont = Font(oxygenTypeFace).withHeight(13.0f);
         globalBoldFont = Font(oxygenBoldTypeFace).withHeight(14.0f);
         monospaceFont = Font(sourceCodeProTypeFace).withHeight(14.0f);
+        monospaceBoldFont = Font(sourceCodeProBoldTypeFace).withHeight(14.0f);
     }
-
-    
 
     Font globalFont;
     Font globalBoldFont;
     Font monospaceFont;
+    Font monospaceBoldFont;
 
     class Instance
     {
@@ -175,6 +180,7 @@ class LinuxFontHandler
         Font getGlobalFont() {return data->globalFont;};
         Font getGlobalBoldFont() {return data->globalBoldFont;};
         Font getGlobalMonospaceFont() {return data->monospaceFont; }
+        Font getGlobalMonospaceBoldFont() { return data->monospaceBoldFont; }
 
     private:
 
@@ -186,12 +192,14 @@ class LinuxFontHandler
 #define GLOBAL_FONT() (LinuxFontHandler::Instance().getGlobalFont())
 #define GLOBAL_BOLD_FONT() (LinuxFontHandler::Instance().getGlobalBoldFont())
 #define GLOBAL_MONOSPACE_FONT() (LinuxFontHandler::Instance().getGlobalMonospaceFont())
+#define GLOBAL_BOLD_MONOSPACE_FONT() (LinuxFontHandler::Instance().getGlobalMonospaceBoldFont())
 
 #else
 
 #define GLOBAL_FONT() (Font())
 #define GLOBAL_BOLD_FONT() (Font())
 #define GLOBAL_MONOSPACE_FONT() (Font())
+#define GLOBAL_BOLD_MONOSPACE_FONT() (Font())
 
 #endif
 

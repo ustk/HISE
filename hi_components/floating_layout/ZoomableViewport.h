@@ -39,6 +39,8 @@ using namespace juce;
 
 using DragAnimator = juce::AnimatedPosition<juce::AnimatedPositionBehaviours::ContinuousWithMomentum>;
 
+
+
 struct ZoomableViewport : public Component,
 	public ScrollBar::Listener,
 	public ComponentListener,
@@ -50,12 +52,9 @@ struct ZoomableViewport : public Component,
 		backgroundColourId = 9000
 	};
 
-	struct Laf : public LookAndFeel_V4
-	{
-		void drawScrollbar(Graphics& g, ScrollBar&, int x, int y, int width, int height, bool isScrollbarVertical, int thumbStartPosition, int thumbSize, bool isMouseOver, bool isMouseDown);
-
-		Colour bg = Colour(0x771d1d1d);
-	} slaf;
+    using Laf = ScrollbarFader::Laf;
+    
+	Laf slaf;
 
 	struct MouseWatcher : public MouseListener
 	{
@@ -451,20 +450,7 @@ private:
 	
 
 
-	struct ScrollbarFader : public Timer
-	{
-		ScrollbarFader(ZoomableViewport& p) :
-			parent(p)
-		{};
-
-		void timerCallback() override;
-
-		void startFadeOut();
-
-		bool fadeOut = false;
-
-		ZoomableViewport& parent;
-	} sf;
+	
 
 	bool dragToScroll = false;
 	bool mouseWheelScroll = true;
@@ -472,7 +458,7 @@ private:
 	Point<double> normDragStart;
 	Point<double> scrollPosDragStart;
 
-	
+    ScrollbarFader sf;
 	
 	DragAnimator xDragger, yDragger;
 	
@@ -499,6 +485,7 @@ struct WrapperWithMenuBarBase : public Component,
 		public SettableTooltipClient
 	{
 		ActionButtonBase(ContentType* parent_, const String& name) :
+			Component(name),
 			parent(parent_)
 		{
 			PathFactoryType f;
@@ -682,7 +669,7 @@ struct WrapperWithMenuBarBase : public Component,
 		auto cTree = getBookmarkValueTree();
 
 		bookmarkUpdater.setCallback(cTree, valuetree::AsyncMode::Asynchronously, BIND_MEMBER_FUNCTION_2(WrapperWithMenuBarBase::updateBookmarks));
-		bookmarkBox->setSize(140, 24);
+		bookmarkBox->setSize(100, 24);
 		actionButtons.add(bookmarkBox);
 		addAndMakeVisible(bookmarkBox);
 	}
@@ -716,6 +703,8 @@ struct WrapperWithMenuBarBase : public Component,
 
 		canvas.setBounds(b);
 	}
+    
+    
 
 	ZoomableViewport canvas;
 	OwnedArray<Component> actionButtons;

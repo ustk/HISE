@@ -40,9 +40,13 @@
 
 
 
-
-#define ADD_TO_TYPE_SELECTOR(x) (ScriptComponentPropertyTypeSelector::addToTypeSelector(ScriptComponentPropertyTypeSelector::x, propertyIds.getLast()))
-#define ADD_AS_SLIDER_TYPE(min, max, interval) (ScriptComponentPropertyTypeSelector::addToTypeSelector(ScriptComponentPropertyTypeSelector::SliderSelector, propertyIds.getLast(), min, max, interval))
+#if USE_BACKEND
+#define ADD_TO_TYPE_SELECTOR(x) (selectorTypes->addToTypeSelector(ScriptComponentPropertyTypeSelector::x, propertyIds.getLast()))
+#define ADD_AS_SLIDER_TYPE(min, max, interval) (selectorTypes->addToTypeSelector(ScriptComponentPropertyTypeSelector::SliderSelector, propertyIds.getLast(), min, max, interval))
+#else
+#define ADD_TO_TYPE_SELECTOR(x)
+#define ADD_AS_SLIDER_TYPE(min, max, interval)
+#endif
 
 
 
@@ -145,7 +149,7 @@ ScriptingApi::Content::ScriptComponent::ScriptComponent(ProcessorWithScriptingCo
 	customControlCallback(var())
 {
 
-
+	
 
 	jassert(propertyTree.isValid());
 
@@ -543,7 +547,7 @@ var ScriptingApi::Content::ScriptComponent::getNonDefaultScriptObjectProperties(
 		clone->setProperty(id, propValue);
 	}
 
-	return var(clone);
+	return var(clone.get());
 }
 
 
@@ -983,7 +987,8 @@ void ScriptingApi::Content::ScriptComponent::updatePropertiesAfterLink(Notificat
 
 	if (auto lc = getLinkedComponent())
 	{
-		DynamicObject::Ptr obj = new DynamicObject();
+		auto obj = new DynamicObject();
+		var obj_(obj);
 
 		for (const auto& v : idList)
 		{
@@ -992,8 +997,6 @@ void ScriptingApi::Content::ScriptComponent::updatePropertiesAfterLink(Notificat
 
 			obj->setProperty(id, linkedValue);
 		}
-
-		var obj_(obj);
 
 		setPropertiesFromJSON(obj_);
 
@@ -1120,7 +1123,9 @@ bool ScriptingApi::Content::ScriptComponent::handleKeyPress(const KeyPress& k)
 {
 	if (keyboardCallback)
 	{
-		DynamicObject::Ptr obj = new DynamicObject();
+		auto obj = new DynamicObject();
+		var args(obj);
+
 		obj->setProperty("isFocusChange", false);
 
 		auto c = k.getTextCharacter();
@@ -1135,7 +1140,6 @@ bool ScriptingApi::Content::ScriptComponent::handleKeyPress(const KeyPress& k)
 		obj->setProperty("cmd", k.getModifiers().isCommandDown() || k.getModifiers().isCtrlDown());
 		obj->setProperty("alt", k.getModifiers().isAltDown());
 
-		var args(obj);
 		var rv;
 
 		auto ok = keyboardCallback.callSync(&args, 1, &rv);
@@ -1153,11 +1157,11 @@ void ScriptingApi::Content::ScriptComponent::handleFocusChange(bool isFocused)
 {
 	if (keyboardCallback)
 	{
-		DynamicObject::Ptr obj = new DynamicObject();
+		auto obj = new DynamicObject();
+		var args(obj);
+
 		obj->setProperty("isFocusChange", true);
 		obj->setProperty("hasFocus", isFocused);
-		
-		var args(obj);
 		
 		auto ok = keyboardCallback.callSync(&args, 1);
 
@@ -1967,8 +1971,8 @@ void ScriptingApi::Content::ScriptComboBox::setScriptObjectPropertyWithChangeMes
 	{
 		jassert(isCorrectlyInitialised(Items));
 
-		setScriptObjectProperty(Items, newValue);
-		setScriptObjectProperty(max, getItemList().size());
+		setScriptObjectProperty(Items, newValue, sendNotification);
+		setScriptObjectProperty(max, getItemList().size(), sendNotification);
 	}
 
 
@@ -2105,15 +2109,26 @@ void ScriptingApi::Content::ComplexDataScriptComponent::handleDefaultDeactivated
 	deactivatedProperties.addIfNotAlreadyThere(getIdFor(pluginParameterName));
 }
 
-void ScriptingApi::Content::ComplexDataScriptComponent::registerComplexDataObjectAtParent(int index /*= -1*/)
+var ScriptingApi::Content::ComplexDataScriptComponent::registerComplexDataObjectAtParent(int index /*= -1*/)
 {
 	if (auto d = dynamic_cast<ProcessorWithDynamicExternalData*>(getScriptProcessor()))
 	{
 		otherHolder = d;
-		d->registerExternalObject(type, index, ownedObject);
+		d->registerExternalObject(type, index, ownedObject.get());
+
 		setScriptObjectProperty(getIndexPropertyId(), index, sendNotification);
 		updateCachedObjectReference();
+
+		switch (type)
+		{
+		case ExternalData::DataType::Table: return new ScriptingObjects::ScriptTableData(getScriptProcessor(), index);
+		case ExternalData::DataType::SliderPack: return new ScriptingObjects::ScriptSliderPackData(getScriptProcessor(), index);
+		case ExternalData::DataType::AudioFile: return new ScriptingObjects::ScriptAudioFile(getScriptProcessor(), index);
+		default: jassertfalse; return var();
+		}
 	}
+
+	return var();
 }
 
 void ScriptingApi::Content::ScriptAudioWaveform::handleDefaultDeactivatedProperties()
@@ -2143,7 +2158,7 @@ struct ScriptingApi::Content::ScriptTable::Wrapper
 	API_VOID_METHOD_WRAPPER_1(ScriptTable, setTablePopupFunction);
 	API_VOID_METHOD_WRAPPER_2(ScriptTable, connectToOtherTable);
 	API_VOID_METHOD_WRAPPER_1(ScriptTable, setSnapValues);
-	API_VOID_METHOD_WRAPPER_1(ScriptTable, registerAtParent);
+	API_METHOD_WRAPPER_1(ScriptTable, registerAtParent);
 	API_VOID_METHOD_WRAPPER_1(ScriptTable, referToData);
 };
 
@@ -2236,9 +2251,9 @@ void ScriptingApi::Content::ScriptTable::referToData(var tableData)
 	referToDataBase(tableData);
 }
 
-void ScriptingApi::Content::ScriptTable::registerAtParent(int index)
+var ScriptingApi::Content::ScriptTable::registerAtParent(int index)
 {
-	registerComplexDataObjectAtParent(index);
+	return registerComplexDataObjectAtParent(index);
 }
 
 struct ScriptingApi::Content::ScriptSliderPack::Wrapper
@@ -2249,6 +2264,7 @@ struct ScriptingApi::Content::ScriptSliderPack::Wrapper
 	API_METHOD_WRAPPER_0(ScriptSliderPack, getNumSliders);
 	API_VOID_METHOD_WRAPPER_1(ScriptSliderPack, referToData);
     API_VOID_METHOD_WRAPPER_1(ScriptSliderPack, setWidthArray);
+	API_METHOD_WRAPPER_1(ScriptSliderPack, registerAtParent);
 };
 
 ScriptingApi::Content::ScriptSliderPack::ScriptSliderPack(ProcessorWithScriptingContent *base, Content* /*parentContent*/, Identifier name_, int x, int y, int , int ) :
@@ -2298,6 +2314,7 @@ ComplexDataScriptComponent(base, name_, snex::ExternalData::DataType::SliderPack
 	ADD_API_METHOD_0(getNumSliders);
 	ADD_API_METHOD_1(referToData);
     ADD_API_METHOD_1(setWidthArray);
+	ADD_API_METHOD_1(registerAtParent);
 }
 
 ScriptingApi::Content::ScriptSliderPack::~ScriptSliderPack()
@@ -2461,6 +2478,19 @@ void ScriptingApi::Content::ScriptSliderPack::setWidthArray(var normalizedWidths
     }
 }
 
+var ScriptingApi::Content::ScriptSliderPack::registerAtParent(int pIndex)
+{
+	return registerComplexDataObjectAtParent(pIndex);
+}
+
+struct ScriptingApi::Content::ScriptAudioWaveform::Wrapper
+{
+	API_VOID_METHOD_WRAPPER_1(ScriptAudioWaveform, referToData);
+	API_METHOD_WRAPPER_0(ScriptAudioWaveform, getRangeStart);
+	API_METHOD_WRAPPER_0(ScriptAudioWaveform, getRangeEnd);
+	API_METHOD_WRAPPER_1(ScriptAudioWaveform, registerAtParent);
+};
+
 ScriptingApi::Content::ScriptAudioWaveform::ScriptAudioWaveform(ProcessorWithScriptingContent *base, Content* /*parentContent*/, Identifier waveformName, int x, int y, int, int) :
 	ComplexDataScriptComponent(base, waveformName, snex::ExternalData::DataType::AudioFile)
 {
@@ -2468,7 +2498,9 @@ ScriptingApi::Content::ScriptAudioWaveform::ScriptAudioWaveform(ProcessorWithScr
 	ADD_SCRIPT_PROPERTY(i02, "opaque"); ADD_TO_TYPE_SELECTOR(SelectorTypes::ToggleSelector);
 	ADD_SCRIPT_PROPERTY(i03, "showLines"); ADD_TO_TYPE_SELECTOR(SelectorTypes::ToggleSelector);
 	ADD_SCRIPT_PROPERTY(i04, "showFileName"); ADD_TO_TYPE_SELECTOR(SelectorTypes::ToggleSelector);
+	
 	ADD_SCRIPT_PROPERTY(i05, "sampleIndex");
+	ADD_SCRIPT_PROPERTY(i06, "enableRange"); ADD_TO_TYPE_SELECTOR(SelectorTypes::ToggleSelector);
 
 	setDefaultValue(ScriptComponent::Properties::x, x);
 	setDefaultValue(ScriptComponent::Properties::y, y);
@@ -2484,10 +2516,16 @@ ScriptingApi::Content::ScriptAudioWaveform::ScriptAudioWaveform(ProcessorWithScr
 	setDefaultValue(Properties::showLines, false);
 	setDefaultValue(Properties::showFileName, true);
 	setDefaultValue(Properties::sampleIndex, -1);
+	setDefaultValue(Properties::enableRange, true);
 
 	handleDefaultDeactivatedProperties();
 
 	updateCachedObjectReference();
+
+	ADD_API_METHOD_1(referToData);
+	ADD_API_METHOD_0(getRangeStart);
+	ADD_API_METHOD_0(getRangeEnd);
+	ADD_API_METHOD_1(registerAtParent);
 }
 
 ScriptCreatedComponentWrapper * ScriptingApi::Content::ScriptAudioWaveform::createComponentWrapper(ScriptContentComponent *content, int index)
@@ -2556,6 +2594,31 @@ void ScriptingApi::Content::ScriptAudioWaveform::resetValueToDefault()
 		af->fromBase64String({});
 }
 
+void ScriptingApi::Content::ScriptAudioWaveform::referToData(var audioData)
+{
+	referToDataBase(audioData);
+}
+
+int ScriptingApi::Content::ScriptAudioWaveform::getRangeStart()
+{
+	if (auto af = getCachedAudioFile())
+		return af->getCurrentRange().getStart();
+
+	return 0;
+}
+
+int ScriptingApi::Content::ScriptAudioWaveform::getRangeEnd()
+{
+	if (auto af = getCachedAudioFile())
+		return af->getCurrentRange().getEnd();
+
+	return 0;
+}
+
+var ScriptingApi::Content::ScriptAudioWaveform::registerAtParent(int pIndex)
+{
+	return registerComplexDataObjectAtParent(pIndex);
+}
 
 struct ScriptingApi::Content::ScriptImage::Wrapper
 {
@@ -2964,7 +3027,7 @@ bool ScriptingApi::Content::ScriptPanel::internalRepaintIdle(bool forceRepaint, 
 	}
 
 	var thisObject(this);
-	var arguments = var(graphics);
+	var arguments = var(graphics.get());
 	var::NativeFunctionArgs args(thisObject, &arguments, 1);
 
 
@@ -3387,7 +3450,7 @@ var ScriptingApi::Content::ScriptPanel::addChildPanel()
 	sendSubComponentChangeMessage(s, true);
 
 	childPanels.getLast()->isChildPanel = true;
-	return var(childPanels.getLast());
+	return var(childPanels.getLast().get());
 }
 
 #if HISE_INCLUDE_RLOTTIE
@@ -3455,7 +3518,7 @@ void ScriptingApi::Content::ScriptPanel::updateAnimationData()
 		obj->setProperty("frameRate", 0);
 	}
 
-	animationData = var(obj);
+	animationData = var(obj.get());
 }
 
 bool ScriptingApi::Content::ScriptPanel::removeFromParent()
@@ -3569,7 +3632,7 @@ void ScriptingApi::Content::ScriptPanel::buildDebugListIfEmpty() const
 
 hise::DebugInformationBase* ScriptingApi::Content::ScriptPanel::getChildElement(int index)
 {
-	return cachedList[index];
+	return cachedList[index].get();
 }
 
 int ScriptingApi::Content::ScriptPanel::getNumChildElements() const
@@ -3595,6 +3658,8 @@ ScriptingApi::Content::ScriptedViewport::ScriptedViewport(ProcessorWithScripting
 	propertyIds.add("scrollBarThickness");		ADD_AS_SLIDER_TYPE(0, 40, 1);
 	propertyIds.add("autoHide");				ADD_TO_TYPE_SELECTOR(SelectorTypes::ToggleSelector);
 	propertyIds.add(Identifier("useList"));		ADD_TO_TYPE_SELECTOR(SelectorTypes::ToggleSelector);
+	propertyIds.add(Identifier("viewPositionX")); ADD_AS_SLIDER_TYPE(0, 1, 0.01);
+	propertyIds.add(Identifier("viewPositionY")); ADD_AS_SLIDER_TYPE(0, 1, 0.01);
 	propertyIds.add(Identifier("items"));		ADD_TO_TYPE_SELECTOR(SelectorTypes::MultilineSelector);
 	ADD_SCRIPT_PROPERTY(i01, "fontName");		ADD_TO_TYPE_SELECTOR(SelectorTypes::ChoiceSelector);
 	ADD_NUMBER_PROPERTY(i02, "fontSize");		ADD_AS_SLIDER_TYPE(1, 200, 1);
@@ -3605,6 +3670,8 @@ ScriptingApi::Content::ScriptedViewport::ScriptedViewport(ProcessorWithScripting
 	setDefaultValue(ScriptComponent::Properties::y, y);
 	setDefaultValue(ScriptComponent::Properties::width, 200);
 	setDefaultValue(ScriptComponent::Properties::height, 100);
+	setDefaultValue(viewPositionX, 0.0);
+	setDefaultValue(viewPositionY, 0.0);
 	setDefaultValue(scrollbarThickness, 16.0);
 	setDefaultValue(autoHide, true);
 	setDefaultValue(useList, false);
@@ -3632,6 +3699,17 @@ void ScriptingApi::Content::ScriptedViewport::setScriptObjectPropertyWithChangeM
 		//}
 	}
 
+	if (id == getIdFor(viewPositionX))
+	{
+		auto y = (double)getScriptObjectProperty(getIdFor(viewPositionY));
+		positionBroadcaster.sendMessage(sendNotificationAsync, (double)newValue, y);
+	}
+
+	if (id == getIdFor(viewPositionY))
+	{
+		auto x = (double)getScriptObjectProperty(getIdFor(viewPositionX));
+		positionBroadcaster.sendMessage(sendNotificationAsync, x, (double)newValue);
+	}
 
 	ScriptComponent::setScriptObjectPropertyWithChangeMessage(id, newValue, notifyEditor);
 }
@@ -3990,7 +4068,7 @@ ScriptingApi::Content::ScriptComponent * ScriptingApi::Content::getComponentWith
 	{
 		if (components[i]->name == componentName)
 		{
-			return components[i];
+			return components[i].get();
 		}
 	}
 
@@ -4003,7 +4081,7 @@ const ScriptingApi::Content::ScriptComponent * ScriptingApi::Content::getCompone
 	{
 		if (components[i]->name == componentName)
 		{
-			return components[i];
+			return components[i].get();
 		}
 	}
 
@@ -4089,7 +4167,7 @@ ScriptingApi::Content::ScriptComponent * ScriptingApi::Content::getComponent(int
 	if (index == -1) return nullptr;
 
 	if(index < components.size())
-		return components[index];
+		return components[index].get();
 
 	return nullptr;
 }
@@ -4101,7 +4179,7 @@ var ScriptingApi::Content::getComponent(var componentName)
 	for (int i = 0; i < components.size(); i++)
 	{
 		if (n == components[i]->getName())
-			return var(components[i]);
+			return var(components[i].get());
 	}
 
 	logErrorAndContinue("Component with name " + componentName.toString() + " wasn't found.");
@@ -4117,7 +4195,7 @@ var ScriptingApi::Content::getAllComponents(String regex)
 	{	    
 		if (RegexFunctions::matchesWildcard(regex, components[i]->getName().toString()))
 		{
-			list.add(var(components[i]));
+			list.add(var(components[i].get()));
 		}
 	}
 
@@ -4428,7 +4506,7 @@ void ScriptingApi::Content::restoreAllControlsFromPreset(const ValueTree &preset
 
 		if (dynamic_cast<ScriptingApi::Content::ScriptLabel*>(components[i].get()) != nullptr)
 		{
-			getScriptProcessor()->controlCallback(components[i], v);
+			getScriptProcessor()->controlCallback(components[i].get(), v);
 		}
         else if (auto ssp = dynamic_cast<ScriptingApi::Content::ScriptSliderPack*>(components[i].get()))
         {
@@ -4440,7 +4518,7 @@ void ScriptingApi::Content::restoreAllControlsFromPreset(const ValueTree &preset
         }
 		else if (v.isObject())
 		{
-			getScriptProcessor()->controlCallback(components[i], v);
+			getScriptProcessor()->controlCallback(components[i].get(), v);
 		}
 		else
 		{
@@ -4641,7 +4719,7 @@ void ScriptingApi::Content::addComponentsFromValueTree(const ValueTree& v)
 
 			components.add(sc);
 
-			ScriptComponent::ScopedPropertyEnabler spe(sc);
+			ScriptComponent::ScopedPropertyEnabler spe(sc.get());
 			sc->setPropertiesFromJSON(d);
 		}
 
@@ -5477,6 +5555,60 @@ var ScriptingApi::Content::Helpers::getCleanedComponentValue(const var& data, bo
 		float d = (float)data;
 		FloatSanitizers::sanitizeFloatNumber(d);
 		return var(d);
+	}
+}
+
+hise::ScriptComponentPropertyTypeSelector::SelectorTypes ScriptComponentPropertyTypeSelector::getTypeForId(const Identifier &id) const
+{
+	if (toggleProperties.contains(id)) return ToggleSelector;
+	else if (sliderProperties.contains(id)) return SliderSelector;
+	else if (colourProperties.contains(id)) return ColourPickerSelector;
+	else if (choiceProperties.contains(id)) return ChoiceSelector;
+	else if (multilineProperties.contains(id)) return MultilineSelector;
+	else if (fileProperties.contains(id)) return FileSelector;
+	else if (codeProperties.contains(id)) return CodeSelector;
+	else return TextSelector;
+}
+
+void ScriptComponentPropertyTypeSelector::addToTypeSelector(SelectorTypes type, Identifier id, double min /*= 0.0*/, double max /*= 1.0*/, double interval /*= 0.01*/)
+{
+	switch (type)
+	{
+	case ScriptComponentPropertyTypeSelector::ToggleSelector:
+		toggleProperties.addIfNotAlreadyThere(id);
+		break;
+	case ScriptComponentPropertyTypeSelector::ColourPickerSelector:
+		colourProperties.addIfNotAlreadyThere(id);
+		break;
+	case ScriptComponentPropertyTypeSelector::SliderSelector:
+	{
+		sliderProperties.addIfNotAlreadyThere(id);
+		SliderRange range;
+
+		range.min = min;
+		range.max = max;
+		range.interval = interval;
+
+		sliderRanges.set(id.toString(), range);
+		break;
+	}
+	case ScriptComponentPropertyTypeSelector::ChoiceSelector:
+		choiceProperties.addIfNotAlreadyThere(id);
+		break;
+	case ScriptComponentPropertyTypeSelector::MultilineSelector:
+		multilineProperties.addIfNotAlreadyThere(id);
+		break;
+	case ScriptComponentPropertyTypeSelector::FileSelector:
+		fileProperties.addIfNotAlreadyThere(id);
+		break;
+	case ScriptComponentPropertyTypeSelector::TextSelector:
+		break;
+	case ScriptComponentPropertyTypeSelector::CodeSelector:
+		codeProperties.addIfNotAlreadyThere(id);
+	case ScriptComponentPropertyTypeSelector::numSelectorTypes:
+		break;
+	default:
+		break;
 	}
 }
 

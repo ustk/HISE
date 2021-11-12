@@ -34,6 +34,7 @@
 namespace snex {
 using namespace juce;
 
+using namespace scriptnode;
 DECLARE_PARAMETER_RANGE(FreqRange, 20.0, 20000.0);
 
 String ui::WorkbenchData::getDefaultNodeTemplate(const Identifier& mainClass)
@@ -402,7 +403,7 @@ juce::var ui::WorkbenchData::TestData::toJSON() const
 	obj->setProperty(TestDataIds::HiseEvents, eventList);
 	obj->setProperty(TestDataIds::ParameterEvents, parameterList);
 
-	return var(obj);
+	return var(obj.get());
 }
 
 bool ui::WorkbenchData::TestData::fromJSON(const var& jsonData)
@@ -486,8 +487,10 @@ void ui::WorkbenchData::TestData::rebuildTestSignal(NotificationType triggerTest
 {
 	int size = testSignalLength;
 
-	testSourceData.setSize(2, size);
-
+    if(ps.numChannels == 0)
+        return;
+    
+	testSourceData.setSize(ps.numChannels, size);
 	testSourceData.clear();
 
 	switch (currentTestSignalType)
@@ -538,7 +541,7 @@ void ui::WorkbenchData::TestData::rebuildTestSignal(NotificationType triggerTest
 	{
 		using namespace scriptnode;
 		using PType = parameter::from0To1<core::oscillator<1>, 1, FreqRange>;
-		using ProcessorType = container::chain<parameter::empty, wrap::fix<1, core::ramp<1, false>>, wrap::mod<PType, core::peak>, math::clear, core::oscillator<1>>;
+		using ProcessorType = container::chain<parameter::empty, wrap::fix<1, core::ramp<1, false>>, wrap::mod<PType, core::peak>, math::clear<1>, core::oscillator<1>>;
 
 		wrap::frame<1, ProcessorType> fObj;
 
@@ -593,8 +596,16 @@ void ui::WorkbenchData::TestData::rebuildTestSignal(NotificationType triggerTest
 		break;
 	}
 
+    
+    
 	if(currentTestSignalType != TestSignalMode::CustomFile)
-		FloatVectorOperations::copy(testSourceData.getWritePointer(1), testSourceData.getReadPointer(0), size);
+    {
+        for(int i = 1; i < testSourceData.getNumChannels(); i++)
+        {
+            FloatVectorOperations::copy(testSourceData.getWritePointer(i), testSourceData.getReadPointer(0), size);
+        }
+    }
+		
 
 	for (auto l : listeners)
 	{

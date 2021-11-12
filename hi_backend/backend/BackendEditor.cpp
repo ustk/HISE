@@ -47,14 +47,14 @@ isLoadingPreset(false)
 	setLookAndFeel(&lookAndFeelV3);
 
 	addAndMakeVisible(viewport = new CachedViewport());
-	addAndMakeVisible(breadCrumbComponent = new BreadcrumbComponent(owner));
+	
 	
 	addChildComponent(debugLoggerWindow = new DebugLoggerComponent(&owner->getDebugLogger()));
 
 	viewport->viewport->setScrollBarThickness(SCROLLBAR_WIDTH);
 	viewport->viewport->setSingleStepSizes(0, 6);
 
-	setRootProcessor(owner->synthChain->getRootProcessor());
+	//setRootProcessor(owner->synthChain->getRootProcessor());
 
 	owner->addScriptListener(this);
 
@@ -227,7 +227,7 @@ void BackendProcessorEditor::resized()
 
 	//setToolBarPosition(viewportX, 4 , viewportWidth, 28);
 
-	breadCrumbComponent->setBounds(viewportX, viewportY + 3, viewportWidth, breadcrumbHeight);
+	
 
 	setViewportPositions(viewportX, viewportY + breadcrumbHeight, viewportWidth, viewportHeight);
 
@@ -243,39 +243,7 @@ void BackendProcessorEditor::resized()
 
 void BackendProcessorEditor::clearPopup()
 {
-	if (ownedPopupComponent == nullptr)
-	{
-		if (currentPopupComponent == nullptr) return;
-
-		else if (currentPopupComponent == popupEditor)
-		{
-			// Update the original editor
-			popupEditor->getProcessor()->sendChangeMessage();
-			popupEditor = nullptr;
-
-			currentPopupComponent = nullptr;
-		}
-		else if (dynamic_cast<SampleMapEditor*>(currentPopupComponent.get()) != nullptr)
-		{
-			stupidRectangle->setVisible(false);
-			currentPopupComponent->setVisible(false);
-
-			dynamic_cast<SampleMapEditor*>(currentPopupComponent.get())->deletePopup();
-			currentPopupComponent = nullptr;
-		}
-	}
-	else
-	{
-		stupidRectangle->setVisible(false);
-
-		ownedPopupComponent = nullptr;
-	}
-
 	
-	
-	stupidRectangle = nullptr;
-	viewport->setEnabled(true);
-	viewport->viewport->setScrollBarsShown(true, false);
 }
 
 void BackendProcessorEditor::scriptWasCompiled(JavascriptProcessor * /*sp*/)
@@ -343,9 +311,10 @@ void BackendProcessorEditor::refreshInterfaceAfterPresetLoad()
 {
     Processor *p = static_cast<Processor*>(owner->synthChain);
     
-	rebuildContainer();
+
+	//rebuildContainer();
     
-    container->setRootProcessorEditor(p);
+    //container->setRootProcessorEditor(p);
 }
 
 void BackendProcessorEditor::loadNewContainer(const ValueTree &v)
@@ -357,7 +326,7 @@ void BackendProcessorEditor::loadNewContainer(const ValueTree &v)
 	isLoadingPreset = true;
 	viewport->showPreloadMessage(true);
 	
-	FullInstrumentExpansion::setNewDefault(getBackendProcessor(), v);
+	
 	
 	if (CompileExporter::isExportingFromCommandLine())
 	{
@@ -378,13 +347,30 @@ void BackendProcessorEditor::clearPreset()
 {
 	setPluginPreviewWindow(nullptr);
 
+	
+
 	clearModuleList();
     container = nullptr;
 	isLoadingPreset = true;
 	viewport->showPreloadMessage(true);
 
-	owner->killAndCallOnLoadingThread([](Processor* p) {p->getMainController()->clearPreset(); return SafeFunctionCall::OK; });
+	auto rw = getRootWindow();
 
+	rw->getRootFloatingTile()->showComponentInRootPopup(nullptr, nullptr, {});
+
+	owner->killAndCallOnLoadingThread([rw](Processor* p) 
+	{
+		p->getMainController()->clearPreset(); 
+		auto jsp = dynamic_cast<BackendProcessor*>(p->getMainController())->createInterface(600, 500);
+
+		MessageManager::callAsync([rw, jsp]()
+		{
+			BackendPanelHelpers::ScriptingWorkspace::setGlobalProcessor(rw, jsp);
+			BackendPanelHelpers::showWorkspace(rw, BackendPanelHelpers::Workspace::ScriptingWorkspace, sendNotification);
+		});
+
+		return SafeFunctionCall::OK;
+	});
 }
 
 void BackendProcessorEditor::clearModuleList()
@@ -400,6 +386,20 @@ MainTopBar::MainTopBar(FloatingTile* parent) :
 	FloatingTileContent(parent),
 	ComponentWithHelp(parent->getBackendRootWindow())
 {
+    {
+        static const String iconData = "1231.nT6K8C1XOzhI.Xiuo5BLOQw..FZHKonCfUDaflA5ZgT2fXIOnsCvqXzRIkTRIR6KqEMqoZZW3Jrm4X+CHC.l..H.Oux8tFOdxKC2FOm8bR3BooKRTgCDZTULUICVnHwzkHMMpHvGRSlhtHUAENTY5AEoJZHhhzjFQanxzEKVHMYhHnfhJThvD8HZBGlZLYhTFbrPiJZRGtXQ4nhJSrVPiJCRQXlhrDMYgiAZTQSHgEVd33++ZPiZCTjlbwiHXr3vLCcDYpxJyrxjIiCGOr3xEINLnQYgxjJtPcqywoQQohjkoHLJ7SF7xLLFlyAZTWTgBYhjvbQRDoHIpHX14HfFkjKTHko.MpHXrD.t5Y6uo1IqZp+m62Vy6kIl26I+p5HdtqPugnoYaod3hOx7sKxZeriO9F5N5uBc80I+4xXb6aPatn57A.nMu2.TNDnQ0A0ENMpKSDMo9pWkJhJSQdfREJQDcQRRlGN3BPfvV1Ne4pp5HtLHt0KqwC11xpfCHZTT.fFkjKRXQS2qew64yEhqsOH.nuT14FO39Xi7siWrCmF0DpKlplHu+tdH3GBt398+7xli58KdI28gMd8cHZcesuLi2q+yNuP72KpKt10saokpiNl6022mkt8cdO6N1WxYtqm7gPX6ZmW27x9tap9ipuV53+My3g4p586h8c+A45+zbs9rzvy46Nndc8w6QH8AMiAhe9puZqoaOdtcJ1Gzd7ldJUDS.s6As6wWrw0Zrx2y6O9wJtdLWcs58K6tNAq5Kkwmm+ki3yuZ61iWm5yq2isfOedB79v9i+mDvPjIE.gADDF5y3WrC09paHrgKE2KWnEWctP56Vu4L1d4He4hOmwaKNgvas5cOGeKD8J3zf.71E53itluv6gM+5mzejuE+fYiHFSbcOK2N+KiBP5V0yc7BDHRnFKQvD.P.PBHAffBgUCLPmQzCHPxncQNk0LAyfEP.4e.crDLxWc0WF5xtPFRNdIN.YbvPxg.izdDQ0OFsF.8tW.dHDORrxg.xnII9jvLBOiG.5xHMxKzzW5eIAiQQ7QA.ZNIBVaFFC49JWE68dx3vmK3QlsG5Aj3bx2.sDjDxJZdlbSipcOtlpvZ9ynMyokW04FbbA4elRMTvGenL8E3CcC1rniW8.olNcQqZ0dUAKJL9hS.xVlOGNzeFmcIRRfWmI1G1N1Vyjn7gJEJ8p8wk9CB7Sba93wICBAYSY7dimsAEOtWJWZo79rvXEo9R05vezh1mgnofRMeLSOesGGWvDXiBfcwW2GUhFKkudo5a13pvfbuX6aqPrmRKOIEFvqBkJLRgMfEVBg4pEFi7hdvFSUq+fSEbuEIdO1pZoy9XNhbLXw0uyymhMUKY0XU6dItKXlqLRn9Vyi67m2g.25Xf9Zya2Rlisb4K.AwJVcVvJltxYOsENFgsjJC0NQBh2sQnn3yxAt36ygkRxPiTzxJ8nUkEVyInJQDQZTENGpx7FhTX.Q2CwoilgfdW0miH8zaJM.laTSj7gIvdAzXS0inQOXyAbwLM3qJ9L.w54NEkbcL7QWjAkEH6rxfWl17OfOChcRzDf94aoxO9ydFGMhmNV9Ot7chYIwjtd+o9Opj8qjTxtUd2Usjj+XtTv4uq0nF52r2SNUJqf6lN.";
+        
+        MemoryBlock mb;
+        mb.fromBase64Encoding(iconData);
+        zstd::ZDefaultCompressor comp;
+        ValueTree v;
+        comp.expand(mb, v);
+
+        auto xml = v.createXml();
+
+        hiseIcon = juce::Drawable::createFromSVG(*xml).release();
+    }
+    
 	MainToolbarFactory f;
 
 	setRepaintsOnMouseActivity(true);
@@ -432,16 +432,20 @@ MainTopBar::MainTopBar(FloatingTile* parent) :
 	presetBrowserButton->setShape(f.createPath("Preset Browser"), false, true, true);
 	presetBrowserButton->addListener(this);
 
+    addAndMakeVisible(customPopupButton = new ShapeButton("Custom Popup", Colours::white.withAlpha(0.6f), Colours::white.withAlpha(0.8f), Colours::white));
+    customPopupButton->setTooltip("Show Custom Popup");
+    customPopupButton->setShape(f.createPath("Custom Popup"), false, true, true);
+    customPopupButton->addListener(this);
+    
+    addAndMakeVisible(keyboardPopupButton = new ShapeButton("Keyboard", Colours::white.withAlpha(0.6f), Colours::white.withAlpha(0.8f), Colours::white));
+    keyboardPopupButton->setTooltip("Show Custom Popup");
+    keyboardPopupButton->setShape(f.createPath("Keyboard"), false, true, true);
+    keyboardPopupButton->addListener(this);
+    
 	addAndMakeVisible(pluginPreviewButton = new ShapeButton("Plugin Preview", Colours::white.withAlpha(0.6f), Colours::white.withAlpha(0.8f), Colours::white));
 	pluginPreviewButton->setTooltip("Show Plugin Preview");
 	pluginPreviewButton->setShape(f.createPath("Plugin Preview"), false, true, true);
 	pluginPreviewButton->addListener(this);
-
-
-
-	addAndMakeVisible(mainWorkSpaceButton = new HiseShapeButton("Main Workspace", this, f));
-	mainWorkSpaceButton->setTooltip("Show Main Workspace");
-	mainWorkSpaceButton->setCommandToTrigger(getRootWindow()->getBackendProcessor()->getCommandManager(), BackendCommandTarget::WorkspaceMain, true);
 
 	addAndMakeVisible(scriptingWorkSpaceButton = new HiseShapeButton("Scripting Workspace", this, f));
 	scriptingWorkSpaceButton->setTooltip("Show Scripting Workspace");
@@ -470,9 +474,8 @@ MainTopBar::MainTopBar(FloatingTile* parent) :
 	layoutButton->setShape(layoutPath, false, true, true);
 	
 	addAndMakeVisible(tooltipBar = new TooltipBar());
-	addAndMakeVisible(voiceCpuBpmComponent = new VoiceCpuBpmComponent(parent->getBackendRootWindow()->getBackendProcessor()));
-    
-	tooltipBar->setColour(TooltipBar::ColourIds::backgroundColour, HiseColourScheme::getColour(HiseColourScheme::ColourIds::EditorBackgroundColourIdBright));
+	
+	tooltipBar->setColour(TooltipBar::ColourIds::backgroundColour, Colour(0));
 	tooltipBar->setColour(TooltipBar::ColourIds::textColour, Colours::white);
 	tooltipBar->setColour(TooltipBar::ColourIds::iconColour, Colours::white);
 	//tooltipBar->setShowInfoIcon(false);
@@ -598,47 +601,12 @@ public:
 
 			if (bpe != nullptr)
 			{
-				auto midiChain = dynamic_cast<MidiProcessorChain*>(bpe->getMainSynthChain()->getChildProcessor(ModulatorSynthChain::MidiProcessor));
+				auto bp = dynamic_cast<BackendProcessor*>(bpe->getMainController());
+				auto jsp = bp->createInterface(getWidth(), getHeight());
 
-				auto s = bpe->getMainSynthChain()->getMainController()->createProcessor(midiChain->getFactoryType(), "ScriptProcessor", "Interface");
+				BackendRootWindow* root = GET_BACKEND_ROOT_WINDOW(this);
 
-				auto jsp = dynamic_cast<JavascriptProcessor*>(s);
-
-				String code = "Content.makeFrontInterface(" + String(getWidth()) + ", " + String(getHeight()) + ");";
-
-				jsp->getSnippet(0)->replaceContentAsync(code);
-				jsp->compileScript();
-
-				midiChain->getHandler()->add(s, nullptr);
-
-				midiChain->setEditorState(Processor::EditorState::Visible, true);
-				s->setEditorState(Processor::EditorState::Folded, true);
-
-				auto root = GET_BACKEND_ROOT_WINDOW(this);
-				
-				root->sendRootContainerRebuildMessage(true);
-
-				root->getBackendProcessor()->getCommandManager()->invokeDirectly(BackendCommandTarget::WorkspaceScript, false);
-
-				BackendPanelHelpers::ScriptingWorkspace::setGlobalProcessor(root, jsp);
-				BackendPanelHelpers::ScriptingWorkspace::showInterfaceDesigner(root, true);
-                
-                auto rootContainer = root->getMainPanel()->getRootContainer();
-                
-                auto editorOfParent = rootContainer->getFirstEditorOf(root->getMainSynthChain());
-                auto editorOfChain = rootContainer->getFirstEditorOf(midiChain);
-                
-				if (editorOfParent != nullptr)
-				{
-					editorOfParent->getChainBar()->refreshPanel();
-					editorOfParent->sendResizedMessage();
-				}
-                
-                if(editorOfChain != nullptr)
-                {
-                    editorOfChain->changeListenerCallback(editorOfChain->getProcessor());
-                    editorOfChain->childEditorAmountChanged();
-                }
+				root->setScriptProcessorForWorkspace(jsp);
 			}
 		}
 
@@ -710,16 +678,7 @@ public:
 
 
 	void paint(Graphics& g) override
-	{
-#if 0
-		g.fillAll(Colour(0xFF222222));
-		g.setColour(Colour(0xFF555555));
-		g.fillRect(getLocalBounds().withHeight(40));
-		g.setColour(Colour(0xFFCCCCCC));
-		g.setFont(GLOBAL_BOLD_FONT().withHeight(18.0f));
-		g.drawText("Create User Interface", getLocalBounds().withTop(10), Justification::centredTop);
-#endif
-
+    {
 		g.fillAll(Colour(0xFF222222));
 
 		g.setColour(Colours::white.withAlpha(0.4f));
@@ -764,40 +723,14 @@ private:
 };
 
 
-void MainTopBar::popupChanged(Component* newComponent)
-{
-	bool macroShouldBeOn = dynamic_cast<MacroComponent*>(newComponent) != nullptr;
-	bool settingsShouldBeOn = (newComponent != nullptr && newComponent->getName() == "Settings");
-	bool previewShouldBeShown = (newComponent != nullptr && newComponent->getName() == "Interface Preview") ||
-								(newComponent != nullptr && newComponent->getName() == "Create User Interface");
-	bool presetBrowserShown = dynamic_cast<PresetBrowser*>(newComponent) != nullptr;
-
-	setColoursForButton(macroButton, macroShouldBeOn);
-	setColoursForButton(settingsButton, settingsShouldBeOn);
-	setColoursForButton(pluginPreviewButton, previewShouldBeShown);
-	setColoursForButton(presetBrowserButton, presetBrowserShown);
-	macroButton->setToggleState(macroShouldBeOn, dontSendNotification);
-	settingsButton->setToggleState(settingsShouldBeOn, dontSendNotification);
-	pluginPreviewButton->setToggleState(previewShouldBeShown, dontSendNotification);
-	presetBrowserButton->setToggleState(presetBrowserShown, dontSendNotification);
-}
 
 void MainTopBar::paint(Graphics& g)
 {
-	
-
-	Colour c1 = JUCE_LIVE_CONSTANT_OFF(Colour(0xFF424242));
+    Colour c1 = JUCE_LIVE_CONSTANT_OFF(Colour(0xFF383838));
 	Colour c2 = JUCE_LIVE_CONSTANT_OFF(Colour(0xFF404040));
 
 	g.setGradientFill(ColourGradient(c1, 0.0f, 0.0f, c2, 0.0f, (float)getHeight(), false));
 	g.fillAll();
-	
-	g.setColour(Colours::white.withAlpha(0.2f));
-	g.setFont(GLOBAL_BOLD_FONT());
-	g.drawText("Frontend Panels", frontendArea.withTrimmedBottom(11), Justification::centredBottom);
-	g.drawText("Workspaces", workspaceArea.withTrimmedBottom(11), Justification::centredBottom);
-
-	
 }
 
 void MainTopBar::paintOverChildren(Graphics& g)
@@ -823,85 +756,51 @@ void MainTopBar::buttonClicked(Button* b)
 	{
 		togglePopup(PopupType::PresetBrowser, !b->getToggleState());
 	}
+    else if (b == keyboardPopupButton)
+    {
+        togglePopup(PopupType::Keyboard, !b->getToggleState());
+    }
+    else if (b == customPopupButton)
+    {
+        togglePopup(PopupType::CustomPopup, !b->getToggleState());
+    }
 }
 
 void MainTopBar::resized()
 {
-	const int centerY = 3;
+    hiseButton->setVisible(false);
 
-	int x = 10;
-
-	const int hiseButtonSize = 40;
-	const int hiseButtonOffset = (getHeight() - hiseButtonSize) / 2;
-
-	hiseButton->setBounds(hiseButtonOffset, hiseButtonOffset, hiseButtonSize, hiseButtonSize);
-
-	x = hiseButton->getRight() + 10;
-
-	const int backButtonSize = 24;
-	const int backButtonOffset = (getHeight() - backButtonSize) / 2;
-
-	backButton->setBounds(x, backButtonOffset, backButtonSize, backButtonSize);
-
-	x = backButton->getRight() + 4;
-
-	forwardButton->setBounds(x, backButtonOffset, backButtonSize, backButtonSize);
-
-	const int leftX = forwardButton->getRight() + 4;
-
+    
+    
+    
+    
+    
+    
+    
 	const int settingsWidth = 320;
-	Rectangle<int> settingsArea(getWidth() - settingsWidth, centerY, settingsWidth, getHeight() - centerY);
-	tooltipBar->setBounds(settingsArea.getX(), getHeight() - 24, settingsWidth, 24);
-	voiceCpuBpmComponent->setBounds(settingsArea.getX(), 4, 120, 28);
-	x = settingsArea.getRight() - 28 - 8;
-	layoutButton->setBounds(x, centerY, 28, 28);
 	
-	x = layoutButton->getX() - 28 - 8;
-	
-	settingsButton->setBounds(x, centerY, 28, 28);
-	peakMeter->setBounds(voiceCpuBpmComponent->getRight() - 2, centerY + 4, settingsButton->getX() - voiceCpuBpmComponent->getRight(), 24);
+    layoutButton->setVisible(false);
+    
+    scriptingWorkSpaceButton->setVisible(false);
+    samplerWorkSpaceButton->setVisible(false);
+    customWorkSpaceButton->setVisible(false);
 
-	const int rightX = settingsArea.getX() - 4;
+    auto bWidth = getHeight() * 2;
+    
+    frontendArea = getLocalBounds().withSizeKeepingCentre(bWidth * 3, getHeight());
 
-	const int workspaceWidth = 180;
-
-	int frontendWidth = 180;
-	
-	int centerX = leftX + (rightX - leftX) / 2;
-
-	x = centerX - workspaceWidth - 40;
-
-	workspaceArea = Rectangle<int>(x, centerY + 3, workspaceWidth, getHeight() - centerY);
-
-	mainWorkSpaceButton->setBounds(x, workspaceArea.getY(), 32, 32);
-	
-	x += (workspaceWidth-32) / 3;
-
-	scriptingWorkSpaceButton->setBounds(x, workspaceArea.getY(), 32, 32);
-
-	x += (workspaceWidth - 32) / 3;
-
-	samplerWorkSpaceButton->setBounds(x, workspaceArea.getY(), 32, 32);
-	x += (workspaceWidth - 32) / 3;
-
-	customWorkSpaceButton->setBounds(x, workspaceArea.getY(), 32, 32);
-	x += (workspaceWidth - 32) / 3;
-
-
-	x = centerX + 40;
-
-	frontendArea = Rectangle<int>(x, centerY + 3, frontendWidth, getHeight() - centerY);
-
-	int macroX = frontendArea.getX();
-
-	macroButton->setBounds(macroX, frontendArea.getY(), 32, 32);
-
-	pluginPreviewButton->setBounds(frontendArea.getCentreX() - 16, frontendArea.getY(), 32, 32);
-
-	presetBrowserButton->setBounds(frontendArea.getRight() - 32, frontendArea.getY(), 32, 32);
-
-
-
+    auto b = getLocalBounds();
+    
+    customPopupButton->setBounds(b.removeFromLeft(getHeight()).reduced(8));
+    tooltipBar->setBounds(b.removeFromLeft(macroButton->getX()).reduced(7));
+                                 
+    macroButton->setBounds(frontendArea.removeFromLeft(bWidth).reduced(7));
+    pluginPreviewButton->setBounds(frontendArea.removeFromLeft(bWidth).reduced(7));
+    presetBrowserButton->setBounds(frontendArea.removeFromLeft(bWidth).reduced(7));
+                                 
+    settingsButton->setBounds(b.removeFromRight(b.getHeight()).reduced(7));
+    peakMeter->setBounds(b.removeFromRight(180).reduced(8));
+    keyboardPopupButton->setBounds(b.removeFromRight(b.getHeight()).reduced(8));
 }
 
 
@@ -928,6 +827,467 @@ private:
 	ScopedPointer<Component> ownedComponent;
 };
 
+struct PopupFloatingTile: public Component,
+						  public ButtonListener,
+						  public PathFactory
+{
+    static constexpr int ButtonHeight = 24;
+    
+	PopupFloatingTile(MainController* mc, var data) :
+		t(mc, nullptr),
+		resizer(this, &constrainer),
+		clearButton("clear", this, *this),
+		loadButton("load", this, *this),
+		saveButton("save", this, *this),
+		layoutButton("layout", this, *this)
+	{
+		setOpaque(true);
+		addAndMakeVisible(t);
+		addAndMakeVisible(resizer);
+
+		addAndMakeVisible(clearButton);
+		addAndMakeVisible(loadButton);
+		addAndMakeVisible(saveButton);
+		addAndMakeVisible(layoutButton);
+
+        constrainer.setMinimumSize(200, 80);
+        
+        if(data.isObject())
+        {
+            showEditBar = false;
+            load(JSON::toString(data));
+            
+            
+            
+            t.setForceShowTitle(false);
+            
+            if(auto c = dynamic_cast<FloatingTileContainer*>(t.getCurrentFloatingPanel()))
+            {
+                if(c->getNumComponents() == 1)
+                {
+                    c->setIsDynamic(false);
+                    c->getComponent(0)->setForceShowTitle(false);
+                }
+            }
+            
+            setName("Popup");
+        }
+        else
+        {
+            layoutButton.setToggleModeWithColourChange(true);
+            clear();
+            
+            setName("Custom Popup");
+            
+            setSize(400, 400);
+        }
+	}
+
+    void load(const String& jsonString)
+    {
+        auto data = JSON::parse(jsonString);
+        int w = data.getProperty("Width", getWidth());
+        int h = data.getProperty("Height", getHeight());
+
+        setContent(jsonString);
+        
+        layoutButton.setToggleStateAndUpdateIcon(false);
+        t.setLayoutModeEnabled(false);
+        
+        setSize(w, h - ButtonHeight);
+    }
+    
+    void setContent(String c)
+    {
+        if(findParentComponentOfClass<BackendRootWindow>() == nullptr)
+        {
+            Timer::callAfterDelay(30, [this, c]()
+            {
+                this->setContent(c);
+            });
+                                  
+            return;
+        }
+        
+        t.loadFromJSON(c);
+        setName(t.getCurrentFloatingPanel()->getBestTitle());
+    }
+    
+	void clear()
+	{
+		t.setLayoutModeEnabled(true);
+		t.setNewContent("HorizontalTile");
+		layoutButton.setToggleStateAndUpdateIcon(true, true);
+		t.setOpaque(true);
+	}
+
+	Path createPath(const String& url) const override
+	{
+		Path p;
+		LOAD_PATH_IF_URL("clear", SampleMapIcons::newSampleMap);
+		LOAD_PATH_IF_URL("load", SampleMapIcons::loadSampleMap);
+		LOAD_PATH_IF_URL("save", SampleMapIcons::saveSampleMap);
+		LOAD_PATH_IF_URL("layout", ColumnIcons::customizeIcon);
+		return p;
+	}
+    
+    static void fillPopupWithFiles(PopupMenu& m)
+    {
+        auto files = getFileList();
+        
+        int index = 1;
+
+        for (auto& f : files)
+        {
+            m.addItem(index++, f.getFileNameWithoutExtension());
+        }
+    }
+    
+    static Array<File> getFileList()
+    {
+        return getDirectory().findChildFiles(File::findFiles, false, "*.json");
+    }
+
+    
+    
+    static Component* loadWithPopupMenu(Component* c)
+    {
+        auto w = GET_BACKEND_ROOT_WINDOW(c);
+        auto mc = w->getBackendProcessor();
+        var dataToLoad;
+        PeriodicScreenshotter::PopupGlassLookAndFeel plaf(*c);
+        PopupMenu m;
+        m.setLookAndFeel(&plaf);
+
+        auto files = getFileList();
+        
+        
+        
+        fillPopupWithFiles(m);
+        
+        if(!files.isEmpty())
+            m.addSeparator();
+        
+        m.addItem(9000, "Create new Popup");
+        m.addItem(9001, "Show popup folder");
+            
+        auto r = m.showAt(c);
+        if (r != 0)
+        {
+            if(r == 9000)
+                return new PopupFloatingTile(mc, var());
+            
+            if(r == 9001)
+            {
+                PopupFloatingTile::getDirectory().revealToUser();
+                return nullptr;
+            }
+            
+            auto content = files[r - 1].loadFileAsString();
+
+            return new PopupFloatingTile(mc, JSON::parse(content));
+        }
+        
+        return nullptr;
+    }
+    
+	void buttonClicked(Button* b) override
+	{
+		if (b == &clearButton)
+		{
+			clear();
+		}
+		if (b == &saveButton)
+		{
+			auto name = PresetHandler::getCustomName("PopupLayout");
+
+			auto f = getDirectory().getChildFile(name).withFileExtension("json");
+
+			auto v = JSON::parse(t.exportAsJSON());
+
+			if (auto s = v.getDynamicObject())
+			{
+				s->setProperty("Width", getWidth());
+				s->setProperty("Height", getHeight());
+			}
+			
+			f.replaceWithText(JSON::toString(v));
+		}
+		if (b == &layoutButton)
+		{
+			t.setLayoutModeEnabled(layoutButton.getToggleState());
+		}
+		if (b == &loadButton)
+		{
+            PopupLookAndFeel plaf;
+            PopupMenu m;
+            m.setLookAndFeel(&plaf);
+            
+            fillPopupWithFiles(m);
+            
+            auto r = m.show();
+            
+            if(r != 0)
+            {
+                auto content = getFileList()[r - 1].loadFileAsString();
+                load(content);
+            }
+		}
+	}
+
+	static File getDirectory()
+	{
+		auto dir = ProjectHandler::getAppDataDirectory().getChildFile("custom_popups");
+
+		if (!dir.isDirectory())
+			dir.createDirectory();
+
+		return dir;
+	}
+
+	void paint(Graphics& g) override
+	{
+		g.fillAll(Colour(0xFF222222));
+	}
+
+	void resized() override
+	{
+		auto b = getLocalBounds();
+
+		
+		static constexpr int ButtonMargin = 2;
+
+		auto topRow = b.removeFromTop(showEditBar ? ButtonHeight : 0);
+
+		clearButton.setBounds(topRow.removeFromLeft(ButtonHeight).reduced(ButtonMargin));
+		loadButton.setBounds(topRow.removeFromLeft(ButtonHeight).reduced(ButtonMargin));
+		saveButton.setBounds(topRow.removeFromLeft(ButtonHeight).reduced(ButtonMargin));
+		layoutButton.setBounds(topRow.removeFromLeft(ButtonHeight).reduced(ButtonMargin));
+
+		t.setBounds(b);
+		resizer.setBounds(getLocalBounds().removeFromRight(8).removeFromBottom(8));
+	}
+
+	HiseShapeButton clearButton;
+	HiseShapeButton loadButton;
+	HiseShapeButton layoutButton;
+	HiseShapeButton saveButton;
+
+    bool showEditBar = true;
+    
+	FloatingTile t;
+	juce::ResizableCornerComponent resizer;
+	juce::ComponentBoundsConstrainer constrainer;
+};
+
+struct ToolkitPopup : public Component,
+					  public ControlledObject,
+					  public PooledUIUpdater::SimpleTimer,
+					  public ButtonListener,
+					  public SliderListener,
+					  public PathFactory
+{
+	ToolkitPopup(MainController* mc):
+		Component("HISE Controller"),
+		ControlledObject(mc),
+		SimpleTimer(mc->getGlobalUIUpdater()),
+		panicButton("Panic", this, *this),
+		keyboard(mc),
+		masterConnection(&masterVolume, mc, mc->getMainSynthChain()->getId()),
+		resizer(this, &constrainer, ResizableEdgeComponent::rightEdge)
+	{
+		constrainer.setMinimumWidth(550);
+		constrainer.setMaximumWidth(900);
+		resizer.setLookAndFeel(&rlaf);
+
+		addAndMakeVisible(resizer);
+		addAndMakeVisible(panicButton);
+		addAndMakeVisible(tempoKnob);
+		addAndMakeVisible(peakMeter);
+		addAndMakeVisible(masterVolume);
+		addAndMakeVisible(keyboard);
+
+		tempoKnob.setSliderStyle(Slider::RotaryHorizontalVerticalDrag);
+		tempoKnob.setLookAndFeel(&slaf);
+		tempoKnob.setRange(30, 240, 1.0);
+		tempoKnob.addListener(this);
+		tempoKnob.setName("Tempo");
+
+		masterVolume.setSliderStyle(Slider::RotaryHorizontalVerticalDrag);
+		masterVolume.setLookAndFeel(&slaf);
+		masterVolume.setRange(0.0, 1.0, 0.01);
+		masterVolume.setName("Volume");
+
+		peakMeter.setType(VuMeter::Type::StereoHorizontal);
+		peakMeter.setOpaque(false);
+		peakMeter.setColour(VuMeter::backgroundColour, Colours::transparentBlack);
+		peakMeter.setColour(VuMeter::ledColour, Colours::white.withAlpha(0.5f));
+		peakMeter.setName("Output");
+
+		keyboard.setUseVectorGraphics(true);
+
+		setSize(600, 72 + 48 + 30);
+	}
+
+	void buttonClicked(Button* b) override
+	{
+		if (b == &panicButton)
+			getMainController()->allNotesOff(true);
+	}
+
+	void paint(Graphics& g) override
+	{
+		g.setColour(Colours::white);
+		g.setFont(GLOBAL_BOLD_FONT());
+
+		auto statBounds = getLocalBounds();
+		statBounds.removeFromTop(30);
+		statBounds.removeFromBottom(keyboard.getHeight());
+		statBounds.removeFromLeft(panicButton.getBounds().getRight() + 10);
+		statBounds.setRight(tempoKnob.getX());
+
+		g.drawText(getStatistics(), statBounds.toFloat(), Justification::centredLeft);
+
+		g.setColour(Colours::white.withAlpha(0.4f));
+		g.fillPath(midiPath);
+
+		if (midiAlpha != 0.0f)
+		{
+			g.setColour(Colour(SIGNAL_COLOUR).withAlpha(midiAlpha));
+			g.fillPath(midiPath);
+		}
+
+		paintName(g, peakMeter);
+		paintName(g, masterVolume);
+		paintName(g, tempoKnob);
+		paintName(g, panicButton);
+	}
+
+	void paintName(Graphics& g, Component& c)
+	{
+		auto b = c.getBoundsInParent().withY(0).withHeight(30).toFloat();
+		g.setColour(Colours::white.withAlpha(0.4f));
+		g.drawText(c.getName(), b, Justification::centred);
+	}
+
+	void resized() override
+	{
+		auto b = getLocalBounds();
+		b.removeFromLeft(10);
+		resizer.setBounds(b.removeFromRight(10));
+		keyboard.setBounds(b.removeFromBottom(72));
+
+		b.removeFromTop(30);
+
+		masterVolume.setBounds(b.removeFromRight(b.getHeight()));
+		b.removeFromRight(10);
+		peakMeter.setBounds(b.removeFromRight(200).reduced(0, 10));
+
+		midiPath = createPath("midi");
+		scalePath(midiPath, b.removeFromRight(b.getHeight()).reduced(0, 13).toFloat());
+		b.removeFromRight(5);
+		tempoKnob.setBounds(b.removeFromRight(b.getHeight()));
+		panicButton.setBounds(b.removeFromLeft(b.getHeight()).reduced(10));
+
+		
+	}
+
+	void sliderValueChanged(Slider* s)
+	{
+		getMainController()->setHostBpm(s->getValue());
+	}
+
+	void timerCallback() override
+	{
+		if(!tempoKnob.isMouseOverOrDragging())
+			tempoKnob.setValue(getMainController()->getBpm(), dontSendNotification);
+
+		const auto& dv = getMainController()->getMainSynthChain()->getDisplayValues();
+
+		peakMeter.setPeak(dv.outL, dv.outR);
+
+		if (getMainController()->checkAndResetMidiInputFlag())
+			midiAlpha = 1.0f;
+		else
+			midiAlpha = jmax(0.0f, midiAlpha - 0.1f);
+
+		repaint();
+	}
+
+	Path createPath(const String& url) const override
+	{
+		Path p;
+
+		LOAD_PATH_IF_URL("Panic", HiBinaryData::FrontendBinaryData::panicButtonShape);
+		LOAD_PATH_IF_URL("midi", HiBinaryData::SpecialSymbols::midiData);
+
+		return p;
+	}
+
+	String getStatistics() const
+	{
+		auto mc = getMainController();
+		const int cpuUsage = (int)mc->getCpuUsage();
+		const int voiceAmount = mc->getNumActiveVoices();
+
+		auto bytes = mc->getSampleManager().getModulatorSamplerSoundPool2()->getMemoryUsageForAllSamples();
+
+		auto& handler = getMainController()->getExpansionHandler();
+
+		for (int i = 0; i < handler.getNumExpansions(); i++)
+			bytes += handler.getExpansion(i)->pool->getSamplePool()->getMemoryUsageForAllSamples();
+
+		const double ramUsage = (double)bytes / 1024.0 / 1024.0;
+
+		String stats = "CPU: ";
+		stats << String(cpuUsage) << "%, RAM: " << String(ramUsage, 1) << "MB , Voices: " << String(voiceAmount);
+		return stats;
+	}
+
+	Path midiPath;
+	float midiAlpha = 0.0f;
+	HiseShapeButton panicButton;
+	
+	MacroKnobLookAndFeel slaf;
+	Slider tempoKnob;
+	Slider masterVolume;
+	raw::UIConnection::Slider<ModulatorSynth::Parameters::Gain> masterConnection;
+
+	VuMeter peakMeter;
+	CustomKeyboard keyboard;
+
+	juce::ResizableEdgeComponent resizer;
+	ComponentBoundsConstrainer constrainer;
+	ScrollbarFader::Laf rlaf;
+};
+
+
+void MainTopBar::popupChanged(Component* newComponent)
+{
+    bool macroShouldBeOn = dynamic_cast<MacroComponent*>(newComponent) != nullptr;
+    bool settingsShouldBeOn = (newComponent != nullptr && newComponent->getName() == "Settings");
+    bool previewShouldBeShown = (newComponent != nullptr && newComponent->getName() == "Interface Preview") ||
+                                (newComponent != nullptr && newComponent->getName() == "Create User Interface");
+    bool presetBrowserShown = dynamic_cast<PresetBrowser*>(newComponent) != nullptr;
+
+    bool keyboardShouldBeOn = dynamic_cast<ToolkitPopup*>(newComponent) != nullptr;
+    
+    bool customShouldBeShown = dynamic_cast<PopupFloatingTile*>(newComponent) != nullptr;
+    
+    setColoursForButton(macroButton, macroShouldBeOn);
+    setColoursForButton(settingsButton, settingsShouldBeOn);
+    setColoursForButton(pluginPreviewButton, previewShouldBeShown);
+    setColoursForButton(presetBrowserButton, presetBrowserShown);
+    setColoursForButton(keyboardPopupButton, keyboardShouldBeOn);
+    setColoursForButton(customPopupButton, customShouldBeShown);
+    
+    macroButton->setToggleState(macroShouldBeOn, dontSendNotification);
+    settingsButton->setToggleState(settingsShouldBeOn, dontSendNotification);
+    pluginPreviewButton->setToggleState(previewShouldBeShown, dontSendNotification);
+    presetBrowserButton->setToggleState(presetBrowserShown, dontSendNotification);
+    keyboardPopupButton->setToggleState(keyboardShouldBeOn, dontSendNotification);
+    customPopupButton->setToggleState(customShouldBeShown, dontSendNotification);
+}
 
 void MainTopBar::togglePopup(PopupType t, bool shouldShow)
 {
@@ -947,7 +1307,6 @@ void MainTopBar::togglePopup(PopupType t, bool shouldShow)
 	case MainTopBar::PopupType::About:
 	{
 		c = new AboutPage();
-		
 		c->setSize(500, 300);
 
 		button = hiseButton;
@@ -986,6 +1345,8 @@ void MainTopBar::togglePopup(PopupType t, bool shouldShow)
 			
 			ft->setNewContent(GET_PANEL_NAME(InterfaceContentPanel));
 
+            ft->setOpaque(false);
+            
 			auto content = JavascriptMidiProcessor::getFirstInterfaceScriptProcessor(mc)->getScriptingContent();
 
 			if (content != nullptr)
@@ -1035,7 +1396,7 @@ void MainTopBar::togglePopup(PopupType t, bool shouldShow)
 		newOptions.showNotesLabel = false;
 		newOptions.showFolderButton = false;
 		newOptions.highlightColour = Colour(SIGNAL_COLOUR);
-		newOptions.backgroundColour = Colours::black.withAlpha(0.8f);
+        newOptions.backgroundColour = Colours::transparentBlack;
 		newOptions.textColour = Colours::white;
 		newOptions.font = GLOBAL_BOLD_FONT();
 
@@ -1046,6 +1407,14 @@ void MainTopBar::togglePopup(PopupType t, bool shouldShow)
 		button = presetBrowserButton;
 		break;
 	}
+        case MainTopBar::PopupType::CustomPopup:
+        c = PopupFloatingTile::loadWithPopupMenu(customPopupButton);
+        button = customPopupButton;
+        break;
+    case MainTopBar::PopupType::Keyboard:
+        c = new ToolkitPopup(mc);
+        button = keyboardPopupButton;
+        break;
 	case MainTopBar::PopupType::numPopupTypes:
 		break;
 	default:
@@ -1055,8 +1424,16 @@ void MainTopBar::togglePopup(PopupType t, bool shouldShow)
 	Point<int> point(button->getLocalBounds().getCentreX(), button->getLocalBounds().getBottom());
 	auto popup = getParentShell()->showComponentInRootPopup(c, button, point);
 
-	if (popup != nullptr)
-		popup->setColour((int)FloatingTilePopup::ColourIds::backgroundColourId, JUCE_LIVE_CONSTANT_OFF(Colour(0xec000000)));
+    auto sb = dynamic_cast<ShapeButton*>(button);
+    
+    if(popup != nullptr)
+    {
+        popup->onDetach = [this, sb](bool isDetached)
+        {
+            setColoursForButton(sb, !isDetached);
+            sb->setToggleState(!isDetached, dontSendNotification);
+        };
+    }
 
 }
 

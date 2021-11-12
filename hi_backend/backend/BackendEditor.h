@@ -327,6 +327,8 @@ public:
 		PluginPreview,
 		Settings,
 		PresetBrowser,
+        CustomPopup,
+        Keyboard,
 		numPopupTypes
 	};
 
@@ -336,7 +338,7 @@ public:
 
 	int getFixedHeight() const override
 	{
-		return 60;
+		return 40;
 	}
 
 	String getMarkdownHelpUrl() const override
@@ -372,12 +374,6 @@ public:
 	{
 		switch (info.commandID)
 		{
-		case BackendCommandTarget::WorkspaceMain:
-			mainWorkSpaceButton->setToggleStateAndUpdateIcon(true);
-			scriptingWorkSpaceButton->setToggleStateAndUpdateIcon(false);
-			samplerWorkSpaceButton->setToggleStateAndUpdateIcon(false);
-			customWorkSpaceButton->setToggleStateAndUpdateIcon(false);
-			break;
 		case BackendCommandTarget::WorkspaceScript: 
 			mainWorkSpaceButton->setToggleStateAndUpdateIcon(false);
 			scriptingWorkSpaceButton->setToggleStateAndUpdateIcon(true);
@@ -411,8 +407,7 @@ private:
 	Rectangle<int> workspaceArea;
 
 	ScopedPointer<TooltipBar> tooltipBar;
-	ScopedPointer<VoiceCpuBpmComponent> voiceCpuBpmComponent;
-
+	
 	ScopedPointer<ImageButton> hiseButton;
 
 	ScopedPointer<ShapeButton> backButton;
@@ -425,12 +420,15 @@ private:
 	ScopedPointer<HiseShapeButton> macroButton;
 	ScopedPointer<ShapeButton> pluginPreviewButton;
 	ScopedPointer<ShapeButton> presetBrowserButton;
+    ScopedPointer<ShapeButton> customPopupButton;
+    ScopedPointer<ShapeButton> keyboardPopupButton;
 
 	ScopedPointer<HiseShapeButton> mainWorkSpaceButton;
 	ScopedPointer<HiseShapeButton> scriptingWorkSpaceButton;
 	ScopedPointer<HiseShapeButton> samplerWorkSpaceButton;
 	ScopedPointer<HiseShapeButton> customWorkSpaceButton;
 
+    ScopedPointer<Drawable> hiseIcon;
 };
 
 

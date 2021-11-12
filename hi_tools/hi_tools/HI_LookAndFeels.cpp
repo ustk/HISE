@@ -357,6 +357,7 @@ void GlobalHiseLookAndFeel::setTextEditorColours(TextEditor& ed)
 	ed.setColour(TextEditor::ColourIds::backgroundColourId, Colours::white.withAlpha(0.4f));
 	ed.setColour(TextEditor::ColourIds::focusedOutlineColourId, Colour(SIGNAL_COLOUR));
 	ed.setColour(Label::ColourIds::outlineWhenEditingColourId, Colour(SIGNAL_COLOUR));
+	ed.setColour(TextEditor::ColourIds::outlineColourId, Colours::black.withAlpha(0.8f));
 	ed.setColour(TextEditor::ColourIds::highlightColourId, Colour(SIGNAL_COLOUR));
 	ed.setFont(GLOBAL_BOLD_FONT());
 	ed.setSelectAllWhenFocused(true);
@@ -671,13 +672,13 @@ void ProcessorEditorLookAndFeel::setupEditorNameLabel(Label* label)
 void ProcessorEditorLookAndFeel::fillEditorBackgroundRect(Graphics& g, Component* c, int offsetFromLeftRight /*= 84*/)
 {
 	g.setColour(JUCE_LIVE_CONSTANT_OFF(Colour(0x27000000)));
-	g.fillRoundedRectangle(static_cast<float> ((c->getWidth() / 2) - ((c->getWidth() - offsetFromLeftRight) / 2)), 3.0f, static_cast<float> (c->getWidth() - offsetFromLeftRight), static_cast<float> (c->getHeight() - 6), 3.000f);
+	//g.fillRoundedRectangle(static_cast<float> ((c->getWidth() / 2) - ((c->getWidth() - offsetFromLeftRight) / 2)), 3.0f, static_cast<float> (c->getWidth() - offsetFromLeftRight), static_cast<float> (c->getHeight() - 6), 3.000f);
 }
 
 void ProcessorEditorLookAndFeel::fillEditorBackgroundRectFixed(Graphics& g, Component* c, int fixedWidth)
 {
     g.setColour(JUCE_LIVE_CONSTANT_OFF(Colour(0x27000000)));
-    g.fillRoundedRectangle (static_cast<float> ((c->getWidth() / 2) - (fixedWidth / 2)), 3.0f, (float)fixedWidth, static_cast<float> (c->getHeight() - 6), 3.000f);
+    //g.fillRoundedRectangle (static_cast<float> ((c->getWidth() / 2) - (fixedWidth / 2)), 3.0f, (float)fixedWidth, static_cast<float> (c->getHeight() - 6), 3.000f);
     
 
 }
@@ -1138,54 +1139,74 @@ void AlertWindowLookAndFeel::drawAlertBox(Graphics &g, AlertWindow &alert, const
 
 void ChainBarButtonLookAndFeel::drawButtonText(Graphics& g, TextButton& button, bool /*isMouseOverButton*/, bool /*isButtonDown*/)
 {
+	auto alpha = 0.5f;
+
+	if (button.getToggleState())
+		alpha += 0.5f;
+
+	if (!button.isEnabled())
+		alpha = 0.3f;
 
 	g.setFont(GLOBAL_BOLD_FONT());
-	g.setColour(button.findColour(button.getToggleState() ? TextButton::textColourOnId
-		: TextButton::textColourOffId)
-		.withMultipliedAlpha(button.isEnabled() ? 1.0f : 0.5f));
-
-
-#if HISE_IOS
-
-	const String wholeButtonText = button.getButtonText();
-
-#if USE_BACKEND
-	const bool isMainBar = button.findParentComponentOfClass<ProcessorEditorChainBar>() != nullptr;
-#else
-    const bool isMainBar = false;
-#endif
-    
-	if (isMainBar && wholeButtonText.contains(" ") && wholeButtonText.length() > 8)
-	{
-		StringArray lines = StringArray::fromTokens(wholeButtonText, " ", "");
-
-		// Coallescate the first two items for IDS like "Attack Time Modulation"...
-		if (lines.size() == 3)
-		{
-			StringArray twoLines;
-
-			twoLines.add(lines[0] + " " + lines[1]);
-			twoLines.add(lines[2]);
-
-			lines = twoLines;
-		}
-
-		if (lines.size() == 2)
-		{
-			g.drawText(lines[0], 0, 2, button.getWidth(), button.getHeight() - 4, Justification::centredTop, false);
-			g.drawText(lines[1], 0, 2, button.getWidth(), button.getHeight() - 4, Justification::centredBottom, false);
-		}
-	}
-	else
-	{
-		g.drawText(button.getButtonText(), 0, 0, button.getWidth(), button.getHeight(), Justification::centred, false);
-	}
-
-
-
-#else
+	g.setColour(Colours::white.withAlpha(alpha));
 	g.drawText(button.getButtonText(), 0, 0, button.getWidth(), button.getHeight(), Justification::centred, false);
-#endif
+}
+
+void ChainBarButtonLookAndFeel::drawButtonBackground(Graphics &g, Button &b, const Colour &backgroundColour, bool isMouseOverButton, bool isButtonDown)
+{
+	float alpha = 0.05f;
+	if (isMouseOverButton || isButtonDown)
+		alpha += 0.05f;
+	if (isButtonDown)
+		alpha += 0.05f;
+
+	if (b.getToggleState())
+		alpha += 0.1f;
+
+	auto c = Colours::white.withAlpha(alpha);
+
+	Colour baseColour(c.withMultipliedAlpha(b.isEnabled() ? 1.0f : 0.5f));
+
+	const bool flatOnLeft = b.isConnectedOnLeft();
+	const bool flatOnRight = b.isConnectedOnRight();
+	const bool flatOnTop = b.isConnectedOnTop();
+	const bool flatOnBottom = b.isConnectedOnBottom();
+
+	const float width = (float)b.getWidth() - 1.0f;
+	const float height = (float)b.getHeight() - 1.0f;
+
+	if (width > 0 && height > 0)
+	{
+		const float cornerSize = b.getHeight() / 2.0f;
+
+		Path outline;
+		outline.addRoundedRectangle(0.5f, 0.5f, width, height, cornerSize, cornerSize,
+			!(flatOnLeft || flatOnTop),
+			!(flatOnRight || flatOnTop),
+			!(flatOnLeft || flatOnBottom),
+			!(flatOnRight || flatOnBottom));
+
+		g.setColour(Colours::white.withAlpha(0.15f));
+		g.strokePath(outline, PathStrokeType(1.0f));
+
+		g.setColour(baseColour);
+
+		g.fillPath(outline);	
+	}
+
+	g.setColour(Colours::white.withAlpha(b.getToggleState() ? 0.4f : 0.1f));
+
+	ChainBarPathFactory factory;
+
+	Path path = factory.createPath(b.getButtonText());
+
+	path.scaleToFit(4.0f, 4.0f, (float)b.getHeight() - 8.0f, (float)b.getHeight() - 8.0f, true);
+
+
+	g.setColour(Colours::white.withAlpha(0.7f));
+
+
+	g.fillPath(path);
 }
 
 BlackTextButtonLookAndFeel::BlackTextButtonLookAndFeel()
@@ -1269,6 +1290,59 @@ void PresetBrowserLookAndFeelMethods::drawSearchBar(Graphics& g, Rectangle<int> 
 	path.scaleToFit(6.0f, 5.0f, 18.0f, 18.0f, true);
 
 	g.fillPath(path);
+}
+
+void ProcessorEditorHeaderLookAndFeel::drawBackground(Graphics &g, float width, float height, bool /*isFolded*/)
+{
+	g.excludeClipRegion(Rectangle<int>(0, 35, (int)width, 10));
+
+	g.setGradientFill(ColourGradient(getColour(HeaderBackgroundColour),
+		288.0f, 8.0f,
+		getColour(HeaderBackgroundColour).withMultipliedBrightness(0.9f),
+		288.0f, height,
+		false));
+
+	if (isChain)
+		g.fillRoundedRectangle(0.0f, 0.0f, width, height, 3.0f);
+	else
+		g.fillAll();
+}
+
+void PeriodicScreenshotter::drawGlassSection(Graphics& g, Component* c, Rectangle<int> b, Point<int> offset)
+{
+    if (b.isEmpty())
+        b = c->getLocalBounds();
+
+    auto area = comp->getLocalArea(c, b);
+    area = area.getIntersection(comp->getLocalBounds());
+
+    b = c->getLocalArea(comp, area);
+    auto clip = img.getClippedImage(area.translated(offset.getX(), offset.getY()).transformedBy(AffineTransform::scale(0.5f)));
+    g.setOpacity(1.0f);
+
+    g.saveState();
+    g.setImageResamplingQuality(Graphics::lowResamplingQuality);
+    g.drawImageWithin(clip, b.getX(), b.getY(), b.getWidth(), b.getHeight(), RectanglePlacement::fillDestination);
+    g.restoreState();
+}
+
+void PeriodicScreenshotter::PopupGlassLookAndFeel::drawPopupMenuBackgroundWithOptions (Graphics& g,
+                                                 int width,
+                                                 int height,
+                                                 const PopupMenu::Options& o)
+{
+    g.fillAll(Colour(0xEE404040));
+    if(auto s = holder->getScreenshotter())
+    {
+        auto x = o.getTargetScreenArea().getX();
+        auto y = o.getTargetScreenArea().getX();
+        s->drawGlassSection(g, dynamic_cast<Component*>(holder.get()), {0, 0, width, height}, {x, y});
+    }
+    
+    g.fillAll(Colour(0x22000000));
+    
+    g.setColour(Colours::white.withAlpha(0.1f));
+    g.drawRect(0, 0, width, height);
 }
 
 } // namespace hise

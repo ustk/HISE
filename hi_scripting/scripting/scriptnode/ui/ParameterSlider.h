@@ -123,9 +123,12 @@ struct ParameterKnobLookAndFeel : public GlobalHiseLookAndFeel
 	void drawRotarySlider(Graphics& g, int x, int y, int width, int height, float sliderPosProportional, float rotaryStartAngle, float rotaryEndAngle, Slider& s);
 };
 
+
+
 struct ParameterSlider : public Slider,
 	public Slider::Listener,
 	public DragAndDropTarget,
+    public hise::Learnable,
 	public PooledUIUpdater::SimpleTimer
 {
 	struct RangeButton : public Component
@@ -180,7 +183,7 @@ struct ParameterSlider : public Slider,
 	void updateRange(Identifier, var);
 	void paint(Graphics& g) override;
 
-	void timerCallback() override { repaint(); }
+	void timerCallback() override;
 
 	bool isInterestedInDragSource(const SourceDetails& details) override;
 	void itemDragEnter(const SourceDetails& dragSourceDetails) override;
@@ -193,6 +196,7 @@ struct ParameterSlider : public Slider,
 	
 	valuetree::PropertyListener valueListener;
 	valuetree::PropertyListener rangeListener;
+	valuetree::PropertyListener automationListener;
 
 	/** Returns either the Connection or the ModulationTarget, or SwitchTarget tree if it's connected. */
 	ValueTree getConnectionSourceTree();
@@ -237,6 +241,9 @@ struct ParameterSlider : public Slider,
 	ScopedPointer<RangeComponent> currentRangeComponent;
 	var currentConnection;
 	const int index;
+	double lastDisplayValue = -1.0;
+	bool illegal = false;
+
 };
 
 

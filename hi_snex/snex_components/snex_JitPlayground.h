@@ -286,7 +286,7 @@ public:
 
 	BackgroundCompileThread(ui::WorkbenchData::Ptr data_) :
 		Thread("SnexPlaygroundThread"),
-		CompileHandler(data_)
+		CompileHandler(data_.get())
 	{
 		getParent()->getGlobalScope().getBreakpointHandler().setExecutingThread(this);
 		setPriority(4);
@@ -473,23 +473,13 @@ public:
 
 			if (testData.shouldRunTest())
 			{
-				testData.initProcessing(512, 44100.0);
+                PrepareSpecs ps;
+                ps.sampleRate = 44100.0;
+                ps.blockSize = 512;
+                ps.numChannels = 2;
+                
+				testData.initProcessing(ps);
 				testData.processTestData(getParent());
-
-#if 0
-				auto ps = testData.createPrepareSpecs();
-
-				auto pd = testData.createProcessData();
-
-
-				lastNode->prepare(ps);
-				lastNode->reset();
-
-				DBG("POST");
-
-				ProcessDataDyn data(processedTestBuffer.getArrayOfWritePointers(), ps.blockSize, ps.numChannels);
-				lastNode->process(data);
-#endif
 			}
 		}
 	}
@@ -509,8 +499,7 @@ class SnexPlayground : public ui::WorkbenchComponent,
 	public CodeDocument::Listener,
 	public ButtonListener,
 	public BreakpointHandler::Listener,
-	public mcl::GutterComponent::BreakpointListener,
-	public hise::ApiProviderBase::Holder
+	public mcl::GutterComponent::BreakpointListener
 {
 public:
 
@@ -668,16 +657,7 @@ public:
 
 	void buttonClicked(Button* b) override;
 	
-	ApiProviderBase* getProviderBase() override
-	{
-		if (auto wb = getWorkbench())
-		{
-			return &wb->getLastResultReference();
-		}
-        
-        jassertfalse;
-        return nullptr;
-	}
+	
 
 	
 

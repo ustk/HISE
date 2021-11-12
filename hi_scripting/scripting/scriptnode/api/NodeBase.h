@@ -125,9 +125,11 @@ public:
 	double getValue() const;
 
 	/** Sets the value immediately and stores it asynchronously. */
-	void setValueAndStoreAsync(double newValue);
+	void setValue(double newValue);
 
 	// ================================================================== End of API Calls
+
+	void setValueFromUI(double newValue);
 
 	ValueTree getConnectionSourceTree(bool forceUpdate);
 
@@ -135,26 +137,22 @@ public:
 
 	Array<Parameter*> getConnectedMacroParameters() const;
 
-	parameter::dynamic_base_holder* getDynamicParameterAsHolder()
-	{
-		return dynamic_cast<parameter::dynamic_base_holder*>(dynamicParameter.get());
-	}
-
 	parameter::dynamic_base::Ptr getDynamicParameter() const
 	{
 		jassert(dynamicParameter != nullptr);
 		return dynamicParameter;
 	}
 
-	void setCallbackNew(parameter::dynamic_base* ownedNew);
+	virtual void setDynamicParameter(parameter::dynamic_base::Ptr ownedNew);
 
 	StringArray valueNames;
 	NodeBase* parent;
 	
 
-	void updateFromValueTree(Identifier, var newValue)
+	void updateFromValueTree(Identifier id, var newValue)
 	{
-		setValueAndStoreAsync((double)newValue);
+		jassert(id == PropertyIds::Value);
+		setValue((double)newValue);
 	}
 
 	ValueTree data;
@@ -166,10 +164,14 @@ public:
 		l.setHighPriorityListener(&valuePropertyUpdater);
 	}
 
-	bool isModulated() const { return (bool)data.getProperty(PropertyIds::ModulationTarget, false); }
+	bool isModulated() const 
+	{ 
+		return (bool)data.getProperty(PropertyIds::Automated, false);
+	}
 
 private:
 
+	void updateRange(Identifier, var);
 
 	void updateConnectionOnRemoval(ValueTree& c);
 
@@ -179,7 +181,7 @@ private:
 
 	struct Wrapper;
 
-	valuetree::PropertyListener opTypeListener;
+	valuetree::PropertyListener rangeListener;
 	valuetree::PropertyListener valuePropertyUpdater;
 	valuetree::PropertyListener idUpdater;
 	valuetree::PropertyListener modulationStorageBypasser;
@@ -246,26 +248,18 @@ public:
 			node(n),
 			enabledRange(enabledRange_)
 		{
-			jassert(n != nullptr);
-
-			if (n != nullptr)
-				dataTree = n->getValueTree();
+			
 		};
 
 		void call(double v) final override
 		{
+			setDisplayValue(v);
 			bypassed = !enabledRange.contains(v) && enabledRange.getEnd() != v;
 
 			ScopedUndoDeactivator sns(node);
 
 			node->setBypassed(bypassed);
 		}
-
-		virtual void updateUI()
-		{
-			if (dataTree.isValid())
-				dataTree.setProperty(PropertyIds::Bypassed, bypassed, nullptr);
-		};
 
 		bool bypassed = false;
 		WeakReference<NodeBase> node;
@@ -296,7 +290,7 @@ public:
 		processFrame(dynData);
 	}
 
-	template <typename T> T* findParentNodeOfType()
+	template <typename T> T* findParentNodeOfType() const
 	{
 		NodeBase* p = parentNode.get();
 
@@ -431,7 +425,7 @@ public:
 
 	Rectangle<int> getBoundsWithoutHelp(Rectangle<int> originalHeight) const;
 
-	
+    Colour getColour() const;
 
 	
 
@@ -466,21 +460,7 @@ public:
 
 	String getCpuUsageInPercent() const;
 
-	void setIsUINodeOfDuplicates(bool on)
-	{
-		uiNodeOfDuplicates = on;
-		forEach([&](NodeBase::Ptr p)
-		{
-			if (p == this)
-				return false;
-
-			p->setIsUINodeOfDuplicates(on); return false; 
-		});
-	}
-
-	bool isUINodeOfDuplicate() const { return uiNodeOfDuplicates; }
-
-	int getCurrentChannelAmount() const { return numChannels.get(); };
+	bool isClone() const;
 
 	void setEmbeddedNetwork(NodeBase::Holder* n);
 
@@ -489,6 +469,8 @@ public:
 
 	bool& getPreserveAutomationFlag() { return preserveAutomation; }
 
+    int getCurrentChannelAmount() const { return lastSpecs.numChannels; };
+    
 protected:
 
 	ValueTree v_data;
@@ -500,16 +482,11 @@ private:
 	bool enableUndo = true;
 	mutable String dynamicBypassId;
 	
-
 	void updateFrozenState(Identifier id, var newValue);
 
 	bool containsNetwork = false;
 
 	valuetree::PropertyListener frozenListener;
-
-	CachedValue<int> numChannels;
-
-	bool uiNodeOfDuplicates = false;
 
 	WeakReference<NodeBase::Holder> embeddedNetwork;
 	WeakReference<NodeBase::Holder> parent;
@@ -527,7 +504,6 @@ private:
 
 	ReferenceCountedArray<Parameter> parameters;
 	WeakReference<NodeBase> parentNode;
-	
 
 	JUCE_DECLARE_WEAK_REFERENCEABLE(NodeBase);
 };
@@ -603,7 +579,7 @@ public:
 	virtual double getLastValue() const { return 0.0; }
 
 	/** Returns the target parameter of this connection. */
-	var getTarget() const { return var(targetParameter); }
+	var getTarget() const { return var(targetParameter.get()); }
 
 	/** Returns true if this connection is between a modulation signal and a parameter. */
 	virtual bool isModulationConnection() const { return false; }
@@ -622,14 +598,14 @@ public:
 		return data.getParent().isValid();
 	}
 
-	static parameter::dynamic_chain* createParameterFromConnectionTree(NodeBase* n, const ValueTree& connectionTree, bool throwIfNotFound=false);
+	static parameter::dynamic_base::Ptr createParameterFromConnectionTree(NodeBase* n, const ValueTree& connectionTree, bool scaleInput);
 
 	ValueTree data;
 
 	valuetree::RemoveListener nodeRemoveUpdater;
 	valuetree::RemoveListener sourceRemoveUpdater;
 
-	NormalisableRange<double> connectionRange;
+	InvertableParameterRange connectionRange;
 
 	ReferenceCountedObjectPtr<NodeBase::Parameter> targetParameter;
 

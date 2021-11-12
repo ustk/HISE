@@ -1023,27 +1023,7 @@ public:
 
 	virtual Colour getColour(int ColourId) const = 0;
 
-	void drawBackground(Graphics &g, float width, float height, bool /*isFolded*/)
-	{
-		g.excludeClipRegion(Rectangle<int>(0, 35, (int)width, 10));
-
-#if HISE_IOS
-		height = 45.0f;
-#else
-		height = 30.0f;
-#endif
-
-
-		g.setGradientFill (ColourGradient (getColour(HeaderBackgroundColour),
-										288.0f, 8.0f,
-										getColour(HeaderBackgroundColour).withMultipliedBrightness(0.9f),
-										288.0f, height,
-										false));
-		//g.fillRoundedRectangle (0.0f, 0.0f, width, height, 3.0f);
-
-		g.fillAll();
-
-	}
+	void drawBackground(Graphics &g, float width, float height, bool /*isFolded*/);
 
 	bool isChain;
 
@@ -1058,9 +1038,9 @@ public:
 
     virtual ~ModulatorEditorHeaderLookAndFeel() {};
     
-	Colour getColour(int /*ColourId*/) const override { return isChain ? JUCE_LIVE_CONSTANT_OFF(Colour(0xff1f1f1f)) : Colour(0xFF222222); };
+	Colour getColour(int /*ColourId*/) const override { return isChain ? c : Colour(0xFF222222); };
 
-	
+    Colour c;
 
 };
 
@@ -1534,27 +1514,7 @@ public:
 
 	void drawButtonText(Graphics& g, TextButton& button, bool /*isMouseOverButton*/, bool /*isButtonDown*/) override;
 
-	void drawButtonBackground (Graphics &g, Button &b, const Colour &backgroundColour, bool isMouseOverButton, bool isButtonDown) override
-	{
-
-
-		LookAndFeel_V3::drawButtonBackground(g, b, backgroundColour, isMouseOverButton, isButtonDown);
-
-		g.setColour(Colours::white.withAlpha(b.getToggleState() ? 0.8f : 0.3f));
-
-		ChainBarPathFactory factory;
-
-		Path path = factory.createPath(b.getButtonText());
-
-		path.scaleToFit(4.0f, 4.0f, (float)b.getHeight() - 8.0f, (float)b.getHeight() - 8.0f, true);
-
-		
-		g.setColour(b.findColour(b.getToggleState() ? IconColour : IconColourOff));
-		
-
-		g.fillPath(path);
-
-	};
+	void drawButtonBackground (Graphics &g, Button &b, const Colour &backgroundColour, bool isMouseOverButton, bool isButtonDown) override;;
 };
 
 
@@ -1656,6 +1616,90 @@ private:
 
 	Image ticked;
 	Image unticked;
+};
+
+struct PeriodicScreenshotter : public Thread
+{
+    struct Holder
+    {
+        virtual ~Holder() {};
+        virtual PeriodicScreenshotter* getScreenshotter() = 0;
+        JUCE_DECLARE_WEAK_REFERENCEABLE(Holder);
+    };
+
+    PeriodicScreenshotter(Component* c) :
+        Thread("screenshotter"),
+        comp(c)
+    {
+        startThread(4);
+    };
+    
+    static void disableForScreenshot(Component* c)
+    {
+        c->getProperties().set("SkipScreenshot", true);
+    }
+    
+    struct PopupGlassLookAndFeel: public PopupLookAndFeel
+    {
+        PopupGlassLookAndFeel(Component& c):
+            holder(c.findParentComponentOfClass<Holder>())
+        {
+            jassert(holder != nullptr);
+            setColour(PopupMenu::backgroundColourId, Colours::transparentBlack);
+        }
+
+        virtual void drawPopupMenuBackgroundWithOptions (Graphics& g,
+                                                         int width,
+                                                         int height,
+                                                         const PopupMenu::Options& o);
+        
+        
+        WeakReference<Holder> holder;
+    };
+
+    ~PeriodicScreenshotter()
+    {
+        stopThread(500);
+    }
+
+    struct ScopedPopupDisabler
+    {
+        ScopedPopupDisabler(Component* r)
+        {
+            recursive(r);
+        }
+
+        ~ScopedPopupDisabler()
+        {
+            for (const auto& c : skippers)
+                c->setSkipPainting(false);
+        }
+
+        void recursive(Component* c)
+        {
+            if (!c->isVisible())
+                return;
+
+            if (auto t = c->getProperties()["SkipScreenshot"])
+            {
+                skippers.add(c);
+                c->setSkipPainting(true);
+                return;
+            }
+
+            for (int i = 0; i < c->getNumChildComponents(); i++)
+                recursive(c->getChildComponent(i));
+        }
+
+        Array<Component*> skippers;
+    };
+
+    void drawGlassSection(Graphics& g, Component* c, Rectangle<int> b, Point<int> offset={});
+
+    void run() override;
+
+    Image img;
+    Component* comp;
 };
 
 } // namespace hise

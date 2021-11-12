@@ -76,7 +76,7 @@ struct GapCloseHelpers
 	}
 };
 
-void SampleImporter::closeGaps(Array<ModulatorSamplerSound*> &selection, bool closeNoteGaps, bool /*increaseUpperLimit*/)
+void SampleImporter::closeGaps(const SampleSelection &selection, bool closeNoteGaps, bool /*increaseUpperLimit*/)
 {
 	if (selection.isEmpty())
 		return;
@@ -342,7 +342,7 @@ void SampleImporter::loadAudioFilesUsingDropPoint(Component* /*childComponentOfM
 		data.rootNote = noteNumber;
 		data.lowKey = noteNumber;
 		
-		auto currentGroup = sampler->getSamplerDisplayValues().currentlyDisplayedGroup;
+		auto currentGroup = sampler->getSamplerDisplayValues().visibleGroups.getHighestBit()+1;
 
 		if (currentGroup > 0)
 			data.group = currentGroup;
@@ -591,6 +591,47 @@ void SampleImporter::SampleCollection::cleanCollection(DialogWindowWithBackgroun
 			i--;
 		}
 	}
+
+	struct MicSorter
+	{
+		MicSorter(const StringArray& tokens_) :
+			tokens(tokens_)
+		{};
+
+		int compareElements(const PoolReference& r1, const PoolReference& r2) const
+		{
+			auto i1 = getIndexForRef(r1);
+			auto i2 = getIndexForRef(r2);
+
+			if (i1 < i2)
+				return -1;
+			if (i2 < i1)
+				return 1;
+
+			jassertfalse;
+			return 0;
+		}
+
+		int getIndexForRef(const PoolReference& r) const
+		{
+			auto s = r.getReferenceString();
+
+			for (int i = 0; i < tokens.size(); i++)
+				if (s.contains(tokens[i]))
+					return i;
+
+			return -1;
+		}
+
+		const StringArray tokens;
+	};
+
+	MicSorter sorter(this->multiMicTokens);
+
+	for (auto& d : dataList)
+	{
+		d.files.sort(sorter);
+	}
 }
 
 int SampleImporter::SampleCollection::getIndexOfSameMicSample(int currentIndex) const
@@ -610,10 +651,22 @@ int SampleImporter::SampleCollection::getIndexOfSameMicSample(int currentIndex) 
 
 	jassert(token.isNotEmpty());
 
+	auto prefix = fileName.upToFirstOccurrenceOf(token, false, false);
+	auto suffix = fileName.fromFirstOccurrenceOf(token, false, false);
+
+	jassert(prefix.isNotEmpty());
+	jassert(suffix.isNotEmpty());
+	
+	
 	String fileNameWithoutToken = fileName.replace(token, "");
 
 	for (int i = 0; i < currentIndex; i++)
 	{
+		auto thisName = dataList[i].files[0].getReferenceString();
+
+		if (thisName.startsWith(prefix) && thisName.endsWith(suffix))
+			return i;
+
 		if (dataList[i].files[0].getReferenceString().contains(fileNameWithoutToken))
 		{
 			return i;

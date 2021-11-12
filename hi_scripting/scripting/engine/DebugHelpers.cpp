@@ -71,25 +71,88 @@ String DebugInformation::varArrayToString(const Array<var> &arrayToStringify)
 	return getArrayTextForVar(ar);
 }
 
+struct BufferViewer : public Component,
+					  public ApiProviderBase::ApiComponentBase,
+					  public Timer
+{
+	BufferViewer(DebugInformation* info, ApiProviderBase::Holder* holder_) :
+		ApiComponentBase(holder_),
+		Component("Buffer Viewer")
+	{
+		setFromDebugInformation(info);
+		addAndMakeVisible(thumbnail);
+		thumbnail.setShouldScaleVertically(true);
+		startTimer(500);
+		setSize(500, 200);
+	}
+
+	void providerWasRebuilt() override
+	{
+		if (auto p = getProviderBase())
+		{
+			for (int i = 0; i < p->getNumDebugObjects(); i++)
+			{
+				auto di = p->getDebugInformation(i);
+
+				if (di->getCodeToInsert() == codeToInsert)
+				{
+					setFromDebugInformation(dynamic_cast<DebugInformation*>(di.get()));
+					dirty = true;
+					return;
+				}
+			};
+		}
+	};
+
+	void setFromDebugInformation(DebugInformation* info)
+	{
+		if (info != nullptr)
+		{
+			codeToInsert = info->getCodeToInsert();
+			bufferToUse = info->getVariantCopy().getBuffer();
+		}
+	}
+	
+	void timerCallback() override
+	{
+		if (dirty && bufferToUse != nullptr)
+		{
+			thumbnail.setBuffer(var(bufferToUse.get()));
+			dirty = false;
+		}
+	}
+
+	void resized() override
+	{
+		thumbnail.setBounds(getLocalBounds());
+	}
+
+	bool dirty = true;
+
+	HiseAudioThumbnail thumbnail;
+	String codeToInsert;
+	WeakReference<VariantBuffer> bufferToUse;
+};
+
 
 Component* DebugInformation::createPopupComponent(const MouseEvent& e, Component* componentToNotify)
 {
+	if (auto c = DebugInformationBase::createPopupComponent(e, componentToNotify))
+	{
+		return c;
+	}
+
 	var v = getVariantCopy();
 
 	if (v.isBuffer())
 	{
 #if USE_BACKEND
-		auto display = new HiseAudioThumbnail();
-		
-		
 
-		display->setName("Buffer Viewer");
-		display->setSize(500, 100);
-		display->setShouldScaleVertically(true);
-		display->setBuffer(v, var(), true);
+		auto p = componentToNotify->findParentComponentOfClass<PanelWithProcessorConnection>()->getProcessor();
+		auto holder = dynamic_cast<ApiProviderBase::Holder*>(p);
+		jassert(holder != nullptr);
 
-		
-
+		auto display = new BufferViewer(this, holder);
 		return display;
 #else
 		return nullptr;
@@ -227,6 +290,7 @@ Component* DebugableObject::Helpers::showProcessorEditorPopup(const MouseEvent& 
 	{
 		ProcessorEditorContainer *pc = new ProcessorEditorContainer();
 		pc->setRootProcessorEditor(p);
+        pc->setName(p->getId());
 		return pc;
 	}
 	else

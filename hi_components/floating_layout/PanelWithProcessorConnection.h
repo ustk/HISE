@@ -50,6 +50,7 @@ public:
 	{
 		ProcessorId = (int)FloatingTileContent::PanelPropertyId::numPropertyIds,
 		Index,
+		FollowWorkspace,
 		numSpecialPanelIds
 	};
 
@@ -163,6 +164,7 @@ public:
 		{
 			getProcessor()->addDeleteListener(this);
 
+			content = nullptr;
 			content = createContentComponent(currentIndex);
 			
 			if(content != nullptr)
@@ -226,6 +228,11 @@ public:
 		
 	}
 
+	virtual bool shouldFollowNewWorkspace(Processor* p, const Identifier& id) const
+	{
+		return followWorkspaceButton.getToggleState() && id == getProcessorTypeId();
+	}
+
 protected:
 
 	template <class ProcessorType> void fillModuleListWithType(StringArray& moduleList)
@@ -240,7 +247,23 @@ protected:
 
 	const Identifier showConnectionBar;
 
+protected:
+
+	struct Factory : public PathFactory
+	{
+		Path createPath(const String& url) const override
+		{
+			Path p;
+			LOAD_PATH_IF_URL("workspace", ColumnIcons::openWorkspaceIcon);
+			return p;
+		}
+	} factory;
+
+	HiseShapeButton followWorkspaceButton;
+
 private:
+
+	
 
 	bool forceHideSelector = false;
 
@@ -250,6 +273,7 @@ private:
 
 	ScopedPointer<ComboBox> connectionSelector;
 	ScopedPointer<ComboBox> indexSelector;
+	
 
 	int currentIndex = -1;
 	int previousIndex = -1;
@@ -287,7 +311,16 @@ public:
 		{
 			setContentWithUndo(dynamic_cast<Processor*>(p), 0);
 		}
+	}
 
+	bool shouldFollowNewWorkspace(Processor* p, const Identifier& id) const override
+	{
+		return followWorkspaceButton.getToggleState() && dynamic_cast<ProcessorType*>(p) != nullptr;
+	}
+
+	void setFollowWorkspace(bool enabled)
+	{
+		followWorkspaceButton.setToggleStateAndUpdateIcon(enabled);
 	}
 
 	Identifier getIdentifierForBaseClass() const override
@@ -330,8 +363,6 @@ public:
         setContentForIdentifier(idToSearch);
     }
     
-
-
 	void fillModuleList(StringArray& moduleList) override
 	{
 		fillModuleListWithType<ProcessorType>(moduleList);

@@ -190,7 +190,7 @@ private:
 
 	std::function<void(const String&)> logFunction;
 
-	DebugInformationBase* getDebugInformationForRow(int rowIndex);
+	DebugInformationBase::Ptr getDebugInformationForRow(int rowIndex);
 
 	bool resizeOnChange = false;
 
@@ -506,7 +506,7 @@ break;
 
 		var exportViewSettings() const
 		{
-			DynamicObject::Ptr obj = new DynamicObject();
+			auto obj = new DynamicObject();
 
 			Array<var> debugData;
 			Array<var> pinnedData;
@@ -569,8 +569,14 @@ break;
 
 	HiseShapeButton pinButton;
 
+    
+    
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ScriptWatchTable);
 	JUCE_DECLARE_WEAK_REFERENCEABLE(ScriptWatchTable);
+    
+public:
+    
+    Colour bgColour = Colour(0xFF262626);
 };
 
 } // namespace hise

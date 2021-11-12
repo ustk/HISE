@@ -270,6 +270,8 @@ void ProcessorWithScriptingContent::customControlCallbackIdle(ScriptingApi::Cont
 #endif
 
 		scriptEngine->executeInlineFunction(fVar, args, &r);
+
+		BACKEND_ONLY(if (!r.wasOk()) debugError(dynamic_cast<Processor*>(this), r.getErrorMessage()));
 	}
 
 #if 0
@@ -729,7 +731,7 @@ void JavascriptProcessor::jumpToDefinition(const String& token, const String& na
 				auto f2 = [info, s]()
 				{
 					if (info != nullptr)
-						DebugableObject::Helpers::gotoLocation(dynamic_cast<Processor*>(s), info);
+						DebugableObject::Helpers::gotoLocation(dynamic_cast<Processor*>(s), info.get());
 				};
 
 				MessageManager::callAsync(f2);
@@ -1109,7 +1111,7 @@ void JavascriptProcessor::saveScript(ValueTree &v) const
 		mergeCallbacksToScript(x);
 	}
 
-	v.addChild(allInterfaceData, -1, nullptr);
+	v.addChild(allInterfaceData.createCopy(), -1, nullptr);
 
 	v.setProperty("Script", x, nullptr);
 }
@@ -1940,7 +1942,7 @@ juce::CodeDocument* JavascriptProcessor::EditorHelpers::gotoAndReturnDocumentWit
 
 	if (info != nullptr)
 	{
-		DebugableObject::Helpers::gotoLocation(p, info);
+		DebugableObject::Helpers::gotoLocation(p, info.get());
 
 		auto activeEditor = getActiveEditor(jsp);
 

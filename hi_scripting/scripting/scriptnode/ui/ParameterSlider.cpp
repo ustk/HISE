@@ -42,94 +42,7 @@ namespace RangeIcons
 108,172,28,90,62,0,0,0,0,99,101,0,0 };
 }
 
-struct RangePresets
-{
-	RangePresets(const File& fileToLoad_):
-		fileToLoad(fileToLoad_)
-	{
-		auto xml = XmlDocument::parse(fileToLoad);
 
-		if (xml != nullptr)
-		{
-			auto v = ValueTree::fromXml(*xml);
-
-			int index = 1;
-
-			for (auto c : v)
-			{
-				Preset p;
-				p.restoreFromValueTree(c);
-
-				p.index = index++;
-
-				presets.add(p);
-			}
-		}
-		else
-		{
-			createDefaultRange("0-1", { 0.0, 1.0 }, 0.5);
-			createDefaultRange("Inverted 0-1", { 0.0, 1.0 }, -1.0, true);
-			createDefaultRange("Osc LFO", { 0.0, 10.0, 0.01, 1.0 });
-			createDefaultRange("Osc Freq", { 20.0, 20000.0, 0.1 }, 1000.0);
-			createDefaultRange("Freq Ratio Harmonics", { 1.0, 16.0, 1.0 });
-			createDefaultRange("Freq Ratio Detune Coarse", { 0.5, 2.0, 0.0 }, 1.0);
-			createDefaultRange("Freq Ratio Detune Fine", { 1.0 / 1.1, 1.1, 0.0 }, 1.0);
-		}
-	}
-
-	void createDefaultRange(const String& id, NormalisableRange<double> d, double midPoint = -10000000.0, bool inverted=false)
-	{
-		Preset p;
-		p.id = id;
-		p.nr = d;
-		p.inverted = inverted;
-
-		p.index = presets.size() + 1;
-
-		if (d.getRange().contains(midPoint))
-			p.nr.setSkewForCentre(midPoint);
-
-		presets.add(p);
-	}
-
-	~RangePresets()
-	{
-		ValueTree v("Ranges");
-
-		for (const auto& p : presets)
-			v.addChild(p.exportAsValueTree(), -1, nullptr);
-
-		auto xml = v.createXml();
-		fileToLoad.replaceWithText(xml->createDocument(""));
-	}
-
-	struct Preset: public RestorableObject
-	{
-		void restoreFromValueTree(const ValueTree& v)
-		{
-			nr = RangeHelpers::getDoubleRange(v);
-			inverted = RangeHelpers::isInverted(v);
-
-			id = v[PropertyIds::ID].toString();
-		}
-
-		ValueTree exportAsValueTree() const override
-		{
-			ValueTree v("Range");
-			v.setProperty(PropertyIds::ID, id, nullptr);
-			RangeHelpers::storeDoubleRange(v, inverted, nr, nullptr);
-			return v;
-		}
-
-		NormalisableRange<double> nr;
-		String id;
-		int index;
-		bool inverted = false;
-	};
-
-	File fileToLoad;
-	Array<Preset> presets;
-};
 
 
 struct ParameterSlider::RangeComponent : public Component,
@@ -154,7 +67,7 @@ struct ParameterSlider::RangeComponent : public Component,
 	RangeComponent(bool isTemporary, ParameterSlider& parent_):
 		temporary(isTemporary),
 		parent(parent_),
-		presets(File::getSpecialLocation(File::userDesktopDirectory).getChildFile("RangePresets.xml"))
+		presets()
 	{
 		connectionSource = getParent().getConnectionSourceTree();
 
@@ -223,8 +136,8 @@ struct ParameterSlider::RangeComponent : public Component,
 
 		Range<double> tr(0.0, 1.0);
 
-		auto cs = currentRange.start;
-		auto ce = currentRange.end;
+		auto cs = currentRange.rng.start;
+		auto ce = currentRange.rng.end;
 
 		auto ts = tr.getStart();
 		auto te = tr.getEnd();
@@ -234,12 +147,12 @@ struct ParameterSlider::RangeComponent : public Component,
 		auto ns = cs * coeff + ts * (1.0 - coeff);
 		auto ne = ce * coeff + te * (1.0 - coeff);
 
-		currentRange.start = ns;
-		currentRange.end = ne;
+		currentRange.rng.start = ns;
+		currentRange.rng.end = ne;
 		repaint();
 
 		auto tl = te - ts;
-		auto cl = currentRange.end - currentRange.start;
+		auto cl = currentRange.rng.end - currentRange.rng.start;
 
 		if (hmath::abs(tl - cl) < 0.01)
 		{
@@ -358,25 +271,26 @@ struct ParameterSlider::RangeComponent : public Component,
 
 	
 
-	NormalisableRange<double> getParentRange()
+	InvertableParameterRange getParentRange()
 	{
-		NormalisableRange<double> d;
+		InvertableParameterRange d;
 		auto r = getParent().getRange();
-		d.start = r.getStart();
-		d.end = r.getEnd();
-		d.skew = getParent().getSkewFactor();
-		d.interval = getParent().getInterval();
+		d.rng.start = r.getStart();
+		d.rng.end = r.getEnd();
+		d.rng.skew = getParent().getSkewFactor();
+		d.rng.interval = getParent().getInterval();
+		d.inv = false;
 		return d;
 	}
 
-	void setNewRange(NormalisableRange<double> rangeToUse, bool inverted, NotificationType updateRange)
+	void setNewRange(InvertableParameterRange rangeToUse, NotificationType updateRange)
 	{
 		auto& s = getParent();
 
-		RangeHelpers::storeDoubleRange(s.parameterToControl->data, inverted, rangeToUse, s.node->getUndoManager());
+		RangeHelpers::storeDoubleRange(s.parameterToControl->data, rangeToUse, s.node->getUndoManager());
 
 		if(connectionSource.isValid())
-			RangeHelpers::storeDoubleRange(connectionSource, inverted, rangeToUse, s.node->getUndoManager());
+			RangeHelpers::storeDoubleRange(connectionSource, rangeToUse, s.node->getUndoManager());
 
 		if (updateRange != dontSendNotification)
 			oldRange = rangeToUse;
@@ -388,18 +302,17 @@ struct ParameterSlider::RangeComponent : public Component,
 	{
 		auto& s = getParent();
 
-		auto newStart = oldRange.start + currentRange.start * oldRange.getRange().getLength();
-		auto newEnd = oldRange.start + currentRange.end * oldRange.getRange().getLength();
+		auto newStart = oldRange.rng.start + currentRange.rng.start * oldRange.getRange().getLength();
+		auto newEnd = oldRange.rng.start + currentRange.rng.end * oldRange.getRange().getLength();
 
-		NormalisableRange<double> nr;
-		nr.start = newStart;
-		nr.end = newEnd;
-		nr.interval = s.getInterval();
-		nr.skew = skewToUse;
+		InvertableParameterRange nr;
+		nr.rng.start = newStart;
+		nr.rng.end = newEnd;
+		nr.rng.interval = s.getInterval();
+		nr.rng.skew = skewToUse;
+		nr.inv = RangeHelpers::isInverted(connectionSource);
 
-		auto inv = RangeHelpers::isInverted(connectionSource);
-
-		setNewRange(nr, inv, updateRange);
+		setNewRange(nr, updateRange);
 	}
 
 	void setNewValue(const MouseEvent& e)
@@ -419,7 +332,7 @@ struct ParameterSlider::RangeComponent : public Component,
 
 		auto v = getParent().getValueFromText(t.getText());
 
-		auto inv = RangeHelpers::isInverted(connectionSource);
+		r.inv = RangeHelpers::isInverted(connectionSource);
 		auto isLeft = currentTextPos == Left;// && !inv) || (Right && inv);
 
 		if (currentTextPos == Inside)
@@ -427,11 +340,11 @@ struct ParameterSlider::RangeComponent : public Component,
 		else if (currentTextPos == Outside)
 			getParent().setValue(v, sendNotificationAsync);
 		else if (isLeft)
-			r.start = v;
+			r.rng.start = v;
 		else
-			r.end = v;
+			r.rng.end = v;
 
-		setNewRange(r, inv, sendNotification);
+		setNewRange(r, sendNotification);
 		createLabel(Nothing);
 	}
 
@@ -598,8 +511,8 @@ struct ParameterSlider::RangeComponent : public Component,
 		if (isTimerRunning())
 			return {};
 
-		auto newStart = oldRange.start + currentRange.start * oldRange.getRange().getLength();
-		auto newEnd = oldRange.start + currentRange.end * oldRange.getRange().getLength();
+		auto newStart = oldRange.rng.start + currentRange.rng.start * oldRange.getRange().getLength();
+		auto newEnd = oldRange.rng.start + currentRange.rng.end * oldRange.getRange().getLength();
 
 		switch (p)
 		{
@@ -788,7 +701,7 @@ struct ParameterSlider::RangeComponent : public Component,
 					close(300);
 			}
 			if (r == 4)
-				setNewRange(resetRange, false, sendNotification);
+				setNewRange(resetRange, sendNotification);
 
 			if (r == 3)
 			{
@@ -803,15 +716,15 @@ struct ParameterSlider::RangeComponent : public Component,
 			if (r == 5)
 			{
 				auto cr = getParentRange();
-				auto inv = !RangeHelpers::isInverted(connectionSource);
-				setNewRange(cr, inv, sendNotification);
+				cr.inv = !RangeHelpers::isInverted(connectionSource);
+				setNewRange(cr, sendNotification);
 			}
 			if (r == 6)
 			{
 				auto cr = getParentRange();
-				cr.skew = 1.0;
-				auto inv = RangeHelpers::isInverted(connectionSource);
-				setNewRange(cr, inv, sendNotification);
+				cr.rng.skew = 1.0;
+				cr.inv = RangeHelpers::isInverted(connectionSource);
+				setNewRange(cr, sendNotification);
 			}
 			if (r == 7)
 			{
@@ -821,14 +734,13 @@ struct ParameterSlider::RangeComponent : public Component,
 
 				if (sourceParameterTree.isValid() && sourceParameterTree.getType() == PropertyIds::Parameter)
 				{
-					auto inv = RangeHelpers::isInverted(connectionSource);
-					RangeHelpers::storeDoubleRange(sourceParameterTree, inv, cr, getParent().node->getUndoManager());
+					RangeHelpers::storeDoubleRange(sourceParameterTree, cr, getParent().node->getUndoManager());
 				}
 			}
 			if (r > 9000)
 			{
 				auto p = presets.presets[r - 9001];
-				setNewRange(p.nr, p.inverted, sendNotification);
+				setNewRange(p.nr, sendNotification);
 			}
 			
 			repaint();
@@ -844,9 +756,9 @@ struct ParameterSlider::RangeComponent : public Component,
 			setNewValue(e);
 
 		currentRangeAtDragStart = currentRange;
-		currentRangeAtDragStart.skew = getParent().getSkewFactor();
+		currentRangeAtDragStart.rng.skew = getParent().getSkewFactor();
 
-		skewToUse = currentRangeAtDragStart.skew;
+		skewToUse = currentRangeAtDragStart.rng.skew;
 		repaint();
 	}
 
@@ -881,11 +793,11 @@ struct ParameterSlider::RangeComponent : public Component,
 		{
 			auto d = (float)e.getDistanceFromDragStartY() / getTotalArea().getHeight();
 			auto delta = hmath::pow(2.0f, -1.0f * d);
-			auto skewStart = currentRangeAtDragStart.skew;
+			auto skewStart = currentRangeAtDragStart.rng.skew;
 
 			skewToUse = jmax(0.001, skewStart * delta);
 
-			currentRange.skew = skewToUse;
+			currentRange.rng.skew = skewToUse;
 			setNewRange(dontSendNotification);
 		}
 		else if (dragPos == Left || dragPos == Right)
@@ -901,13 +813,13 @@ struct ParameterSlider::RangeComponent : public Component,
 
 			if (dragPos == Left)
 			{
-				auto v = jmin(currentRangeAtDragStart.end - 0.05, currentRangeAtDragStart.start + d * currentRangeAtDragStart.getRange().getLength());
-				currentRange.start = v;
+				auto v = jmin(currentRangeAtDragStart.rng.end - 0.05, currentRangeAtDragStart.rng.start + d * currentRangeAtDragStart.getRange().getLength());
+				currentRange.rng.start = v;
 			}
 			else
 			{
-				auto v = jmax(currentRangeAtDragStart.start + 0.05, currentRangeAtDragStart.end + d * currentRangeAtDragStart.getRange().getLength());
-				currentRange.end = v;
+				auto v = jmax(currentRangeAtDragStart.rng.start + 0.05, currentRangeAtDragStart.rng.end + d * currentRangeAtDragStart.getRange().getLength());
+				currentRange.rng.end = v;
 			}
 
 			setNewRange(dontSendNotification);
@@ -921,12 +833,12 @@ struct ParameterSlider::RangeComponent : public Component,
 	double skewToUse = 1.0;
 
 	MousePosition dragPos = Nothing;
-	NormalisableRange<double> currentRangeAtDragStart;
-	NormalisableRange<double> currentRange = { 0.0, 1.0 };
+	InvertableParameterRange currentRangeAtDragStart;
+	InvertableParameterRange currentRange = { 0.0, 1.0 };
 
-	NormalisableRange<double> oldRange;
+	InvertableParameterRange oldRange;
 
-	NormalisableRange<double> resetRange;
+	InvertableParameterRange resetRange;
 
 	MousePosition currentTextPos;
 	ScopedPointer<TextEditor> editor;
@@ -943,9 +855,10 @@ ParameterSlider::ParameterSlider(NodeBase* node_, int index_) :
 	addAndMakeVisible(rangeButton);
 
 	setName(pTree[PropertyIds::ID].toString());
+    setLearnable(node->getRootNetwork()->getRootNode() == node);
 
 	connectionListener.setTypesToWatch({ PropertyIds::Connections, PropertyIds::ModulationTargets, PropertyIds::Nodes });
-	connectionListener.setCallback(pTree.getRoot(), valuetree::AsyncMode::Synchronously,
+	connectionListener.setCallback(pTree.getRoot(), valuetree::AsyncMode::Asynchronously,
 		BIND_MEMBER_FUNCTION_2(ParameterSlider::updateOnConnectionChange));
 
 	rangeListener.setCallback(pTree, RangeHelpers::getRangeIds(),
@@ -958,6 +871,12 @@ ParameterSlider::ParameterSlider(NodeBase* node_, int index_) :
 	{
 		setValue(newValue, dontSendNotification);
 		repaint();
+	});
+
+	automationListener.setCallback(pTree, {PropertyIds::Automated}, valuetree::AsyncMode::Asynchronously,
+	[this](const Identifier& id, var newValue)
+	{
+		checkEnabledState();
 	});
 
 	addListener(this);
@@ -995,17 +914,13 @@ void ParameterSlider::updateOnConnectionChange(ValueTree p, bool wasAdded)
 
 void ParameterSlider::checkEnabledState()
 {
-	modulationActive = getConnectionSourceTree().isValid();
-
+	modulationActive = parameterToControl != nullptr && parameterToControl->isModulated();
 	setEnabled(!modulationActive);
 
 	if (modulationActive)
 		start();
 	else
-	{
 		stop();
-		parameterToControl->getDynamicParameterAsHolder()->setDisplaySource(nullptr);
-	}
 
 	if (auto g = findParentComponentOfClass<DspNetworkGraph>())
 		g->repaint();
@@ -1015,11 +930,8 @@ void ParameterSlider::updateRange(Identifier, var)
 {
 	auto range = RangeHelpers::getDoubleRange(pTree);
 
-	if (range.start > range.end)
-		std::swap(range.start, range.end);
-
-	setRange(range.getRange(), range.interval);
-	setSkewFactor(range.skew);
+	setRange(range.rng.getRange(), range.rng.interval);
+	setSkewFactor(range.rng.skew);
 
 	repaint();
 }
@@ -1028,6 +940,53 @@ bool ParameterSlider::isInterestedInDragSource(const SourceDetails& details)
 {
 	if (details.sourceComponent == this)
 		return false;
+
+	auto sourceNode = details.sourceComponent->findParentComponentOfClass<NodeComponent>()->node;
+
+	if (CloneNode::getCloneIndex(sourceNode) > 0)
+	{
+		illegal = true;
+		return false;
+	}
+
+	if (CloneNode::getCloneIndex(node) > 0)
+	{
+		illegal = true;
+		return false;
+	}
+
+	if (sourceNode == node)
+	{
+		illegal = true;
+		repaint();
+		return false;
+	}
+	
+    if(auto modSource = dynamic_cast<ModulationSourceNode*>(sourceNode.get()))
+    {
+        auto h = modSource->getParameterHolder();
+
+        auto isCloneSource = dynamic_cast<parameter::clone_holder*>(h);
+
+        if (isCloneSource)
+        {
+            if (CloneNode::getCloneIndex(node) != 0)
+            {
+                illegal = true;
+                return false;
+            }
+
+            return true;
+        }
+    }
+    
+	
+	if (sourceNode->isClone() != node->isClone())
+	{
+		illegal = true;
+		repaint();
+		return false;
+	}
 
 	if(dynamic_cast<cable::dynamic::editor*>(details.sourceComponent.get()) != nullptr)
 		return false;
@@ -1044,8 +1003,37 @@ void ParameterSlider::paint(Graphics& g)
 		g.setColour(Colour(SIGNAL_COLOUR));
 		g.drawRect(getLocalBounds(), 1);
 	}
+
+	if (!isMouseButtonDownAnywhere())
+		illegal = false;
+
+	if (illegal)
+	{
+		g.setColour(Colours::white.withAlpha(0.4f));
+
+		static const unsigned char pathData[] = { 110,109,199,203,214,66,0,0,0,0,98,8,172,38,67,0,0,0,0,133,203,86,67,244,125,64,66,133,203,86,67,199,203,214,66,98,133,203,86,67,8,172,38,67,8,172,38,67,133,203,86,67,199,203,214,66,133,203,86,67,98,244,125,64,66,133,203,86,67,0,0,0,0,8,172,38,67,0,0,
+0,0,199,203,214,66,98,0,0,0,0,244,125,64,66,244,125,64,66,0,0,0,0,199,203,214,66,0,0,0,0,99,109,74,76,43,67,16,152,135,66,108,16,152,135,66,74,76,43,67,98,154,153,158,66,45,114,50,67,113,189,185,66,117,147,54,67,199,203,214,66,117,147,54,67,98,215,227,
+20,67,117,147,54,67,117,147,54,67,215,227,20,67,117,147,54,67,199,203,214,66,98,117,147,54,67,113,189,185,66,45,114,50,67,154,153,158,66,74,76,43,67,16,152,135,66,99,109,125,255,18,67,238,252,45,66,98,184,126,7,67,96,101,17,66,154,217,243,66,66,224,0,
+66,199,203,214,66,66,224,0,66,98,92,207,131,66,66,224,0,66,66,224,0,66,92,207,131,66,66,224,0,66,199,203,214,66,98,66,224,0,66,154,217,243,66,96,101,17,66,184,126,7,67,238,252,45,66,125,255,18,67,108,125,255,18,67,238,252,45,66,99,101,0,0 };
+
+		Path p;
+		p.loadPathFromData(pathData, sizeof(pathData));
+		PathFactory::scalePath(p, getLocalBounds().removeFromRight(16).removeFromTop(16).toFloat());
+		g.fillPath(p);
+	}
 }
 
+
+void ParameterSlider::timerCallback()
+{
+	auto thisDisplayValue = getValueToDisplay();
+
+	if (thisDisplayValue != lastDisplayValue)
+	{
+		lastDisplayValue = thisDisplayValue;
+		repaint();
+	}
+}
 
 void ParameterSlider::itemDragEnter(const SourceDetails& )
 {
@@ -1056,6 +1044,7 @@ void ParameterSlider::itemDragEnter(const SourceDetails& )
 
 void ParameterSlider::itemDragExit(const SourceDetails& )
 {
+	illegal = false;
 	macroHoverIndex = -1;
 	repaint();
 }
@@ -1064,31 +1053,31 @@ void ParameterSlider::itemDragExit(const SourceDetails& )
 
 void ParameterSlider::itemDropped(const SourceDetails& dragSourceDetails)
 {
+	macroHoverIndex = -1;
+	illegal = false;
+	repaint();
+
+	if (node->isClone())
+	{
+		CloneNode::CloneIterator cit(*node->findParentNodeOfType<CloneNode>(), node->getValueTree(), false);
+		if (cit.getCloneIndex() != 0)
+		{
+			PresetHandler::showMessageWindow("Must connect to first clone", "You need to connect the first clone", PresetHandler::IconType::Error);
+			return;
+		}
+	}
+
 	auto sourceNode = dragSourceDetails.sourceComponent->findParentComponentOfClass<NodeComponent>();
 	auto thisNode = this->findParentComponentOfClass<NodeComponent>();
-
-	
-
-	macroHoverIndex = -1;
 
 	if (sourceNode == thisNode)
 	{
 		PresetHandler::showMessageWindow("Can't assign to itself", "You cannot modulate the node with itself", PresetHandler::IconType::Error);
 
-		repaint();
 		return;
 	}
 
-	if (auto wc = findParentComponentOfClass<WrapperSlot>())
-	{
-		auto copy = SourceDetails(dragSourceDetails);
-		copy.description.getDynamicObject()->setProperty("NumVoices", 8);
-		
-		currentConnection = parameterToControl->addConnectionFrom(copy.description);
-	}
-
 	currentConnection = parameterToControl->addConnectionFrom(dragSourceDetails.description);
-	repaint();	
 }
 
 Array<NodeContainer::MacroParameter*> ParameterSlider::getConnectedMacroParameters()
@@ -1122,14 +1111,21 @@ bool ParameterSlider::matchesConnection(ValueTree& c) const
 
 void ParameterSlider::mouseDown(const MouseEvent& e)
 {
-#if 0
-	if (e.mods.isCommandDown())
-	{
-		addAndMakeVisible(currentRangeComponent = new RangeComponent(false));
-		resized();
-	}
-#endif
+    auto p = dynamic_cast<Processor*>(parameterToControl->getScriptProcessor());
+    
+    if (isLearnable() && p->getMainController()->getScriptComponentEditBroadcaster()->getCurrentlyLearnedComponent() != nullptr)
+    {
+        Learnable::LearnData d;
+        d.processorId = p->getId();
 
+        d.parameterId = getName();
+        d.range = RangeHelpers::getDoubleRange(pTree).rng;
+        d.value = getValue();
+        d.name = d.parameterId;
+
+        p->getMainController()->getScriptComponentEditBroadcaster()->setLearnData(d);
+    }
+    
 	if (e.mods.isShiftDown())
 	{
 		Slider::showTextBox();
@@ -1208,6 +1204,18 @@ void ParameterSlider::mouseDoubleClick(const MouseEvent&)
 {
 	if (!isEnabled())
 	{
+		if (node->isClone())
+		{
+			CloneNode::CloneIterator cit(*node->findParentNodeOfType<CloneNode>(), parameterToControl->data, false);
+			auto cIndex = cit.getCloneIndex();
+
+			if (cIndex != 0)
+			{
+				PresetHandler::showMessageWindow("Use the first clone", "Double click on the first clone parameter to remove the connection");
+
+			}
+		}
+
 		parameterToControl->addConnectionFrom({});
 
 		
@@ -1369,7 +1377,7 @@ void ParameterKnobLookAndFeel::drawRotarySlider(Graphics& g, int , int , int wid
 	b = b.removeFromTop(48);
 	b = b.withSizeKeepingCentre(48, 48).translated(0.0f, 3.0f);
 
-	drawVectorRotaryKnob(g, b.toFloat(), modProportion, isBipolar, s.isMouseOverOrDragging(true), s.isMouseButtonDown(), s.isEnabled(), modProportion);
+	drawVectorRotaryKnob(g, b.toFloat(), modProportion, isBipolar, s.isMouseOverOrDragging(true) || ps->parameterToControl->isModulated(), s.isMouseButtonDown(), s.isEnabled(), modProportion);
 }
 
 MacroParameterSlider::MacroParameterSlider(NodeBase* node, int index) :
@@ -1378,6 +1386,8 @@ MacroParameterSlider::MacroParameterSlider(NodeBase* node, int index) :
 	addAndMakeVisible(slider);
 	setWantsKeyboardFocus(true);
 
+    
+    
 	if (auto mp = dynamic_cast<NodeContainer::MacroParameter*>(slider.parameterToControl.get()))
 	{
 		setEditEnabled(mp->editEnabled);
@@ -1393,6 +1403,8 @@ void MacroParameterSlider::resized()
 
 void MacroParameterSlider::mouseDrag(const MouseEvent& )
 {
+    
+    
 	if (editEnabled)
 	{
 		if (auto container = DragAndDropContainer::findParentDragContainerFor(this))
@@ -1511,6 +1523,8 @@ void ParameterSlider::showRangeComponent(bool temporary)
 
 	currentRangeComponent->setBounds(getBoundsInParent());
 }
+
+
 
 }
 

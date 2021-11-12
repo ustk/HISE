@@ -38,299 +38,13 @@ using namespace juce;
 using namespace hise;
 
 
-namespace faders
-{
-	struct switcher
-	{
-		HISE_EMPTY_INITIALISE;
-
-		template <int Index> double getFadeValue(int numElements, double normalisedInput)
-		{
-			auto numParameters = (double)(numElements);
-			auto indexToActivate = jmin(numElements - 1, (int)(normalisedInput * numParameters));
-
-			return (double)(indexToActivate == Index);
-		}
-	};
-
-	struct overlap
-	{
-		HISE_EMPTY_INITIALISE;
-
-		template <int Index> double getFadeValue(int numElements, double normalisedInput)
-		{
-			if (isPositiveAndBelow(Index, numElements))
-			{
-				switch (numElements)
-				{
-				case 2:
-				{
-					switch (Index)
-					{
-					case 0: return jlimit(0.0, 1.0, 2.0 - 2.0 * normalisedInput);
-					case 1: return jlimit(0.0, 1.0, 2.0 * normalisedInput);
-                    default: return 0.0;
-					}
-				}
-				case 3:
-				{
-					switch (Index)
-					{
-					case 0: return jlimit(0.0, 1.0, 3.0 - 3.0 * normalisedInput);
-					case 1: return jlimit(0.0, 1.0, 3.0 * normalisedInput);
-                    default: return 0.0;
-					}
-
-				}
-				case 4:
-				{
-					if (Index != 1)
-						return 0.0;
-
-					auto v = 2.0 - hmath::abs(-4.0 * (normalisedInput + 0.66));
-
-					v = jmax(0.0, v - 1.0);
-
-					return jlimit(0.0, 1.0, v);
-				}
-				}
-			}
-
-			return 0.0;
-		}
-	};
-
-	struct harmonics
-	{
-		HISE_EMPTY_INITIALISE;
-
-		template <int Index> double getFadeValue(int numElements, double normalisedInput)
-		{
-			return normalisedInput * (double)(Index + 1);
-		}
-	};
-
-	struct linear
-	{
-		HISE_EMPTY_INITIALISE;
-
-		template <int Index> double getFadeValue(int numElements, double normalisedInput)
-		{
-			if (numElements == 1)
-				return 1.0 - normalisedInput;
-			else
-			{
-				const double u = (double)numElements - 1.0;
-				const double offset = (1.0 - (double)Index) / u;
-				auto v = 1.0 - Math.abs(1.0 - u * (normalisedInput + offset));
-				return jlimit(0.0, 1.0, v);
-			}
-
-			return 0.0;
-		}
-
-		hmath Math;
-	};
-
-	struct squared
-	{
-		HISE_EMPTY_INITIALISE;
-
-		template <int Index> double getFadeValue(int numElements, double normalisedInput)
-		{
-			auto v = lf.getFadeValue<Index>(numElements, normalisedInput);
-			return v * v;
-		}
-
-		linear lf;
-	};
-
-	struct rms
-	{
-		HISE_EMPTY_INITIALISE;
-
-		template <int Index> double getFadeValue(int numElements, double normalisedInput)
-		{
-			auto v = lf.getFadeValue<Index>(numElements, normalisedInput);
-			return hmath::sqrt(v);
-		}
-
-		linear lf;
-	};
-
-
-}
-
-
-namespace smoothers
-{
-	struct base
-	{
-        virtual ~base() {};
-        
-		void setSmoothingTime(double t)
-		{
-			if (smoothingTimeMs != t)
-			{
-				smoothingTimeMs = t;
-				refreshSmoothingTime();
-			}
-		}
-
-		virtual float get() const = 0;
-		virtual void reset() = 0;
-		virtual void set(double v) = 0;
-		virtual float advance() = 0;
-
-		virtual void prepare(PrepareSpecs ps)
-		{
-			currentBlockRate = ps.sampleRate / (double)ps.blockSize;
-			refreshSmoothingTime();
-		}
-
-		virtual void refreshSmoothingTime() = 0;
-
-		virtual HISE_EMPTY_INITIALISE;
-
-		double currentBlockRate = 0.0;
-		double smoothingTimeMs = 0.0;
-	};
-
-	struct no : public base
-	{
-		float get() const final override
-		{
-			return v;
-		}
-
-		void reset() final override {};
-
-		void set(double nv) final override
-		{
-			v = nv;
-		}
-
-		float advance() final override
-		{
-			return v;
-		}
-
-		void refreshSmoothingTime() final override {};
-
-		float v = 0.0f;
-	};
-
-	struct low_pass : public base
-	{
-		float get() const final override
-		{
-			return lastValue;
-		}
-
-		void reset() final override
-		{
-			isSmoothing = false;
-			lastValue = target;
-			s.resetToValue(target);
-		}
-
-		float advance() final override
-		{
-			if (isSmoothing)
-			{
-				auto thisValue = s.smooth(target);
-				isSmoothing = std::abs(thisValue - target) > 0.001f;
-				lastValue = thisValue;
-				return thisValue;
-			}
-
-			return target;
-		}
-
-		void set(double targetValue) final override
-		{
-			auto tf = (float)targetValue;
-
-			if (tf != target)
-			{
-				target = tf;
-				isSmoothing = target != lastValue;
-			}
-		}
-
-		void refreshSmoothingTime() final override
-		{
-			s.prepareToPlay(currentBlockRate);
-			s.setSmoothingTime(smoothingTimeMs);
-		}
-
-	private:
-
-		bool isSmoothing = false;
-		float lastValue = 0.0f;
-		float target = 0.0f;
-		Smoother s;
-	};
-
-	struct linear_ramp : public base
-	{
-		void reset()final override
-		{
-			d.reset();
-		}
-
-		float advance() final override
-		{
-			return d.advance();
-		}
-
-		float get() const final override
-		{
-			return d.get();
-		}
-
-		void set(double newValue) final override
-		{
-			d.set(newValue);
-		}
-
-		void refreshSmoothingTime() final override
-		{
-			d.prepare(currentBlockRate, smoothingTimeMs);
-		}
-
-	private:
-
-		sdouble d;
-	};
-}
 
 
 namespace control
 {
+
 namespace pimpl
 {
-struct combined_parameter_base
-{
-	virtual ~combined_parameter_base() {};
-
-	struct Data
-	{
-		double getPmaValue() const { dirty = false; return value * mulValue + addValue; }
-		double getPamValue() const { dirty = false; return (value + addValue) * mulValue; }
-
-		double value = 0.0;
-		double mulValue = 1.0;
-		double addValue = 0.0;
-		mutable bool dirty = false;
-	};
-
-	virtual Data getUIData() const = 0;
-
-	NormalisableRange<double> currentRange;
-
-	JUCE_DECLARE_WEAK_REFERENCEABLE(combined_parameter_base);
-};
 
 /** Subclass this interface whenever you define a node that has a mode property that will be used
 	as second template argument.
@@ -406,18 +120,31 @@ template <class ParameterType> struct parameter_node_base
 	ParameterType p;
 };
 
+template <typename DataType> struct combined_parameter_base
+{
+	using InternalDataType = DataType;
+
+	virtual ~combined_parameter_base() {};
+
+	virtual DataType getUIData() const = 0;
+
+	NormalisableRange<double> currentRange;
+
+	JUCE_DECLARE_WEAK_REFERENCEABLE(combined_parameter_base);
+};
+
 template <class ParameterType> struct duplicate_parameter_node_base : public parameter_node_base<ParameterType>,
-																	  public wrap::duplicate_sender::Listener
+																	  public wrap::clone_manager::Listener
 {
 	duplicate_parameter_node_base(const Identifier& id):
 		parameter_node_base<ParameterType>(id)
 	{
-		this->getParameter().setParentNumVoiceListener(this);
+		//this->getParameter().setParentNumVoiceListener(this);
 	}
 
 	virtual ~duplicate_parameter_node_base()
 	{
-		this->getParameter().setParentNumVoiceListener(nullptr);
+//		this->getParameter().setParentNumVoiceListener(nullptr);
 	}
 };
 
@@ -426,5 +153,5 @@ template <class ParameterType> struct duplicate_parameter_node_base : public par
 }
 
 
-
 }
+

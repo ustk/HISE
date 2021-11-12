@@ -320,6 +320,9 @@ void SnexWorkbenchEditor::createNewFile()
 	auto f = BackendDllManager::getSubFolder(getProcessor(), BackendDllManager::FolderSubType::Networks).getNonexistentChildFile("DspNetwork", ".xml", false);
 
 	auto fileName = PresetHandler::getCustomName(f.getFileNameWithoutExtension(), "Enter the name of the new dsp network.");
+
+	fileName = snex::cppgen::StringHelpers::makeValidCppName(fileName);
+
 	fileName = fileName.upToFirstOccurrenceOf(".", false, false);
 
 	if (!fileName.isEmpty())
@@ -437,53 +440,23 @@ SnexWorkbenchEditor::SnexWorkbenchEditor(BackendProcessor* bp) :
 
 		builder.getContent<VerticalTile>(v)->setPanelColour(ResizableFloatingTileContainer::PanelColourId::bgColour, Colour(0xFF1D1D1D));
 
-		auto dg = builder.addChild<scriptnode::DspNetworkGraphPanel>(v);
-
 		int editor = builder.addChild<SnexEditorPanel>(v);
+		auto dg = builder.addChild<scriptnode::DspNetworkGraphPanel>(v);
 
 		ep = builder.getContent<SnexEditorPanel>(editor);
 
 		ep->setCustomTitle("SNEX Code Editor");
 		
-		auto testTab = builder.addChild<HorizontalTile>(v);
-
-		builder.setVisibility(v, true, { true, true, false, false });
-		//auto t = builder.addChild<FloatingTabComponent>(v);
-		//builder.getPanel(t)->setCustomIcon((int)FloatingTileContent::Factory::PopupMenuOptions::ScriptEditor);
-		//auto rightColumn = builder.addChild<HorizontalTile>(v);
-		//builder.getPanel(rightColumn)->setCustomIcon((int)FloatingTileContent::Factory::PopupMenuOptions::ModuleBrowser);
+		builder.setVisibility(v, true, { true, false, true });
 		
-
 		dgp = builder.getContent<scriptnode::DspNetworkGraphPanel>(dg);
 		dgp->setCustomTitle("Scriptnode DSP Graph");
 		dgp->setForceHideSelector(true);
 		
-		builder.getContent<HorizontalTile>(testTab)->setPanelColour(ResizableFloatingTileContainer::PanelColourId::bgColour, Colour(0xFF1D1D1D));
+		builder.setFoldable(v, false, { false, false, false });
 
-		builder.setDynamic(testTab, false);
-
-		auto pl = builder.addChild<SnexWorkbenchPanel<snex::ui::TestDataComponent>>(testTab);
-		auto cpl = builder.addChild<SnexWorkbenchPanel<snex::ui::TestComplexDataManager>>(testTab);
-		auto uig = builder.addChild<SnexWorkbenchPanel<snex::ui::Graph>>(testTab);
-
-		builder.getContent<FloatingTileContent>(pl)->setCustomTitle("Test Events");
-		builder.getContent<FloatingTileContent>(cpl)->setCustomTitle("Test Complex Data");
-		builder.getContent<FloatingTileContent>(uig)->setCustomTitle("Test Signal Display");
-		builder.setFoldable(v, false, { false, false, false, false });
-
-		builder.setSizes(v, {30.0, -0.4, -0.4, -0.2 });
+		builder.setSizes(v, {30.0, -0.5, -0.5});
 		builder.setDynamic(v, false);
-
-		
-
-#if 0
-		builder.addChild<ScriptWatchTablePanel>(rightColumn);
-		builder.addChild<SnexWorkbenchPanel<snex::ui::OptimizationProperties>>(rightColumn);
-#endif
-		
-
-		//builder.getContent<VisibilityToggleBar>(htb)->setControlledContainer(builder.getContainer(r));
-
 		builder.getContent<VisibilityToggleBar>(vtb)->refreshButtons();;
 
 		builder.finalizeAndReturnRoot();
@@ -558,20 +531,13 @@ void SnexWorkbenchEditor::saveCurrentFile()
 
 		auto fh = getNetworkHolderForNewFile(getProcessor(), synthMode);
 
-		autosaver = new DspNetworkListeners::PatchAutosaver(fh->getActiveNetwork(), BackendDllManager::getSubFolder(getProcessor(), BackendDllManager::FolderSubType::Networks));
+        if(auto nw = fh->getActiveOrDebuggedNetwork())
+        {
+            autosaver = new DspNetworkListeners::PatchAutosaver(nw, BackendDllManager::getSubFolder(getProcessor(), BackendDllManager::FolderSubType::Networks));
+        }
+        else
+            jassertfalse;
 	}
-
-	
-#if 0
-	if (fh != nullptr)
-	{
-		if(auto n = fh->getActiveNetwork())
-		{
-			auto xml = n->getValueTree().createXml();
-			df->getXmlFile().replaceWithText(xml->createDocument(""));
-		}
-	}
-#endif
 }
 
 void SnexWorkbenchEditor::setSynthMode(bool shouldBeSynthMode)
@@ -711,7 +677,7 @@ void SnexWorkbenchEditor::loadNewNetwork(const File& f)
 
 	df = new hise::DspNetworkCodeProvider(nullptr, getMainController(), fh, f);
 
-	wb = dynamic_cast<BackendProcessor*>(getMainController())->workbenches.getWorkbenchDataForCodeProvider(df, true);
+	wb = dynamic_cast<BackendProcessor*>(getMainController())->workbenches.getWorkbenchDataForCodeProvider(df, true).get();
 	wb->getTestData().setMultichannelDataProvider(new PooledAudioFileDataProvider(getMainController()));
 	wb->setCompileHandler(new hise::DspNetworkCompileHandler(wb, getMainController(), fh));
 
@@ -734,7 +700,7 @@ void SnexWorkbenchEditor::loadNewNetwork(const File& f)
 		ep->setWorkbenchData(wb.get());
 		dgp->setContentWithUndo(dynamic_cast<Processor*>(h), 0);
 
-		autosaver = new DspNetworkListeners::PatchAutosaver(h->getActiveNetwork(), BackendDllManager::getSubFolder(getProcessor(), BackendDllManager::FolderSubType::Networks));
+		autosaver = new DspNetworkListeners::PatchAutosaver(h->getActiveOrDebuggedNetwork(), BackendDllManager::getSubFolder(getProcessor(), BackendDllManager::FolderSubType::Networks));
 	});
 }
 
@@ -748,7 +714,7 @@ DspNetworkCompileExporter::DspNetworkCompileExporter(SnexWorkbenchEditor* e) :
 
 	if (auto fh = editor->getNetworkHolderForNewFile(editor->getProcessor(), editor->getSynthMode()))
 	{
-		if (auto n = fh->getActiveNetwork())
+		if (auto n = fh->getActiveOrDebuggedNetwork())
 			n->createAllNodesOnce();
 	}
 
@@ -898,10 +864,18 @@ void DspNetworkCompileExporter::run()
 	{
 		if (auto xml = XmlDocument::parse(e))
 		{
-			auto v = ValueTree::fromXml(*xml).getChild(0);
+			auto p = ValueTree::fromXml(*xml);
+			auto v = p.getChild(0);
 
 			auto id = v[scriptnode::PropertyIds::ID].toString();
 
+			if(cppgen::StringHelpers::makeValidCppName(id).compareIgnoreCase(id) != 0)
+			{
+				errorMessage << "Illegal ID: `" << id << "`  \n> The network ID must be a valid C++ identifier";
+				ok = ErrorCodes::ProjectXmlInvalid;
+				return;
+			}
+				
 			ValueTreeBuilder b(v, ValueTreeBuilder::Format::CppDynamicLibrary);
 
 			b.setCodeProvider(new BackendDllManager::FileCodeProvider(getMainController()));
@@ -1395,10 +1369,10 @@ void TestRunWindow::runTest(const File& f, DspNetworkCodeProvider::SourceMode m)
 
 	auto nh = SnexWorkbenchEditor::getNetworkHolderForNewFile(getMainController(), false);
 
-	ScopedPointer<DspNetworkCodeProvider> dnp = new DspNetworkCodeProvider(d, getMainController(), nh, f);
+	ScopedPointer<DspNetworkCodeProvider> dnp = new DspNetworkCodeProvider(d.get(), getMainController(), nh, f);
 
 	d->setCodeProvider(dnp);
-	auto dch = new DspNetworkCompileHandler(d, getMainController(), nh);
+	auto dch = new DspNetworkCompileHandler(d.get(), getMainController(), nh);
 	d->setCompileHandler(dch);
 
 	d->getTestData().setTestRootDirectory(testRoot);

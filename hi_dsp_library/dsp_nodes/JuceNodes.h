@@ -76,7 +76,7 @@ template <typename T, int NV> struct jwrapper
 	HISE_EMPTY_HANDLE_EVENT;
 	HISE_EMPTY_INITIALISE;
 	
-	void process(ProcessDataDyn& data)
+	template <typename ProcessDataType> void process(ProcessDataType& data)
 	{
 		juce::dsp::AudioBlock<float> b(data.getRawChannelPointers(), data.getNumChannels(), data.getNumSamples());
 		objects.get().process(JuceProcessType(b));
@@ -277,7 +277,7 @@ template <int NV> struct jpanner : public base::jwrapper<juce::dsp::Panner<float
 	void createParameters(ParameterDataList& d) override
 	{
 		{
-			parameter::data p("Frequency", { -1.0, 1.0 });
+			parameter::data p("Pan", { -1.0, 1.0 });
 
 			p.callback = parameter::inner<jpanner, 0>(*this);
 			p.setDefaultValue(0.0);

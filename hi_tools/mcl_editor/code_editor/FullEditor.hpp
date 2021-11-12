@@ -181,6 +181,44 @@ struct FullEditor: public Component,
 	var settings;
 };
 
+struct XmlEditor : public Component
+{
+	XmlEditor(const File& xmlFile, const String& content = {}) :
+		tdoc(doc),
+		editor(tdoc),
+		resizer(this, nullptr)
+	{
+		if (!content.isEmpty())
+			doc.replaceAllContent(content);
+		else
+		{
+			doc.replaceAllContent(xmlFile.loadFileAsString());
+			setName(xmlFile.getFileName());
+		}
+			
+		doc.clearUndoHistory();
+		addAndMakeVisible(editor);
+		editor.editor.setLanguageManager(new mcl::XmlLanguageManager());
+		addAndMakeVisible(resizer);
+		setSize(600, 400);
+	}
+
+	void resized() override
+	{
+		auto b = getLocalBounds();
+		b.removeFromTop(24);
+		editor.setBounds(b);
+		resizer.setBounds(b.removeFromBottom(15).removeFromRight(15));
+	}
+
+	std::function<void()> closeCallback;
+
+	CodeDocument doc;
+	mcl::TextDocument tdoc;
+	mcl::FullEditor editor;
+	juce::ResizableCornerComponent resizer;
+};
+
 struct MarkdownPreviewSyncer : public Timer,
                                public CodeDocument::Listener,
                                public juce::ScrollBar::Listener
@@ -213,20 +251,7 @@ struct MarkdownPreviewSyncer : public Timer,
         e.editor.getTextDocument().getCodeDocument().removeListener(this);
     }
     
-    void timerCallback() override
-    {
-        {
-            MarkdownRenderer::ScopedScrollDisabler sds(p.renderer);
-            ScopedValueSetter<bool> svs(recursiveScrollProtector, true);
-
-            if (p.isVisible())
-                p.setNewText(e.editor.getTextDocument().getCodeDocument().getAllContent(), {}, false);
-
-            stopTimer();
-        }
-        
-        synchroniseTabs(true);
-    }
+    void timerCallback() override;
 
     bool recursiveScrollProtector = false;
     

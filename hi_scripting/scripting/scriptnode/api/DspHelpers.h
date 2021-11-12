@@ -37,18 +37,8 @@ namespace scriptnode
 using namespace juce;
 using namespace hise;
 
-
-
-
-
-
 using PrepareSpecs = snex::Types::PrepareSpecs;
-
-// TODO: Rename all non templated ProcessData2 arguments to this
 using ProcessDataDyn = snex::Types::ProcessDataDyn;
-
-
-
 
 class NodeBase;
 
@@ -66,7 +56,8 @@ struct DspHelpers
 	static void setErrorIfNotOriginalSamplerate(const PrepareSpecs& ps, NodeBase* n);
 
 	/** Returns a ParameterCallback with the given range. */
-	static ParameterCallback getFunctionFrom0To1ForRange(NormalisableRange<double> range, bool inverted, const ParameterCallback& originalFunction);
+
+	static ParameterCallback getFunctionFrom0To1ForRange(InvertableParameterRange r, const ParameterCallback& originalFunction);
 
 	forcedinline static double findPeak(const float* data, int numSamples)
 	{
@@ -88,34 +79,5 @@ struct DspHelpers
 		return max;
 	}
 };
-
-#if 0
-struct CodeHelpers
-{
-	static void setIncludeDirectory(String filePath);
-
-	static File getIncludeDirectory();
-
-	static void initCustomCodeFolder(Processor* p);
-
-	static void addFileToCustomFolder(const String& filename, const String& content);
-
-	static void addFileToProjectFolder(const String& filename, const String& content);
-
-	static String createIncludeFile(File targetDirectory);
-
-	static bool customFolderIsDefined();
-
-	static bool projectFolderIsDefined();
-
-private:
-
-	static void addFileInternal(const String& filename, const String& content, File targetDirectory);
-
-	static File includeDirectory;
-	static File projectIncludeDirectory;
-};
-#endif
-
 
 }

@@ -821,17 +821,14 @@ struct xy_editor : public ScriptnodeExtraComponent<control::xy<parameter::dynami
 		auto xValue = (pos.getX() - a.getX()) / a.getWidth();
 		auto yValue = 1.0f - (pos.getY() - a.getY()) / a.getHeight();
 
-		findParentComponentOfClass<NodeComponent>()->node->getParameter(0)->setValueAndStoreAsync(xValue);
-		findParentComponentOfClass<NodeComponent>()->node->getParameter(1)->setValueAndStoreAsync(yValue);
+		findParentComponentOfClass<NodeComponent>()->node->getParameter(0)->setValueFromUI(xValue);
+		findParentComponentOfClass<NodeComponent>()->node->getParameter(1)->setValueFromUI(yValue);
 	}
 
 	void timerCallback() override
 	{
-		for (auto o : getObject()->p.targets)
-			o->p.updateUI();
-
-		auto x = jlimit(0.0f, 1.0f, (float)getObject()->p.getParameter<0>().lastValue);
-		auto y = jlimit(0.0f, 1.0f, (float)getObject()->p.getParameter<1>().lastValue);
+		auto x = jlimit(0.0f, 1.0f, (float)getObject()->p.getParameter<0>().getDisplayValue());
+		auto y = jlimit(0.0f, 1.0f, (float)getObject()->p.getParameter<1>().getDisplayValue());
 
 		lastPositions.insert(0, normalisedPosition);
 
@@ -978,9 +975,9 @@ template <typename T> using dp = wrap::data<T, data::dynamic::displaybuffer>;
 Factory::Factory(DspNetwork* network) :
 	NodeFactory(network)
 {
-	registerPolyModNode<dp<gate>, wrap::illegal_poly<dp<gate>>, data::ui::displaybuffer_editor>();
-	registerPolyModNode<dp<comp>, wrap::illegal_poly<dp<comp>>, data::ui::displaybuffer_editor>();
-	registerPolyModNode<dp<limiter>, wrap::illegal_poly<dp<limiter>>, data::ui::displaybuffer_editor>();
+	registerPolyModNode<dp<gate>, dp<wrap::illegal_poly<gate>>, data::ui::displaybuffer_editor>();
+	registerPolyModNode<dp<comp>, dp<wrap::illegal_poly<comp>>, data::ui::displaybuffer_editor>();
+	registerPolyModNode<dp<limiter>, dp<wrap::illegal_poly<limiter>>, data::ui::displaybuffer_editor>();
 	registerModNode<dp<envelope_follower>, data::ui::displaybuffer_editor >();
 }
 
@@ -1140,22 +1137,9 @@ Factory::Factory(DspNetwork* network) :
 	registerPolyNode<reverb, wrap::illegal_poly<reverb>, reverb_editor>();
 	registerPolyNode<sampleandhold, sampleandhold_poly, sampleandhold_editor>();
 	registerPolyNode<bitcrush, bitcrush_poly, bitcrush_editor>();
-	registerPolyNode<wrap::fix<2, haas>, wrap::fix<2, haas_poly>>();
+	registerPolyNode<wrap::fix<2, haas<1>>, wrap::fix<2, haas<NUM_POLYPHONIC_VOICES>>>();
 	registerPolyNode<phase_delay, phase_delay_poly, phase_delay_editor>();
 }
-
-}
-
-namespace stk_factory
-{
-Factory::Factory(DspNetwork* n):
-	NodeFactory(n)
-{
-	registerNode<stk::nodes::jcrev>();
-	registerNode<stk::nodes::delay_a>();
-	registerNode<stk::nodes::banded_wg>();
-}
-
 
 }
 
@@ -1165,21 +1149,27 @@ namespace math
 Factory::Factory(DspNetwork* n) :
 	NodeFactory(n)
 {
-	registerPolyNode<add, add_poly>();
-	registerNode<clear>();
-	registerPolyNode<tanh, tanh_poly>();
-	registerPolyNode<mul, mul_poly>();
-	registerPolyNode<sub, sub_poly>();
-	registerPolyNode<div, div_poly>();
-	
-	registerPolyNode<clip, clip_poly>();
-	registerNode<sin>();
-	registerNode<pi>();
-	registerNode<sig2mod>();
-	registerNode<abs>();
-	registerNode<square>();
-	registerNode<sqrt>();
-	registerNode<pow>();
+#define REGISTER_POLY_MATH_NODE(x) registerPolyNode<x<1>, x<NUM_POLYPHONIC_VOICES>>();
+#define REGISTER_MONO_MATH_NODE(x) registerNode<x<1>>();
+    
+    REGISTER_POLY_MATH_NODE(add);
+    REGISTER_POLY_MATH_NODE(tanh);
+    REGISTER_POLY_MATH_NODE(mul );
+    REGISTER_POLY_MATH_NODE(sub );
+    REGISTER_POLY_MATH_NODE(div );
+    REGISTER_POLY_MATH_NODE(clip);
+    
+    REGISTER_MONO_MATH_NODE(clear);
+    REGISTER_MONO_MATH_NODE(sin);
+    REGISTER_MONO_MATH_NODE(pi);
+    REGISTER_MONO_MATH_NODE(sig2mod);
+    REGISTER_MONO_MATH_NODE(abs);
+    REGISTER_MONO_MATH_NODE(square);
+    REGISTER_MONO_MATH_NODE(sqrt);
+    REGISTER_MONO_MATH_NODE(pow);
+    
+#undef REGISTER_POLY_MATH_NODE
+#undef REGISTER_MONO_MATH_NODE;
 
 #if HISE_INCLUDE_SNEX
 	registerPolyNode<OpNode<dynamic_expression, 1>, OpNode<dynamic_expression, NUM_POLYPHONIC_VOICES>, dynamic_expression::editor>();
@@ -1199,7 +1189,8 @@ namespace control
 
 	using dynamic_smoother_parameter = control::smoothed_parameter<smoothers::dynamic>;
 
-	using dynamic_dupli_pack = wrap::data<control::dupli_pack<parameter::dynamic_base_holder>, data::dynamic::sliderpack>;
+
+	
 
  	Factory::Factory(DspNetwork* network) :
 		NodeFactory(network)
@@ -1208,12 +1199,17 @@ namespace control
 		registerPolyNoProcessNode<control::bipolar<1, parameter::dynamic_base_holder>, control::bipolar<NUM_POLYPHONIC_VOICES, parameter::dynamic_base_holder>, bipolar_editor>();
 
 		registerPolyNoProcessNode<control::pma<1, parameter::dynamic_base_holder>, control::pma<NUM_POLYPHONIC_VOICES, parameter::dynamic_base_holder>, pma_editor>();
+
+		registerPolyNoProcessNode<control::minmax<1, parameter::dynamic_base_holder>, control::minmax<NUM_POLYPHONIC_VOICES, parameter::dynamic_base_holder>, minmax_editor>();
+
 		registerNoProcessNode<control::sliderbank_editor::NodeType, control::sliderbank_editor, false>();
 		registerNoProcessNode<dynamic_cable_pack, data::ui::sliderpack_editor>();
 		registerNoProcessNode<dynamic_cable_table, data::ui::table_editor>();
 		
 		registerNoProcessNode<control::input_toggle<parameter::dynamic_base_holder>, input_toggle_editor>();
 
+        registerNoProcessNode<conversion_logic::dynamic::NodeType, conversion_logic::dynamic::editor>();
+        
 		registerNoProcessNode<duplilogic::dynamic::NodeType, duplilogic::dynamic::editor>();
 		registerNoProcessNode<dynamic_dupli_pack, data::ui::sliderpack_editor>();
 		registerNoProcessNode<faders::dynamic::NodeType, faders::dynamic::editor>();
@@ -1223,13 +1219,15 @@ namespace control
 
 #if HISE_INCLUDE_SNEX
 		registerNoProcessNode<dynamic_expression::ControlNodeType, dynamic_expression::editor>();
+		
+#endif
+
 		registerModNode<midi_logic::dynamic::NodeType, midi_logic::dynamic::editor>();
 		registerPolyModNode<control::timer<1, snex_timer>, timer<NUM_POLYPHONIC_VOICES, snex_timer>, snex_timer::editor>();
-#endif
 
 		registerNoProcessNode<file_analysers::dynamic::NodeType, file_analysers::dynamic::editor, false>(); //>();
 
-		registerNodeRaw<InterpretedUnisonoWrapperNode>();
+		
 
 		registerModNode<tempo_sync, TempoDisplay>();
 	}
@@ -1263,12 +1261,6 @@ namespace dynamic
 		static String getAxis(int index)
 		{
 			return index == 0 ? "CV" : "GT";
-		}
-
-		void timerCallback() override
-		{
-			for (auto o : getObject()->p.targets)
-				o->p.updateUI();
 		}
 
 		Dragger modValue, activeValue;
@@ -1351,6 +1343,11 @@ namespace dynamic
 		void paint(Graphics& g) override
 		{
 			
+		}
+
+		void timerCallback() override
+		{
+
 		}
 
 		static Component* createExtraComponent(void* o, PooledUIUpdater* updater)
@@ -1452,6 +1449,11 @@ namespace dynamic
 			setSize(300, 32 * 2 + 2 * UIValues::NodeMargin);
 		}
 
+		void timerCallback() override
+		{
+
+		}
+
 		void resized() override
 		{
 			auto b = getLocalBounds();
@@ -1517,7 +1519,9 @@ Factory::Factory(DspNetwork* network) :
 	registerNode<waveshapers::dynamic::NodeType, waveshapers::dynamic::editor>();
 #endif
 
-	registerModNode<hise_mod>();
+	registerModNode<dp<extra_mod>, data::ui::displaybuffer_editor>();
+	registerModNode<dp<pitch_mod>, data::ui::displaybuffer_editor>();
+	registerModNode<dp<global_mod>, data::ui::displaybuffer_editor>();
 	
 	registerModNode<dp<peak>, data::ui::displaybuffer_editor>();
 	registerPolyModNode<dp<ramp<1, true>>, dp<ramp<NUM_POLYPHONIC_VOICES, true>>, data::ui::displaybuffer_editor>();

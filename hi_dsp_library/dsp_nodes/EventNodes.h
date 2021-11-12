@@ -38,129 +38,8 @@ namespace scriptnode
 using namespace juce;
 using namespace hise;
 
-namespace timer_logic
-{
-template <int NV> struct ping
-{
-	HISE_EMPTY_PREPARE;
-	HISE_EMPTY_RESET;
 
-	double getTimerValue() const { return 1.0; }
-};
 
-template <int NV> struct random
-{
-	HISE_EMPTY_PREPARE;
-	HISE_EMPTY_RESET;
-
-	double getTimerValue() const
-	{
-		return hmath::randomDouble();
-	}
-};
-
-template <int NV> struct toggle
-{
-	PolyData<double, NV> state;
-
-	double getTimerValue()
-	{
-		double v = 0.0;
-
-		for (auto& s : state)
-		{
-			s = 1.0 - s;
-			v = s;
-		}
-		
-		return v;
-	}
-
-	void prepare(PrepareSpecs ps)
-	{
-		state.prepare(ps);
-	}
-
-	void reset()
-	{
-		for (auto& s : state)
-			s = 0.0;
-	}
-};
-
-}
-
-namespace midi_logic
-{
-
-template <int Unused> struct gate
-{
-	HISE_EMPTY_PREPARE;
-	HISE_EMPTY_INITIALISE;
-
-	bool getMidiValue(HiseEvent& e, double& v)
-	{
-		if (e.isNoteOnOrOff())
-		{
-			v = (double)e.isNoteOn();
-			return true;
-		}
-
-		return false;
-	}
-};
-
-template <int Unused> struct velocity
-{
-	HISE_EMPTY_PREPARE;
-	HISE_EMPTY_INITIALISE;
-
-	bool getMidiValue(HiseEvent& e, double& v)
-	{
-		if (e.isNoteOn())
-		{
-			v = e.getFloatVelocity();
-			return true;
-		}
-
-		return false;
-	}
-};
-
-template <int Unused> struct notenumber
-{
-	HISE_EMPTY_PREPARE;
-	HISE_EMPTY_INITIALISE;
-
-	bool getMidiValue(HiseEvent& e, double& v)
-	{
-		if (e.isNoteOn())
-		{
-			v = (double)e.getNoteNumber() / 127.0;
-			return true;
-		}
-
-		return false;
-	}
-};
-
-template <int Unused> struct frequency
-{
-	HISE_EMPTY_PREPARE;
-	HISE_EMPTY_INITIALISE;
-
-	bool getMidiValue(HiseEvent& e, double& v)
-	{
-		if (e.isNoteOn())
-		{
-			v = (e.getFrequency() - 20.0) / 19980.0;
-			return true;
-		}
-
-		return false;
-	}
-};
-}
 
 namespace control
 {
@@ -318,11 +197,13 @@ public:
 		DEF_PARAMETER(Active, timer);
 		DEF_PARAMETER(Interval, timer);
 
+#if HISE_INCLUDE_SNEX
 		if (P > 1)
 		{
 			auto typed = static_cast<timer*>(obj);
 			typed->tType.template setParameter<P - 2>(value);
 		}
+#endif
 	}
 
 	PARAMETER_MEMBER_FUNCTION;

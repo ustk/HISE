@@ -365,8 +365,27 @@ void ExpansionHandler::setCurrentExpansion(Expansion* e, NotificationType notify
 {
 	if (currentExpansion != e)
 	{
+		if (currentExpansion == nullptr)
+			FullInstrumentExpansion::setNewDefault(getMainController(), getMainController()->getMainSynthChain()->exportAsValueTree());
+
 		currentExpansion = e;
 		notifier.sendNotification(Notifier::EventType::ExpansionLoaded, notifyListeners);
+	}
+}
+
+void ExpansionHandler::unloadExpansion(Expansion* e)
+{
+	auto eIndex = expansionList.indexOf(e);
+
+	if (eIndex != -1)
+	{
+		auto unloaded = expansionList.removeAndReturn(eIndex);
+		unloadedExpansions.add(unloaded);
+		
+		auto notification = MessageManager::getInstance()->isThisTheMessageThread() ? sendNotificationSync : sendNotificationAsync;
+
+		if (getCurrentExpansion() == e)
+			setCurrentExpansion(nullptr, notification);
 	}
 }
 
@@ -714,6 +733,12 @@ PooledAdditionalData Expansion::loadAdditionalData(const String& relativePath)
 	return pool->getPool<AdditionalDataReference>()->loadFromReference(ref, PoolHelpers::LoadAndCacheWeak);
 }
 
+
+juce::ValueTree Expansion::getEmbeddedNetwork(const String& id)
+{
+	// Return the embedded networks of the project (use full expansions to include networks into an expansion).
+	return getMainController()->getSampleManager().getProjectHandler().getEmbeddedNetwork(id);
+}
 
 void Expansion::saveExpansionInfoFile()
 {

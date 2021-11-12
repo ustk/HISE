@@ -37,11 +37,6 @@ namespace scriptnode
 using namespace juce;
 using namespace hise;
 
-
-
-
-
-
 /** This namespace contains template classes that define compile-time range objects which can be passed
 	into parameter connections. It has:
 
@@ -54,6 +49,9 @@ using namespace hise;
 namespace ranges
 {
 using namespace snex;
+
+
+
 
 /** The base class for a connection with a custom SNEX expression.
 
@@ -115,7 +113,15 @@ struct Identity
 	static constexpr bool isRange() { return true; }
 	static constexpr double from0To1(double input) { return input; };
 	static constexpr double to0To1(double input) { return input; };
-	static NormalisableRange<double> createNormalisableRange() { return NormalisableRange<double>(0.0, 1.0); };
+	static InvertableParameterRange createNormalisableRange() { return InvertableParameterRange(0.0, 1.0); };
+};
+
+struct InvertedIdentity
+{
+	static constexpr bool isRange() { return true; }
+	static constexpr double from0To1(double input) { return 1.0 - input; };
+	static constexpr double to0To1(double input) { return 1.0 - input; };
+	static InvertableParameterRange createNormalisableRange() { return InvertableParameterRange(0.0, 1.0).inverted(); };
 };
 
 
@@ -134,7 +140,14 @@ static double op(double input) { return x; } };
 	static constexpr double to0To1(double input) { return RANGE_BASE::to0To1(min, max, input); } \
 	static constexpr double from0To1(double input){ return RANGE_BASE::from0To1(min, max, input); };\
 	static constexpr std::array<double, 2> getSimpleRange() { return { (double)min, (double)max }; } \
-	static NormalisableRange<double> createNormalisableRange() { return NormalisableRange<double>(min, max); } };
+	static InvertableParameterRange createNormalisableRange() { return {min, max}; } };
+
+#define DECLARE_PARAMETER_RANGE_INV(name, min, max) struct name { \
+	static constexpr bool isRange() { return true; } \
+	static constexpr double to0To1(double input) { return 1.0 - RANGE_BASE::to0To1(min, max, input); } \
+	static constexpr double from0To1(double input){ return RANGE_BASE::from0To1(min, max, 1.0 - input); };\
+	static constexpr std::array<double, 2> getSimpleRange() { return { (double)min, (double)max }; } \
+	static InvertableParameterRange createNormalisableRange() { return InvertableParameterRange(min, max).inverted(); } };
 
 /** Declares a linear range with discrete steps. */
 #define DECLARE_PARAMETER_RANGE_STEP(name, min, max, step) struct name {\
@@ -142,7 +155,14 @@ static double op(double input) { return x; } };
 	static constexpr double to0To1(double input) {  return RANGE_BASE::to0To1Step(min, max, step, input); } \
 	static constexpr double from0To1(double input){ return RANGE_BASE::from0To1Step(min, max, step, input);} \
 	static constexpr std::array<double, 2> getSimpleRange() { return { (double)min, (double)max }; } \
-	static NormalisableRange<double> createNormalisableRange() { return NormalisableRange<double>(min, max, step); } };
+	static InvertableParameterRange createNormalisableRange() { return InvertableParameterRange(min, max, step); } };
+
+#define DECLARE_PARAMETER_RANGE_STEP_INV(name, min, max, step) struct name {\
+	static constexpr bool isRange() { return true; } \
+	static constexpr double to0To1(double input) {  return 1.0 - RANGE_BASE::to0To1Step(min, max, step, input); } \
+	static constexpr double from0To1(double input){ return RANGE_BASE::from0To1Step(min, max, step, 1.0 - input);} \
+	static constexpr std::array<double, 2> getSimpleRange() { return { (double)min, (double)max }; } \
+	static InvertableParameterRange createNormalisableRange() { return InvertableParameterRange(min, max, step).inverted(); } };
 
 /** Declares a skewed range with a settable skew factor. */
 #define DECLARE_PARAMETER_RANGE_SKEW(name, min, max, skew) struct name {\
@@ -150,15 +170,14 @@ static double op(double input) { return x; } };
 	static constexpr double to0To1(double input) {  return RANGE_BASE::to0To1Skew(min, max, skew, input); }\
 	static constexpr double from0To1(double input){ return RANGE_BASE::from0To1Skew(min, max, skew, input);} \
 	static constexpr std::array<double, 2> getSimpleRange() { return { (double)min, (double)max }; } \
-	static NormalisableRange<double> createNormalisableRange() { return NormalisableRange<double>(min, max, 0.0, skew); } };
+	static InvertableParameterRange createNormalisableRange() { return InvertableParameterRange(min, max, 0.0, skew); } };
 
-/** Declares a skewed range with discrete steps. */
-#define DECLARE_PARAMETER_RANGE_STEP_SKEW(name, min, max, step, skew)struct name {\
+#define DECLARE_PARAMETER_RANGE_SKEW_INV(name, min, max, skew) struct name {\
 	static constexpr bool isRange() { return true; } \
-	static constexpr double to0To1(double input) {  return RANGE_BASE::to0To1StepSkew(min, max, step, skew, input); } \
-	static constexpr double from0To1(double input){ return RANGE_BASE::from0To1StepSkew(min, max, step, skew, input);} \
+	static constexpr double to0To1(double input) {  return 1.0 - RANGE_BASE::to0To1Skew(min, max, skew, input); }\
+	static constexpr double from0To1(double input){ return RANGE_BASE::from0To1Skew(min, max, skew, 1.0 - input);} \
 	static constexpr std::array<double, 2> getSimpleRange() { return { (double)min, (double)max }; } \
-	static NormalisableRange<double> createNormalisableRange() { return NormalisableRange<double>(min, max, step, skew); } };
+	static InvertableParameterRange createNormalisableRange() { return InvertableParameterRange(min, max, 0.0, skew).inverted(); } };
 
 }
 

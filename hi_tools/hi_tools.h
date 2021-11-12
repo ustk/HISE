@@ -153,6 +153,11 @@ END_JUCE_MODULE_DECLARATION
 #endif
 #endif
 
+
+#ifndef HISE_USE_ONLINE_DOC_UPDATER
+#define HISE_USE_ONLINE_DOC_UPDATER 1
+#endif
+
 #if !HISE_NO_GUI_TOOLS
 #include "hi_binary_data/hi_binary_data.h"
 #endif
@@ -163,11 +168,16 @@ END_JUCE_MODULE_DECLARATION
 #include "hi_tools/HiseEventBuffer.h"
 
 #include "hi_tools/UpdateMerger.h"
+
 #include "hi_tools/MiscToolClasses.h"
 
 #include "hi_tools/PathFactory.h"
 #include "hi_tools/HI_LookAndFeels.h"
 
+
+
+
+#include "hi_tools/PitchDetection.h"
 #include "hi_tools/VariantBuffer.h"
 #include "hi_tools/Tables.h"
 

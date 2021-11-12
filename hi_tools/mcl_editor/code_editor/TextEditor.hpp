@@ -821,6 +821,9 @@ private:
 	};
 
 	TooltipWithArea tooltipManager;
+    
+    ScrollbarFader sf;
+    
 	
 	bool skipTextUpdate = false;
 	Selection autocompleteSelection;

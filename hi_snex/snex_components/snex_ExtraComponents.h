@@ -123,91 +123,17 @@ struct OptimizationProperties : public WorkbenchComponent
 	OwnedArray<Item> items;
 };
 
-struct TestDataComponentBase : public WorkbenchComponent,
-	public ButtonListener,
-	public ComboBoxListener,
-	public WorkbenchData::TestData::TestListener
+struct ComponentWithTopBar : public ButtonListener,
+							 public ComboBoxListener
 {
-	TestDataComponentBase(WorkbenchData::Ptr data) :
-		WorkbenchComponent(data)
+	virtual ~ComponentWithTopBar() {};
+
+	Component* asComponent() { return dynamic_cast<Component*>(this); }
+	const Component* asComponent() const { return dynamic_cast<const Component*>(this); }
+
+	void positionTopBar()
 	{
-		data->addListener(this);
-		data->getTestData().addListener(this);
-	};
-
-	~TestDataComponentBase()
-	{
-		if (auto wb = getWorkbench())
-		{
-			wb->removeListener(this);
-			wb->getTestData().removeListener(this);
-		}
-	}
-
-	struct Icons : public PathFactory
-	{
-		Path createPath(const String& p) const override;
-
-		String getId() const override { return "GraphPaths"; };
-	};
-
-	HiseShapeButton* addButton(const String& name, const String& offName = {})
-	{
-		auto c = new HiseShapeButton(name, this, iconFactory, offName);
-
-		if (offName.isNotEmpty())
-			c->setToggleModeWithColourChange(true);
-
-		addAndMakeVisible(c);
-		buttons.add(c);
-		return c;
-	}
-
-	TextButton* addTextButton(const String& n)
-	{
-		auto c = new TextButton(n);
-
-		c->setClickingTogglesState(true);
-		c->setLookAndFeel(&blaf);
-		addAndMakeVisible(c);
-		c->addListener(this);
-		buttons.add(c);
-
-		return c;
-	}
-
-	ComboBox* addComboBox(const StringArray& items)
-	{
-		auto cb = new ComboBox();
-
-		cb->setColour(HiseColourScheme::ComponentBackgroundColour, Colours::transparentBlack);
-		cb->setColour(HiseColourScheme::ComponentFillTopColourId, Colour(0x66333333));
-		cb->setColour(HiseColourScheme::ComponentFillBottomColourId, Colour(0xfb111111));
-		cb->setColour(HiseColourScheme::ComponentOutlineColourId, Colours::white.withAlpha(0.3f));
-		cb->setColour(HiseColourScheme::ComponentTextColourId, Colours::white);
-
-		cb->addItemList(items, 1);
-		cb->setLookAndFeel(&plaf);
-		cb->addListener(this);
-		cb->setSelectedItemIndex(0, dontSendNotification);
-
-		addAndMakeVisible(cb);
-		buttons.add(cb);
-
-		return cb;
-	}
-
-	void addSpacer()
-	{
-		Component* c = new Component();
-
-		addAndMakeVisible(c);
-		buttons.add(c);
-	}
-
-	void resized()
-	{
-		auto b = getLocalBounds();
+		auto b = asComponent()->getLocalBounds();
 		auto bh = 24;
 		auto buttonRow = b.removeFromTop(bh);
 
@@ -231,6 +157,100 @@ struct TestDataComponentBase : public WorkbenchComponent,
 		}
 	}
 
+	struct Icons : public PathFactory
+	{
+		Path createPath(const String& p) const override;
+
+		String getId() const override { return "GraphPaths"; };
+	};
+
+	HiseShapeButton* addButton(const String& name, const String& offName = {})
+	{
+		auto c = new HiseShapeButton(name, this, iconFactory, offName);
+
+		if (offName.isNotEmpty())
+			c->setToggleModeWithColourChange(true);
+
+		asComponent()->addAndMakeVisible(c);
+		buttons.add(c);
+		return c;
+	}
+
+	TextButton* addTextButton(const String& n)
+	{
+		auto c = new TextButton(n);
+
+		c->setClickingTogglesState(true);
+		c->setLookAndFeel(&blaf);
+		asComponent()->addAndMakeVisible(c);
+		c->addListener(this);
+		buttons.add(c);
+
+		return c;
+	}
+
+	ComboBox* addComboBox(const StringArray& items)
+	{
+		auto cb = new ComboBox();
+
+		cb->setColour(HiseColourScheme::ComponentBackgroundColour, Colours::transparentBlack);
+		cb->setColour(HiseColourScheme::ComponentFillTopColourId, Colour(0x66333333));
+		cb->setColour(HiseColourScheme::ComponentFillBottomColourId, Colour(0xfb111111));
+		cb->setColour(HiseColourScheme::ComponentOutlineColourId, Colours::white.withAlpha(0.3f));
+		cb->setColour(HiseColourScheme::ComponentTextColourId, Colours::white);
+
+		cb->addItemList(items, 1);
+		cb->setLookAndFeel(&plaf);
+		cb->addListener(dynamic_cast<ComboBoxListener*>(this));
+		cb->setSelectedItemIndex(0, dontSendNotification);
+
+		asComponent()->addAndMakeVisible(cb);
+		buttons.add(cb);
+
+		return cb;
+	}
+
+	void addSpacer()
+	{
+		Component* c = new Component();
+
+		asComponent()->addAndMakeVisible(c);
+		buttons.add(c);
+	}
+
+	hise::PopupLookAndFeel plaf;
+	BlackTextButtonLookAndFeel blaf;
+	Icons iconFactory;
+
+	OwnedArray<Component> buttons;
+};
+
+struct TestDataComponentBase : public WorkbenchComponent,
+
+	ComponentWithTopBar,
+	public WorkbenchData::TestData::TestListener
+{
+	TestDataComponentBase(WorkbenchData::Ptr data) :
+		WorkbenchComponent(data.get())
+	{
+		data->addListener(this);
+		data->getTestData().addListener(this);
+	};
+
+	~TestDataComponentBase()
+	{
+		if (auto wb = getWorkbench())
+		{
+			wb->removeListener(this);
+			wb->getTestData().removeListener(this);
+		}
+	}
+	
+	void resized()
+	{
+		positionTopBar();
+	}
+
 	void setTestBuffer(NotificationType triggerRecompilation = dontSendNotification)
 	{
 		auto wb = getWorkbench();
@@ -241,19 +261,12 @@ struct TestDataComponentBase : public WorkbenchComponent,
 			wb->triggerPostCompileActions();
 	}
 
-	hise::PopupLookAndFeel plaf;
-	BlackTextButtonLookAndFeel blaf;
-	Icons iconFactory;
-
-	OwnedArray<Component> buttons;
-
 	JitCompiledNode::Ptr currentNode;
-
-	
 };
 
 
-struct Graph : public TestDataComponentBase
+struct Graph: public Component,
+			  public ComponentWithTopBar
 {
 	enum class MouseMode
 	{
@@ -270,55 +283,22 @@ struct Graph : public TestDataComponentBase
 		numGraphTypes
 	};
 
-	struct Helpers
-	{
-		enum WindowType
-		{
-			Rectangle,
-			Hamming,
-			Hann,
-			BlackmanHarris,
-			Triangle,
-			FlatTop,
-			numWindowType
-		};
-
-		Array<WindowType> getAvailableWindowTypes()
-		{
-			return { Hamming, Hann, BlackmanHarris, Triangle, FlatTop };
-		}
-
-		static String getWindowType(WindowType w)
-		{
-			switch (w)
-			{
-			case Rectangle: return "Rectangle";
-			case Hamming: return "Hamming";
-			case Hann: return "Hann";
-			case BlackmanHarris: return "Blackman Harris";
-			case Triangle: return "Triangle";
-			case FlatTop: return "FlatTop";
-			default: return {};
-			}
-		}
-
-		static void applyWindow(WindowType t, AudioSampleBuffer& b);
-	};
-
+    using Helpers = hise::FFTHelpers;
+    
 	struct InternalGraph : public Component,
 		public Timer,
-		public TooltipClient
+		public TooltipClient,
+        public hise::Spectrum2D::Holder
 	{
 
 		InternalGraph(Graph& parent_) :
-			parent(parent_)
+			parent(parent_),
+            rebuildThread(*this)
 		{};
 
 		void paint(Graphics& g) override;
 
-		void drawTestEvent(Graphics& g, bool isParameter, int index);
-
-
+		std::function<void(Graphics&, bool, int)> drawTestEvent;
 
 		void timerCallback() override
 		{
@@ -344,9 +324,14 @@ struct Graph : public TestDataComponentBase
 
 		String getTooltip() override;
 
-		float getYPosition(float level) const;
+		float getYPosition(float level) const override;
 
-		float getXPosition(float normalisedIndex) const;
+		float getXPosition(float normalisedIndex) const override;
+
+		Spectrum2D::Parameters::Ptr getParameters() const override
+		{
+			return new Spectrum2D::Parameters();
+		}
 
 		void rebuildSpectrumRectangles();
 
@@ -378,7 +363,7 @@ struct Graph : public TestDataComponentBase
 		{
 			auto x = (float)getPixelForSample(sample);
 			Line<float> line(x, 0.0f, x, (float)getHeight());
-			return roundToInt(l.getClippedLine(line, true).getEndY());
+			return roundToInt(channelData[0].path.getClippedLine(line, true).getEndY());
 		}
 
 		int getPixelForSample(int sample)
@@ -386,7 +371,7 @@ struct Graph : public TestDataComponentBase
 			if (lastBuffer.getNumSamples() == 0)
 				return 0;
 
-			Path::Iterator iter(l);
+			Path::Iterator iter(channelData[0].path);
 
 			auto asFloat = (float)sample / (float)lastBuffer.getNumSamples();
 			asFloat *= (float)getWidth();
@@ -400,6 +385,24 @@ struct Graph : public TestDataComponentBase
 			return 0;
 		}
 
+        void signalRebuild()
+        {
+            rebuildThread.stopThread(1000);
+            rebuildThread.startThread();
+        }
+        
+        struct RebuildThread: public Thread
+        {
+            RebuildThread(InternalGraph& parent_):
+              Thread("SpectroRebuilder"),
+              parent(parent_)
+            {};
+            
+            void run() override;
+            
+            InternalGraph& parent;
+        } rebuildThread;
+        
 		Graph& parent;
 
 		AudioSampleBuffer lastBuffer;
@@ -410,24 +413,28 @@ struct Graph : public TestDataComponentBase
 
 		int numSamples = 0;
 		int currentPosition = 0;
-		Path l;
-		Path r;
-
+        
+        struct ChannelData
+        {
+			Path path;
+            Range<float> peaks;
+        };
+        
+        Array<ChannelData> channelData;
+        
 		Image spectroImage;
-
-		Range<float> leftPeaks;
-		Range<float> rightPeaks;
-		bool stereoMode = false;
-		
 		float zoomFactor = 1.0f;
+		
 
 	} internalGraph;
 
 	Viewport viewport;
+	hise::ScrollbarFader fader;
+	hise::ScrollbarFader::Laf laf;
 
-	Graph(WorkbenchData* data) :
-		TestDataComponentBase(data),
-		currentResult(Result::ok()),
+	
+
+	Graph() :
 		internalGraph(*this)
 	{
 		processButton = addButton("process", "bypass");
@@ -454,6 +461,9 @@ struct Graph : public TestDataComponentBase
 		addAndMakeVisible(viewport);
 		viewport.setViewedComponent(&internalGraph, false);
 
+		fader.addScrollBarToAnimate(viewport.getHorizontalScrollBar());
+		viewport.getHorizontalScrollBar().setLookAndFeel(&laf);
+		viewport.setScrollBarThickness(13);
 		updateFFTComponents();
 	}
 
@@ -467,29 +477,45 @@ struct Graph : public TestDataComponentBase
 
 	}
 
-	~Graph()
-	{
-		getWorkbench()->removeListener(this);
-	}
-
 	void comboBoxChanged(ComboBox* cb) override;
 
 	void buttonClicked(Button* b) override;;
 
-	void postPostCompile(WorkbenchData::Ptr wb);
-
 	void paint(Graphics& g);
 
-	static Identifier getId() { RETURN_STATIC_IDENTIFIER("SnexGraph"); }
+	void paintOverChildren(Graphics& g) override;
+
+	struct PeriodicUpdaterBase: public PooledUIUpdater::SimpleTimer
+	{
+		PeriodicUpdaterBase(Graph& p, PooledUIUpdater* updater) :
+			PooledUIUpdater::SimpleTimer(updater),
+			parent(p)
+		{};
+
+		virtual ~PeriodicUpdaterBase() {};
+
+		void timerCallback() override
+		{
+			parent.repaint();
+		}
+
+		virtual void paintPosition(Graphics& g, Range<int> currentlyVisibleRange) = 0;
+
+		Graph& parent;
+	};
+
+	/** Checks whether the (normalised) sample index passed in by samplePosition is currently visible and returns the relative x position
+	    in pixels for the given sample index. */
+	bool getSamplePosition(double& samplePosition);
 
 	void resized() override
 	{
-		TestDataComponentBase::resized();
-
+		positionTopBar();
 		auto b = getLocalBounds();
 		b.removeFromTop(24);
 
-		b.removeFromRight(32);
+        if(currentGraphType != GraphType::Spectrograph)
+            b.removeFromRight(32);
 		
 		internalGraph.setBounds(0, 0, viewport.getWidth() * internalGraph.zoomFactor, viewport.getMaximumVisibleHeight());
 		viewport.setBounds(b);
@@ -500,14 +526,14 @@ struct Graph : public TestDataComponentBase
 		repaint();
 	}
 
-	void testEventsChanged() override
-	{
-		internalGraph.repaint();
-	}
-
 	void refreshDisplayedBuffer();
 
 	void processFFT(const AudioSampleBuffer& originalSource);
+
+	void setPeriodicUpdater(PeriodicUpdaterBase* ownedUpdater)
+	{
+		periodicUpdater = ownedUpdater;
+	}
 
 	void setCurrentPosition(int newPos)
 	{
@@ -516,12 +542,16 @@ struct Graph : public TestDataComponentBase
 	}
 
 	bool use2DSpectrum = true;
-
 	int Spectrum2DSize = 128;
 
-	Helpers::WindowType currentWindowType = Helpers::Rectangle;
+	std::function<AudioSampleBuffer&()> getBufferFunction;
+	std::function<double()> getSampleRateFunction;
+	std::function<void(Graphics&)> drawMarkerFunction;
 
+	Helpers::WindowType currentWindowType = Helpers::Rectangle;
 	
+	ScopedPointer<PeriodicUpdaterBase> periodicUpdater;
+
 	ComboBox* windowType;
 	ComboBox* graphType;
 	TextButton* logScaleButton;
@@ -530,11 +560,53 @@ struct Graph : public TestDataComponentBase
 	HiseShapeButton* markerButton;
 	AudioSampleBuffer fftSource;
 
+	GraphType currentGraphType = GraphType::Signal;
+};
+
+struct TestGraph : public TestDataComponentBase
+{
+	TestGraph(WorkbenchData* d);
+
+	static Identifier getId() { RETURN_STATIC_IDENTIFIER("SnexGraph"); }
+
+	AudioSampleBuffer& getTestBuffer();
+
+	void postPostCompile(WorkbenchData::Ptr wb)
+	{
+		auto r = wb->getLastResult();
+
+		if (r.compiledOk())
+		{
+			cpuUsage = wb->getTestData().cpuUsage;
+
+			graph.refreshDisplayedBuffer();
+		}
+	}
 
 	double cpuUsage = 0.0;
-	Result currentResult;
 
-	GraphType currentGraphType = GraphType::Signal;
+	~TestGraph()
+	{
+		if (getWorkbench() != nullptr)
+			getWorkbench()->removeListener(this);
+	}
+
+	void comboBoxChanged(ComboBox*) override { jassertfalse; };
+	void buttonClicked(Button*) override { jassertfalse; };
+
+	void drawTestEvent(Graphics& g, bool isParameter, int index);
+
+	void testEventsChanged() override
+	{
+		graph.internalGraph.repaint();
+	}
+
+	void resized() override
+	{
+		graph.setBounds(getLocalBounds());
+	}
+
+	Graph graph;
 };
 
 struct TestDataComponent : public TestDataComponentBase
@@ -648,9 +720,9 @@ struct TestDataComponent : public TestDataComponentBase
 
 		auto top = b.removeFromTop(24);
 
-		g.fillAll(Colour(0xFF262626));
+		//g.fillAll(Colour(0xFF262626));
 
-		GlobalHiseLookAndFeel::drawFake3D(g, top);
+		//GlobalHiseLookAndFeel::drawFake3D(g, top);
 
 		top = b.removeFromTop(24);
 

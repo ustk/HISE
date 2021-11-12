@@ -37,51 +37,7 @@ namespace scriptnode
 using namespace juce;
 using namespace hise;
 
-namespace file_analysers
-{
-struct pitch
-{
-	double getValue(const ExternalData& d)
-	{
-		if (d.numSamples > 0)
-		{
-			block b;
-			d.referBlockTo(b, 0);
 
-			return PitchDetection::detectPitch(b.begin(), b.size(), d.sampleRate);
-		}
-
-		return 0.0;
-	}
-};
-
-struct milliseconds
-{
-	double getValue(const ExternalData& d)
-	{
-		if (d.numSamples > 0 && d.sampleRate > 0.0)
-		{
-			return 1000.0 * (double)d.numSamples / d.sampleRate;
-		}
-
-		return 0.0;
-	}
-};
-
-struct peak
-{
-	double getValue(const ExternalData& d)
-	{
-		if (d.numSamples > 0)
-		{
-			auto b = d.toAudioSampleBuffer();
-			return (double)b.getMagnitude(0, d.numSamples);
-		}
-
-		return 0.0;
-	}
-};
-}
 
 
 namespace control
@@ -498,6 +454,33 @@ namespace control
 		double lastValue = 0.0;
 	};
 
+    template <typename ConverterClass, typename ParameterClass>
+        struct converter : public mothernode,
+                           public pimpl::parameter_node_base<ParameterClass>,
+                           public pimpl::no_processing
+    {
+        SET_HISE_NODE_ID("converter");
+        SN_GET_SELF_AS_OBJECT(converter);
+        SN_DESCRIPTION("converts a control value");
+
+        HISE_DEFAULT_INIT(ConverterClass);
+        HISE_DEFAULT_PREPARE(ConverterClass);
+        HISE_ADD_SET_VALUE(converter);
+        SN_PARAMETER_NODE_CONSTRUCTOR(converter, ParameterClass);
+
+        static constexpr bool isNormalisedModulation() { return false; }
+        
+        void setValue(double input)
+        {
+            auto v = obj.getValue(input);
+
+            if (this->getParameter().isConnected())
+                this->getParameter().call(v);
+        }
+
+        ConverterClass obj;
+    };
+
 	template <typename ParameterClass> struct cable_table : public scriptnode::data::base,
 															public pimpl::parameter_node_base<ParameterClass>,
 															public pimpl::no_processing
@@ -539,17 +522,37 @@ namespace control
 		double lastValue = 0.0;
 	};
 
-	template <typename ParameterType> struct dupli_pack: public data::base,
+	template <typename ParameterType> struct clone_pack: public data::base,
 														 public control::pimpl::no_processing,
-														 public control::pimpl::duplicate_parameter_node_base<ParameterType>,
+                                                         public wrap::clone_manager::Listener,
+														 public pimpl::parameter_node_base<ParameterType>,
 														 public hise::ComplexDataUIUpdaterBase::EventListener
 	{
-		SN_GET_SELF_AS_OBJECT(dupli_pack);
-		SET_HISE_NODE_ID("dupli_pack");
-		HISE_ADD_SET_VALUE(dupli_pack);		
-		SN_DESCRIPTION("Scale unisono values using a slider pack");
+		SN_GET_SELF_AS_OBJECT(clone_pack);
+		SET_HISE_NODE_ID("clone_pack");
 		
-        dupli_pack() : pimpl::duplicate_parameter_node_base<ParameterType>(getStaticId()) {};
+		enum class Parameters
+		{
+			NumClones,
+			Value,
+		};
+
+		DEFINE_PARAMETERS
+		{
+			DEF_PARAMETER(NumClones, clone_pack);
+			DEF_PARAMETER(Value, clone_pack);
+		};
+		PARAMETER_MEMBER_FUNCTION;
+
+		SN_DESCRIPTION("control cloned parameters with a slider pack");
+		
+        clone_pack() : 
+			pimpl::parameter_node_base<ParameterType>(getStaticId())
+		{
+			cppgen::CustomNodeProperties::setPropertyForObject(*this, PropertyIds::IsCloneCableNode);
+            
+            this->getParameter().setParentNumClonesListener(this);
+		};
 
 		void onComplexDataEvent(hise::ComplexDataUIUpdaterBase::EventType t, var data) override
 		{
@@ -560,16 +563,7 @@ namespace control
 				if (auto sp = dynamic_cast<SliderPackData*>(this->externalData.obj))
 				{
 					auto v = sp->getValue(changedIndex) * lastValue;
-					this->getParameter().call(changedIndex, v);
-				}
-			}
-
-			if (t == ComplexDataUIUpdaterBase::EventType::ContentRedirected)
-			{
-				if (auto sp = dynamic_cast<SliderPackData*>(this->externalData.obj))
-				{
-					if (this->p.getNumVoices() != sp->getNumSliders())
-						jassertfalse; // resize here?
+					this->p.callEachClone(changedIndex, v);
 				}
 			}
 		}
@@ -586,66 +580,102 @@ namespace control
 
 			this->externalData.referBlockTo(sliderData, 0);
 
+			setSliderAmountToNumClones();
+		}
+
+		void setValue(double newValue)
+		{
+			lastValue = newValue;
+			jassert(numClones == sliderData.size());
+
+			for (int i = 0; i < numClones; i++)
+			{
+				auto valueToSend = sliderData[i] * lastValue;
+				this->getParameter().callEachClone(i, valueToSend);
+			}
+		}
+
+        void numClonesChanged(int newSize) override
+        {
+            setNumClones(newSize);
+        }
+        
+		void setSliderAmountToNumClones()
+		{
+			if (auto sp = dynamic_cast<SliderPackData*>(this->externalData.obj))
+				sp->setNumSliders(numClones);
+
 			setValue(lastValue);
 		}
 
-		void numVoicesChanged(int newNumVoices) override
+		void setNumClones(double newNumClones)
 		{
-			setValue(lastValue);
-
-			if (auto sp = dynamic_cast<SliderPackData*>(this->externalData.obj))
+			if (numClones != newNumClones)
 			{
-				sp->setNumSliders(newNumVoices);
+				numClones = jlimit(1, 128, (int)newNumClones);
+				setSliderAmountToNumClones();
+			}
+		}
+
+		void createParameters(ParameterDataList& data)
+		{
+			{
+				DEFINE_PARAMETERDATA(clone_pack, NumClones);
+				p.setRange({ 1.0, 16.0, 1.0 });
+				p.setDefaultValue(1.0);
+				data.add(std::move(p));
+			}
+			{
+				DEFINE_PARAMETERDATA(clone_pack, Value);
+				p.setRange({ 0.0, 1.0 });
+				p.setDefaultValue(1.0);
+				data.add(std::move(p));
 			}
 		}
 
 		double lastValue = 0.0;
 		block sliderData;
+		int numClones = 1;
 
-		void setValue(double newValue)
-		{
-			lastValue = newValue;
-
-			int numVoices = this->p.getNumVoices();
-
-			if (numVoices == sliderData.size())
-			{
-				for (int i = 0; i < numVoices; i++)
-				{
-					auto valueToSend = sliderData[i] * lastValue;
-					this->getParameter().call(i, valueToSend);
-				}
-			}
-		}
+		
 	};
 		
 
-	template <typename ParameterType, typename LogicType> struct dupli_cable : public control::pimpl::no_processing,
-																			   public control::pimpl::templated_mode,
-																			   public control::pimpl::duplicate_parameter_node_base<ParameterType>
+	template <typename ParameterType, typename LogicType> 
+		struct clone_cable : public control::pimpl::no_processing,
+							 public pimpl::parameter_node_base<ParameterType>,
+							 public mothernode,
+							 public wrap::clone_manager::Listener,
+							 public control::pimpl::templated_mode								
 	{
-		SN_GET_SELF_AS_OBJECT(dupli_cable);
-		SET_HISE_NODE_ID("dupli_cable");
-		SN_DESCRIPTION("Send different values to unisono nodes");
+		SN_GET_SELF_AS_OBJECT(clone_cable);
+		SET_HISE_NODE_ID("clone_cable");
+		SN_DESCRIPTION("Send different values to cloned nodes");
 
-		dupli_cable():
-            control::pimpl::duplicate_parameter_node_base<ParameterType>(getStaticId()),
+		clone_cable():
+            control::pimpl::parameter_node_base<ParameterType>(getStaticId()),
             control::pimpl::templated_mode(getStaticId(), "duplilogic")
-		{};
+		{
+			cppgen::CustomNodeProperties::setPropertyForObject(*this, PropertyIds::IsCloneCableNode);
+			cppgen::CustomNodeProperties::addNodeIdManually(getStaticId(), PropertyIds::IsProcessingHiseEvent);
+
+			this->getParameter().setParentNumClonesListener(this);
+		};
 
 		enum class Parameters
 		{
+			NumClones,
 			Value,
 			Gamma,
 		};
 
 		DEFINE_PARAMETERS
 		{
-			DEF_PARAMETER(Value, dupli_cable);
-			DEF_PARAMETER(Gamma, dupli_cable);
+			DEF_PARAMETER(NumClones, clone_cable);
+			DEF_PARAMETER(Value, clone_cable);
+			DEF_PARAMETER(Gamma, clone_cable);
 		};
 		PARAMETER_MEMBER_FUNCTION;
-
 
 		void initialise(NodeBase* n)
 		{
@@ -653,9 +683,9 @@ namespace control
 				obj.initialise(n);
 		}
 
-		void numVoicesChanged(int newNumVoices) override
-		{
-			sendValue();
+		static constexpr bool isProcessingHiseEvent() 
+		{ 
+			return (bool)prototypes::check::isProcessingHiseEvent<LogicType>::value; 
 		}
 
 		void setValue(double v)
@@ -664,33 +694,62 @@ namespace control
 			sendValue();
 		}
 
+		void numClonesChanged(int newNumClones) override
+		{
+			setNumClones(newNumClones);
+		}
+
+		void handleHiseEvent(HiseEvent& e)
+		{
+			if constexpr (isProcessingHiseEvent())
+			{
+				double v = lastValue;
+
+				if (obj.getMidiValue(e, v))
+					setValue(v);
+			}
+		}
+
 		void setGamma(double gamma)
 		{
 			lastGamma = jlimit(0.0, 1.0, gamma);
 			sendValue();
 		}
 
+		void setNumClones(double newNumClones)
+		{
+			if (numClones != newNumClones)
+			{
+				numClones = jlimit(1, 128, (int)newNumClones);
+				sendValue();
+			}
+		}
+
 		void sendValue()
 		{
-			int numVoices = this->p.getNumVoices();
-
-			for (int i = 0; i < numVoices; i++)
+			for (int i = 0; i < numClones; i++)
 			{
-				auto valueToSend = obj.getValue(i, numVoices, lastValue, lastGamma);
-				this->getParameter().call(i, valueToSend);
+				auto valueToSend = obj.getValue(i, numClones, lastValue, lastGamma);
+				this->getParameter().callEachClone(i, valueToSend);
 			}
 		}
 
 		void createParameters(ParameterDataList& data)
 		{
 			{
-				DEFINE_PARAMETERDATA(dupli_cable, Value);
+				DEFINE_PARAMETERDATA(clone_cable, NumClones);
+				p.setRange({ 1.0, 16.0, 1.0 });
+				p.setDefaultValue(1.0);
+				data.add(std::move(p));
+			}
+			{
+				DEFINE_PARAMETERDATA(clone_cable, Value);
 				p.setRange({ 0.0, 1.0 });
 				p.setDefaultValue(0.0);
 				data.add(std::move(p));
 			}
 			{
-				DEFINE_PARAMETERDATA(dupli_cable, Gamma);
+				DEFINE_PARAMETERDATA(clone_cable, Gamma);
 				p.setRange({ 0.0, 1.0 });
 				p.setDefaultValue(0.0);
 				data.add(std::move(p));
@@ -699,9 +758,10 @@ namespace control
 
 		double lastValue = 0.0;
 		double lastGamma = 0.0;
+		int numClones;
 		LogicType obj;
 
-		JUCE_DECLARE_WEAK_REFERENCEABLE(dupli_cable);
+		JUCE_DECLARE_WEAK_REFERENCEABLE(clone_cable);
 	};
 
 	
@@ -760,22 +820,23 @@ namespace control
 		JUCE_DECLARE_WEAK_REFERENCEABLE(xfader);
 	};
 
-	namespace pimpl {
-	struct bipolar_base
+	namespace multilogic
 	{
-		virtual ~bipolar_base() {};
-
-		struct Data
+		struct bipolar
 		{
-			bool operator==(const Data& other) const 
+			SET_HISE_NODE_ID("bipolar");
+			SN_DESCRIPTION("Creates a bipolar mod signal from a 0...1 range");
+
+			static constexpr bool isNormalisedModulation() { return true; }
+
+			bool operator==(const bipolar& other) const
 			{
-				return gamma == other.gamma &&
-					   value == other.value &&
-					   scale == other.scale;
+				return value == other.value && gamma == other.gamma && scale == other.scale;
 			}
 
-			double getBipolarValue() const
+			double getValue() const
 			{
+				dirty = false;
 				double v = value - 0.5f;
 
 				if (gamma != 1.0)
@@ -786,224 +847,224 @@ namespace control
 				return v;
 			}
 
+			template <int P> void setParameter(double v)
+			{
+				if constexpr (P == 0)
+					value = v;
+				if constexpr (P == 1)
+					scale = v;
+				if constexpr (P == 2)
+					gamma = v;
+
+				dirty = true;
+			}
+
+			template <typename NodeType> static void createParameters(ParameterDataList& data, NodeType& n)
+			{
+				{
+					parameter::data p("Value");
+					p.callback = parameter::inner<NodeType, 0>(n);
+					p.setRange({ 0.0, 1.0 });
+					p.setDefaultValue(0.0);
+					data.add(std::move(p));
+				}
+				{
+					parameter::data p("Scale");
+					p.callback = parameter::inner<NodeType, 1>(n);
+					p.setRange({ -1.0, 1.0 });
+					p.setDefaultValue(0.0);
+					data.add(std::move(p));
+				}
+				{
+					parameter::data p("Gamma");
+					p.callback = parameter::inner<NodeType, 2>(n);
+					p.setRange({ 0.5, 2.0 });
+					p.setSkewForCentre(1.0);
+					p.setDefaultValue(1.0);
+					data.add(std::move(p));
+				}
+			}
+
 			double value = 0.5;
 			double scale = 0.0;
 			double gamma = 1.0;
-			bool dirty = false;
+			mutable bool dirty = false;
 		};
 
-		virtual Data getUIData() const = 0;
+		struct minmax
+		{
+			SET_HISE_NODE_ID("minmax");
+			SN_DESCRIPTION("Scales the input value to a modifyable range");
 
-		JUCE_DECLARE_WEAK_REFERENCEABLE(bipolar_base);
-	};
+			static constexpr bool isNormalisedModulation() { return false; }
+
+			bool operator==(const minmax& other) const { return other.range == range && value == other.value; }
+
+			double getValue() const 
+			{ 
+				dirty = false; 
+				auto v = range.convertFrom0to1(value); 
+				v = range.snapToLegalValue(v);
+				return v;
+			}
+
+			template <int P> void setParameter(double v)
+			{
+                if constexpr (P == 0)
+					value = v;
+				if constexpr (P == 1)
+                    range.rng.start = v;
+				if constexpr (P == 2)
+                    range.rng.end = v;
+				if constexpr (P == 3)
+					range.rng.skew = jlimit(0.1, 10.0, v);
+				if constexpr (P == 4)
+					range.rng.interval = v;
+                if constexpr (P == 5)
+                    range.inv = v > 0.5;
+				
+				range.checkIfIdentity();
+
+				dirty = true;
+			}
+
+			template <typename NodeType> static void createParameters(ParameterDataList& data, NodeType& n)
+			{
+				{
+					parameter::data p("Value");
+					p.callback = parameter::inner<NodeType, 0>(n);
+					p.setRange({ 0.0, 1.0 });
+					p.setDefaultValue(0.0);
+					data.add(std::move(p));
+				}
+				{
+					parameter::data p("Minimum");
+					p.callback = parameter::inner<NodeType, 1>(n);
+					p.setRange({ 0.0, 1.0 });
+					p.setDefaultValue(0.0);
+					data.add(std::move(p));
+				}
+				{
+					parameter::data p("Maximum");
+					p.callback = parameter::inner<NodeType, 2>(n);
+					p.setRange({ 0.0, 1.0 });
+					p.setDefaultValue(1.0);
+					data.add(std::move(p));
+				}
+				{
+					parameter::data p("Skew");
+					p.callback = parameter::inner<NodeType, 3>(n);
+					p.setRange({ 0.1, 10.0 });
+					p.setSkewForCentre(1.0);
+					p.setDefaultValue(1.0);
+					data.add(std::move(p));
+				}
+				{
+					parameter::data p("Step");
+					p.callback = parameter::inner<NodeType, 4>(n);
+					p.setRange({ 0.0, 1.0 });
+					p.setDefaultValue(0.0);
+					data.add(std::move(p));
+				}
+                {
+                    parameter::data p("Polarity");
+                    p.callback = parameter::inner<NodeType, 5>(n);
+                    p.setRange({ 0.0, 1.0, 1.0 });
+                    p.setParameterValueNames({"Normal", "Inverted"});
+                    p.setDefaultValue(0.0);
+                    data.add(std::move(p));
+                }
+			}
+
+			double value = 0.0;
+			InvertableParameterRange range;
+			mutable bool dirty = false;
+		};
+
+		struct pma
+		{
+			SET_HISE_NODE_ID("pma");
+			SN_DESCRIPTION("Scales and offsets a modulation signal");
+
+			static constexpr bool isNormalisedModulation() { return true; }
+
+			double getValue() const { dirty = false; return value * mulValue + addValue; }
+
+			template <int P> void setParameter(double v)
+			{
+				if constexpr (P == 0)
+					value = v;
+				if constexpr (P == 1)
+					mulValue = v;
+				if constexpr (P == 2)
+					addValue = v;
+
+				dirty = true;
+			}
+
+			template <typename NodeType> static void createParameters(ParameterDataList& data, NodeType& n)
+			{
+				{
+					parameter::data p("Value");
+					p.callback = parameter::inner<NodeType, 0>(n);
+					p.setRange({ 0.0, 1.0 });
+					p.setDefaultValue(0.0);
+					data.add(std::move(p));
+				}
+				{
+					parameter::data p("Multiply");
+					p.callback = parameter::inner<NodeType, 1>(n);
+					p.setRange({ -1.0, 1.0 });
+					p.setDefaultValue(1.0);
+					data.add(std::move(p));
+				}
+				{
+					parameter::data p("Add");
+					p.callback = parameter::inner<NodeType, 2>(n);
+					p.setRange({ -1.0, 1.0 });
+					p.setDefaultValue(0.0);
+					data.add(std::move(p));
+				}
+			}
+
+			double value = 0.0;
+			double mulValue = 1.0;
+			double addValue = 0.0;
+			mutable bool dirty = false;
+		};
 	}
 
-	template <int NV, class ParameterType> struct bipolar : public mothernode,
-															public polyphonic_base,
-															public pimpl::bipolar_base,
-															public pimpl::parameter_node_base<ParameterType>,
-															public pimpl::no_processing
+	
+
+	template <int NV, class ParameterType, typename DataType> 
+		struct multi_parameter : public mothernode,
+								 public polyphonic_base,
+								 public pimpl::combined_parameter_base<DataType>,
+								 public pimpl::parameter_node_base<ParameterType>,
+								 public pimpl::no_processing
 	{
 		static constexpr int NumVoices = NV;
 
-		SET_HISE_POLY_NODE_ID("bipolar");
-		SN_GET_SELF_AS_OBJECT(bipolar);
-		SN_DESCRIPTION("Creates a bipolar mod signal from a 0...1 range");
-
-		bipolar() :
-			polyphonic_base(getStaticId(), false),
-			control::pimpl::parameter_node_base<ParameterType>(getStaticId())
-		{};
-
-		enum class Parameters
-		{
-			Value,
-			Scale,
-			Gamma
-		};
-
-		DEFINE_PARAMETERS
-		{
-			DEF_PARAMETER(Value, bipolar);
-			DEF_PARAMETER(Scale, bipolar);
-			DEF_PARAMETER(Gamma, bipolar);
-		};
-		PARAMETER_MEMBER_FUNCTION;
-
-		void setValue(double v)
-		{
-			for (auto& s : this->data)
-			{
-				s.value = v;
-				s.dirty = true;
-			}
-
-			sendPending();
-		}
-
-		void setScale(double v)
-		{
-			for (auto& s : this->data)
-			{
-				s.scale = v;
-				s.dirty = true;
-			}
-
-			sendPending();
-		}
-
-		void setGamma(double v)
-		{
-			for (auto& s : this->data)
-			{
-				s.gamma = v;
-				s.dirty = true;
-			}
-
-			sendPending();
-		}
-
-
-		void sendPending()
-		{
-			if constexpr (isPolyphonic())
-			{
-				if (polyHandler == nullptr ||
-					!this->getParameter().isConnected() ||
-					polyHandler->getVoiceIndex() == -1)
-					return;
-
-				auto& d = data.get();
-
-				this->getParameter().call(d.getBipolarValue());
-			}
-			else
-			{
-				auto& d = data.get();
-
-				if (d.dirty && this->getParameter().isConnected())
-				{
-					auto v = d.getBipolarValue();
-					this->getParameter().call(v);
-				}
-
-			}
-		}
-
-		template <typename T> void process(T&)
-		{
-			sendPending();
-		}
-
-		template <typename T> void processFrame(T&)
-		{
-			sendPending();
-		}
-
-		void prepare(PrepareSpecs ps)
-		{
-			this->data.prepare(ps);
-			polyHandler = ps.voiceIndex;
-		}
-
-		void createParameters(ParameterDataList& data)
-		{
-			{
-				DEFINE_PARAMETERDATA(bipolar, Value);
-				p.setRange({ 0.0, 1.0 });
-				p.setDefaultValue(0.0);
-				data.add(std::move(p));
-			}
-			{
-				DEFINE_PARAMETERDATA(bipolar, Scale);
-				p.setRange({ -1.0, 1.0 });
-				p.setDefaultValue(0.0);
-				data.add(std::move(p));
-			}
-			{
-				DEFINE_PARAMETERDATA(bipolar, Gamma);
-				p.setRange({ 0.5, 2.0 });
-				p.setSkewForCentre(1.0);
-				p.setDefaultValue(1.0);
-				data.add(std::move(p));
-			}
-		}
-
-		Data getUIData() const override {
-			return data.getFirst();
-		}
-
-	private:
-
-		snex::Types::PolyHandler* polyHandler;
-		PolyData<Data, NumVoices> data;
-	};
-
-	template <int NV, class ParameterType> struct pma : public mothernode,
-														public polyphonic_base,
-														public pimpl::combined_parameter_base,
-														public pimpl::parameter_node_base<ParameterType>,
-														public pimpl::no_processing
-	{
-		static constexpr int NumVoices = NV;
-
-		SET_HISE_POLY_NODE_ID("pma");
-		SN_GET_SELF_AS_OBJECT(pma);
-		SN_DESCRIPTION("Scales and offsets a modulation signal");
+		SET_HISE_POLY_NODE_ID(DataType::getStaticId());
+		SN_GET_SELF_AS_OBJECT(multi_parameter);
+		SN_DESCRIPTION(DataType::getDescription());
 		
-		pma() : 
+		multi_parameter() :
 			polyphonic_base(getStaticId(), false),
 			control::pimpl::parameter_node_base<ParameterType>(getStaticId()) 
 		{};
 
-		enum class Parameters
-		{
-			Value,
-			Multiply,
-			Add
-		};
+		static constexpr bool isNormalisedModulation() { return DataType::isNormalisedModulation(); }
 
-		DEFINE_PARAMETERS
+		template <int P> static void setParameterStatic(void* obj, double v)
 		{
-			DEF_PARAMETER(Value, pma);
-			DEF_PARAMETER(Multiply, pma);
-			DEF_PARAMETER(Add, pma);
-		};
-		PARAMETER_MEMBER_FUNCTION;
+			auto typed = static_cast<multi_parameter<NumVoices, ParameterType, DataType>*>(obj);
 
-		void setValue(double v)
-		{
-			for (auto& s : this->data)
-			{
-				s.value = v;
-				s.dirty = true;
-			}
+			for (auto& s : typed->data)
+				s.template setParameter<P>(v);
 
-			sendPending();
+			typed->sendPending();
 		}
-
-		void setAdd(double v)
-		{
-			for (auto& s : this->data)
-			{
-				s.addValue = v;
-				s.dirty = true;
-			}
-				
-			sendPending();
-		}
-
-		void setMultiply(double v)
-		{
-			for (auto& s : this->data)
-			{
-				s.mulValue = v;
-				s.dirty = true;
-			}
-
-			sendPending();
-		}
-		
 
 		void sendPending()
 		{
@@ -1016,7 +1077,7 @@ namespace control
 
 				auto& d = data.get();
 
-				this->getParameter().call(d.getPmaValue());
+				this->getParameter().call(d.getValue());
 			}
 			else
 			{
@@ -1024,7 +1085,7 @@ namespace control
 
 				if (d.dirty && this->getParameter().isConnected())
 				{
-					auto v = d.getPmaValue();
+					auto v = d.getValue();
 					this->getParameter().call(v);
 				}
 			}
@@ -1048,42 +1109,30 @@ namespace control
 
 		void createParameters(ParameterDataList& data)
 		{
-			{
-				DEFINE_PARAMETERDATA(pma, Value);
-				p.setRange({ 0.0, 1.0 });
-				p.setDefaultValue(0.0);
-				data.add(std::move(p));
-			}
-			{
-				DEFINE_PARAMETERDATA(pma, Multiply);
-				p.setRange({ -1.0, 1.0 });
-				p.setDefaultValue(1.0);
-				data.add(std::move(p));
-			}
-			{
-				DEFINE_PARAMETERDATA(pma, Add);
-				p.setRange({ -1.0, 1.0 });
-				p.setDefaultValue(0.0);
-				data.add(std::move(p));
-			}
+			DataType::createParameters(data, *this);
 		}
 
-		Data getUIData() const override {
+		DataType getUIData() const override {
 			return data.getFirst();
 		}
 
 	private:
 
 		snex::Types::PolyHandler* polyHandler;
-		PolyData<Data, NumVoices> data;
+		PolyData<DataType, NumVoices> data;
 	};
+
+	template <int NV, typename ParameterType> using pma = multi_parameter<NV, ParameterType, multilogic::pma>;
+	template <int NV, typename ParameterType> using bipolar = multi_parameter<NV, ParameterType, multilogic::bipolar>;
+	template <int NV, typename ParameterType> using minmax = multi_parameter<NV, ParameterType, multilogic::minmax>;
 
 	template <typename SmootherClass> struct smoothed_parameter: public control::pimpl::templated_mode
 	{
 		enum Parameters
 		{
 			Value,
-			SmoothingTime
+			SmoothingTime,
+			Enabled
 		};
 
 		smoothed_parameter():
@@ -1099,6 +1148,7 @@ namespace control
 		{
 			DEF_PARAMETER(Value, smoothed_parameter);
 			DEF_PARAMETER(SmoothingTime, smoothed_parameter);
+			DEF_PARAMETER(Enabled, smoothed_parameter);
 		}
 		PARAMETER_MEMBER_FUNCTION;
 
@@ -1158,6 +1208,17 @@ namespace control
 				p.setDefaultValue(100.0);
 				data.add(std::move(p));
 			}
+			{
+				DEFINE_PARAMETERDATA(smoothed_parameter, Enabled);
+				p.setRange({ 0.0, 1.0, 1.0 });
+				p.setDefaultValue(1.0);
+				data.add(std::move(p));
+			}
+		}
+
+		void setEnabled(double v)
+		{
+			value.setEnabled(v);
 		}
 
 		void setSmoothingTime(double newSmoothingTime)

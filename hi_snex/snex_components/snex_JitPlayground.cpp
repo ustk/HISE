@@ -64,7 +64,7 @@ SnexPlayground::SnexPlayground(ui::WorkbenchData* data, bool isTestMode) :
 	doc.replaceAllContent(getWorkbench()->getCode());
 	doc.clearUndoHistory();
 	
-	watchTable.setHolder(this);
+	watchTable.setHolder(getWorkbench());
 
 	editor.addBreakpointListener(this);
 
@@ -838,7 +838,7 @@ void SnexPlayground::postPostCompile(ui::WorkbenchData::Ptr wb)
 		resultLabel.setText(result.getErrorMessage(), dontSendNotification);
 	}
 
-	rebuild();
+	getWorkbench()->rebuild();
 }
 
 int AssemblyTokeniser::readNextToken(CodeDocument::Iterator& source)
@@ -1152,7 +1152,11 @@ CodeEditorComponent::ColourScheme AssemblyTokeniser::getDefaultColourScheme()
 
 			if (td.shouldRunTest() && lastTest->nodeToTest != nullptr)
 			{
-				td.initProcessing(512, 44100.0);
+                PrepareSpecs ps;
+                ps.sampleRate = 44100.0;
+                ps.blockSize = 512;
+                ps.numChannels = 2;
+				td.initProcessing(ps);
 				td.processTestData(getParent());
 			}
 			else

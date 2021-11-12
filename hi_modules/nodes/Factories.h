@@ -156,16 +156,6 @@ struct Factory : public NodeFactory
 
 }
 
-namespace stk_factory
-{
-struct Factory: public NodeFactory
-{
-	Factory(DspNetwork* n);;
-	Identifier getId() const override { return "stk"; }
-};
-	
-}
-
 namespace math
 {
 
@@ -178,24 +168,6 @@ public:
 	Identifier getId() const override { return "math"; }
 };
 }
-
-namespace meta
-{
-DECLARE_SINGLETON_FACTORY_FOR_NAMESPACE(meta);
-}
-
-#if HI_ENABLE_CUSTOM_NODE_LOCATION
-namespace custom
-{
-DECLARE_SINGLETON_FACTORY_FOR_NAMESPACE(custom);
-}
-
-namespace project
-{
-DECLARE_SINGLETON_FACTORY_FOR_NAMESPACE(project);
-}
-
-#endif
 
 namespace routing
 {

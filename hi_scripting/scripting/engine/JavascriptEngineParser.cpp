@@ -852,7 +852,7 @@ private:
 	{
 		if (InlineFunction::Object::Ptr ifo = dynamic_cast<InlineFunction::Object*>(getCurrentInlineFunction()))
 		{
-			ScopedPointer<LocalVarStatement> s(new LocalVarStatement(location, ifo));
+			ScopedPointer<LocalVarStatement> s(new LocalVarStatement(location, ifo.get()));
 			s->name = parseIdentifier();
 			
 			hiseSpecialData->checkIfExistsInOtherStorage(HiseSpecialData::VariableStorageType::LocalScope, s->name, location);
@@ -934,13 +934,29 @@ private:
 
 	Statement* parseNamespace()
 	{
+        auto prevLoc = location;
 		Identifier namespaceId = parseIdentifier();
 
+        static const Array<Identifier> illegalIds =
+        {
+            Identifier("Settings"),
+            Identifier("Engine"),
+            Identifier("Message"),
+            Identifier("Server"),
+            Identifier("FileSystem"),
+            Identifier("Synth"),
+            Identifier("Sampler"),
+            Identifier("Console")
+        };
+        
+        if(illegalIds.contains(namespaceId))
+            prevLoc.throwError("Illegal namespace ID");
+        
 		currentNamespace = hiseSpecialData->getNamespace(namespaceId);
 
 		if (currentNamespace == nullptr)
 		{
-			location.throwError("Error at parsing namespace");
+            prevLoc.throwError("Error at parsing namespace");
 		}
 
 		ScopedPointer<BlockStatement> block = parseBlock();
@@ -976,7 +992,7 @@ private:
 		{
 			for (int i = 0; i < hiseSpecialData->inlineFunctions.size(); i++)
 			{
-				DynamicObject *o = hiseSpecialData->inlineFunctions.getUnchecked(i);
+				DynamicObject *o = hiseSpecialData->inlineFunctions.getUnchecked(i).get();
 
 				InlineFunction::Object *obj = dynamic_cast<InlineFunction::Object*>(o);
 
@@ -989,7 +1005,7 @@ private:
 		{
 			for (int i = 0; i < ns->inlineFunctions.size(); i++)
 			{
-				DynamicObject *o = ns->inlineFunctions.getUnchecked(i);
+				DynamicObject *o = ns->inlineFunctions.getUnchecked(i).get();
 
 				InlineFunction::Object *obj = dynamic_cast<InlineFunction::Object*>(o);
 
@@ -1190,7 +1206,7 @@ private:
 				}
 			}
 
-			currentInlineFunction = o;
+			currentInlineFunction = o.get();
 
 			if (o != nullptr)
 			{
@@ -1459,7 +1475,7 @@ private:
 	{
 		const Identifier apiId = parseIdentifier();
 		const int apiIndex = hiseSpecialData->apiIds.indexOf(apiId);
-		ApiClass *apiClass = hiseSpecialData->apiClasses.getUnchecked(apiIndex);
+		ApiClass *apiClass = hiseSpecialData->apiClasses.getUnchecked(apiIndex).get();
 
 		match(TokenTypes::dot);
 
@@ -1671,7 +1687,7 @@ private:
 				}
 				else if (globalIndex != -1)
 				{
-					return parseSuffixes(new GlobalReference(location, hiseSpecialData->globals, parseIdentifier()));
+					return parseSuffixes(new GlobalReference(location, hiseSpecialData->globals.get(), parseIdentifier()));
 				}
 				else
 				{

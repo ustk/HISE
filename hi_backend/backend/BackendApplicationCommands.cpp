@@ -85,7 +85,6 @@ void BackendCommandTarget::getAllCommands(Array<CommandID>& commands)
 {
 	const CommandID id[] = { 
 		Settings,
-		WorkspaceMain,
 		WorkspaceScript,
 		WorkspaceSampler,
 		WorkspaceCustom,
@@ -167,6 +166,7 @@ void BackendCommandTarget::getAllCommands(Array<CommandID>& commands)
 		MenuViewResetLookAndFeel,
 		MenuViewReset,
         MenuViewFullscreen,
+        MenuViewRotate,
 		MenuViewBack,
 		MenuViewForward,
 		MenuViewEnableGlobalLayoutMode,
@@ -225,12 +225,6 @@ void BackendCommandTarget::getCommandInfo(CommandID commandID, ApplicationComman
 #endif
 		break;
 
-	case WorkspaceMain:
-	{
-		setCommandTarget(result, "Show Main Workspace", true, bpe->getCurrentWorkspace() == WorkspaceMain, 'X', false);
-		result.categoryName = "View";
-		break;
-	}
 	case WorkspaceScript:
 	{
 		setCommandTarget(result, "Show Scripting Workspace", true, bpe->getCurrentWorkspace() == WorkspaceScript, 'X', false);
@@ -580,9 +574,11 @@ void BackendCommandTarget::getCommandInfo(CommandID commandID, ApplicationComman
 		setCommandTarget(result, "Forward: " + bpe->mainEditor->getViewUndoManager()->getRedoDescription(), bpe->mainEditor->getViewUndoManager()->canRedo(), false, 'X', false);
 		result.categoryName = "View";
 		break;
+    case MenuViewRotate:
+        setCommandTarget(result, "Vertical Layout", true, bpe->isRotated(), 'X', false);
+        break;
 	case MenuViewEnableGlobalLayoutMode:
 		setCommandTarget(result, "Enable Layout Mode", true, bpe->getRootFloatingTile()->isLayoutModeEnabled(), 'X', false);
-		result.addDefaultKeypress(KeyPress::F6Key, ModifierKeys::noModifiers);
 		result.categoryName = "View";
 		break;
 	case MenuViewAddFloatingWindow:
@@ -667,12 +663,10 @@ bool BackendCommandTarget::perform(const InvocationInfo &info)
 	{
 	case HamburgerMenu:					Actions::showMainMenu(bpe);  return true;
 	case Settings:                      bpe->showSettingsWindow(); return true;
-	case WorkspaceMain:
 	case WorkspaceScript:
 	case WorkspaceSampler:
 	case WorkspaceCustom:				bpe->showWorkspace(info.commandID); updateCommands(); return true;
-	case MenuNewFile:                   if (PresetHandler::showYesNoWindow("New File", "Do you want to start a new preset?"))
-                                            bpe->mainEditor->clearPreset(); return true;
+	case MenuNewFile:                   Actions::newFile(bpe); return true;
 	case MenuOpenFile:                  Actions::openFile(bpe); return true;
 	case MenuSaveFile:                  Actions::saveFile(bpe, false); updateCommands(); return true;
 	case MenuSaveFileAs:				Actions::saveFile(bpe, true); updateCommands(); return true;
@@ -742,6 +736,10 @@ bool BackendCommandTarget::perform(const InvocationInfo &info)
 	case MenuViewBack:					bpe->mainEditor->getViewUndoManager()->undo(); updateCommands(); return true;
 	case MenuViewReset:				    bpe->resetInterface(); updateCommands(); return true;
 	case MenuViewForward:				bpe->mainEditor->getViewUndoManager()->redo(); updateCommands(); return true;
+    case MenuViewRotate:
+        bpe->toggleRotate();
+        updateCommands();
+        return true;
 	case MenuViewEnableGlobalLayoutMode: bpe->toggleLayoutMode(); updateCommands(); return true;
 	case MenuViewAddFloatingWindow:		bpe->addFloatingWindow(); return true;
 	case MenuViewAddInterfacePreview:	Actions::addInterfacePreview(bpe); return true;
@@ -984,15 +982,11 @@ PopupMenu BackendCommandTarget::getMenuForIndex(int topLevelMenuIndex, const Str
 	}
 	case BackendCommandTarget::ViewMenu: {
 
-		ADD_ALL_PLATFORMS(MenuViewResetLookAndFeel);
-
-		ADD_ALL_PLATFORMS(MenuViewBack);
-		ADD_ALL_PLATFORMS(MenuViewForward);
-		ADD_ALL_PLATFORMS(MenuViewReset);
+        ADD_ALL_PLATFORMS(MenuViewFullscreen);
+        ADD_ALL_PLATFORMS(MenuViewRotate);
 
 		p.addSeparator();
 
-		ADD_ALL_PLATFORMS(WorkspaceMain);
 		ADD_ALL_PLATFORMS(WorkspaceScript);
 		ADD_ALL_PLATFORMS(WorkspaceSampler);
 		ADD_ALL_PLATFORMS(WorkspaceCustom);
@@ -1001,8 +995,11 @@ PopupMenu BackendCommandTarget::getMenuForIndex(int topLevelMenuIndex, const Str
 
 		ADD_DESKTOP_ONLY(MenuViewEnableGlobalLayoutMode);
 		ADD_DESKTOP_ONLY(MenuViewAddFloatingWindow);
-		ADD_DESKTOP_ONLY(MenuViewAddInterfacePreview);
-		ADD_DESKTOP_ONLY(MenuViewFullscreen);
+		
+        p.addSeparator();
+        
+        ADD_ALL_PLATFORMS(MenuViewResetLookAndFeel);
+        ADD_ALL_PLATFORMS(MenuViewReset);
         
 		break;
 		}
@@ -1567,6 +1564,14 @@ void BackendCommandTarget::Actions::testPlugin(const String& pluginToLoad)
 	}
 }
 
+void BackendCommandTarget::Actions::newFile(BackendRootWindow* bpe)
+{
+	if (PresetHandler::showYesNoWindow("New File", "Do you want to start a new preset?"))
+	{
+		bpe->mainEditor->clearPreset();
+	}
+}
+
 void BackendCommandTarget::Actions::removeAllSampleMaps(BackendRootWindow * bpe)
 {
 	if (PresetHandler::showYesNoWindow("Remove all Samplemaps", "Are you sure you want to clear all samplemaps?\nThis is useful before exporting if you recall samplemaps using scripted controls or user presets"))
@@ -1590,12 +1595,7 @@ void BackendCommandTarget::Actions::redirectScriptFolder(BackendRootWindow * /*b
 	}
 }
 
-void BackendCommandTarget::Actions::exportSampleDataForInstaller(BackendRootWindow * bpe)
-{
-	auto exporter = new SampleDataExporter(bpe->getMainController());
 
-	exporter->setModalBaseWindowComponent(bpe->mainEditor);
-}
 
 void BackendCommandTarget::Actions::importArchivedSamples(BackendRootWindow * bpe)
 {
@@ -1804,6 +1804,8 @@ void BackendCommandTarget::Actions::collectExternalFiles(BackendRootWindow * bpe
 
 void BackendCommandTarget::Actions::exportFileAsSnippet(BackendProcessor* bp)
 {
+	MainController::ScopedEmbedAllResources sd(bp);
+    
 	ValueTree v = bp->getMainSynthChain()->exportAsValueTree();
 
 	MemoryOutputStream mos;
@@ -2399,6 +2401,13 @@ void BackendCommandTarget::Actions::createExternalScriptFile(BackendRootWindow *
 	}
 }
 
+void BackendCommandTarget::Actions::exportSampleDataForInstaller(BackendRootWindow * bpe)
+{
+    auto exporter = new SampleDataExporter(bpe->getMainController());
+
+    exporter->setModalBaseWindowComponent(bpe->mainEditor);
+}
+                         
 void BackendCommandTarget::Actions::exportMainSynthChainAsPlayerLibrary(BackendRootWindow * bpe)
 {
 	auto& h = GET_PROJECT_HANDLER(bpe->getMainSynthChain());
@@ -2422,6 +2431,26 @@ void BackendCommandTarget::Actions::exportMainSynthChainAsPlayerLibrary(BackendR
 		existingIntermediate.deleteFile();
 
 	auto e = new ExpansionEncodingWindow(bpe->owner, nullptr, true);
+    e->setAdditionalFinishCallback([bpe]()
+    {
+        if(PresetHandler::showYesNoWindow("Create a .hr1 archive", "Do you want to compress the samples and embed the exported expansion into a archive for distribution?"))
+        {
+            Timer::callAfterDelay(500, [bpe]()
+            {
+                auto infoFile = GET_PROJECT_HANDLER(bpe->getMainController()->getMainSynthChain()).getWorkDirectory().getChildFile("info.hxi");
+                
+                jassert(infoFile.existsAsFile());
+                auto exporter = new SampleDataExporter(bpe->getMainController());
+
+                exporter->setModalBaseWindowComponent(bpe->mainEditor);
+                if(auto fc = dynamic_cast<FilenameComponent*>(exporter->getCustomComponent(0)))
+                {
+                    fc->setCurrentFile(infoFile, dontSendNotification);
+                }
+            });
+        }
+    });
+    
 	e->setModalBaseWindowComponent(bpe);
 }
 
@@ -2624,13 +2653,9 @@ void BackendCommandTarget::Actions::convertSampleMapToWavetableBanks(BackendRoot
 {
 	ignoreUnused(bpe);
 
-#if USE_IPP
 	WavetableConverterDialog *converter = new WavetableConverterDialog(bpe->getMainSynthChain());
 
 	converter->setModalBaseWindowComponent(bpe);
-#else
-	PresetHandler::showMessageWindow("IPP required", "You need to build HISE with enabled IPP in order to use the resynthesis features", PresetHandler::IconType::Error);
-#endif
 }
 
 void BackendCommandTarget::Actions::exportCompileFilesInPool(BackendRootWindow* bpe)

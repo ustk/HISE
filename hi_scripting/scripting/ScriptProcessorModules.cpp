@@ -184,8 +184,8 @@ void JavascriptMidiProcessor::registerApiClasses()
 	samplerObject = new ScriptingApi::Sampler(this, dynamic_cast<ModulatorSampler*>(getOwnerSynth()));
 
 	scriptEngine->registerNativeObject("Content", getScriptingContent());
-	scriptEngine->registerApiClass(currentMidiMessage);
-	scriptEngine->registerApiClass(engineObject);
+	scriptEngine->registerApiClass(currentMidiMessage.get());
+	scriptEngine->registerApiClass(engineObject.get());
 	scriptEngine->registerApiClass(new ScriptingApi::Settings(this));
 	scriptEngine->registerApiClass(new ScriptingApi::FileSystem(this));
 	scriptEngine->registerApiClass(serverObject = new ScriptingApi::Server(this));
@@ -460,7 +460,7 @@ void JavascriptPolyphonicEffect::registerApiClasses()
 {
 	engineObject = new ScriptingApi::Engine(this);
 
-	scriptEngine->registerNativeObject("Content", content);
+	scriptEngine->registerNativeObject("Content", content.get());
 	scriptEngine->registerApiClass(engineObject);
 	scriptEngine->registerApiClass(new ScriptingApi::Console(this));
 
@@ -482,6 +482,9 @@ void JavascriptPolyphonicEffect::prepareToPlay(double sampleRate, int samplesPer
 
 	if (auto n = getActiveNetwork())
 	{
+		auto numChannels = dynamic_cast<RoutableProcessor*>(getParentProcessor(true))->getMatrix().getNumSourceChannels();
+
+		n->setNumChannels(numChannels);
 		n->prepareToPlay(sampleRate, (double)samplesPerBlock);
 	}
 }
@@ -498,7 +501,7 @@ void JavascriptPolyphonicEffect::renderVoice(int voiceIndex, AudioSampleBuffer &
 		for (int i = 0; i < numChannels; i++)
 			channels[i] += startSample;
 
-		scriptnode::ProcessDataDyn d(channels, numChannels, numSamples);
+		scriptnode::ProcessDataDyn d(channels, numSamples, numChannels);
 
 		scriptnode::DspNetwork::VoiceSetter vs(*n, voiceIndex);
 		n->getRootNode()->process(d);
@@ -690,7 +693,7 @@ void JavascriptMasterEffect::registerApiClasses()
 
 	engineObject = new ScriptingApi::Engine(this);
 	
-	scriptEngine->registerNativeObject("Content", content);
+	scriptEngine->registerNativeObject("Content", content.get());
 	scriptEngine->registerApiClass(engineObject);
 	scriptEngine->registerApiClass(new ScriptingApi::Console(this));
 
@@ -711,6 +714,8 @@ void JavascriptMasterEffect::prepareToPlay(double sampleRate, int samplesPerBloc
 {
 	MasterEffectProcessor::prepareToPlay(sampleRate, samplesPerBlock);
 	
+    connectionChanged();
+    
 	if (getActiveNetwork() != nullptr)
 		getActiveNetwork()->prepareToPlay(sampleRate, samplesPerBlock);
 
@@ -925,9 +930,9 @@ void JavascriptVoiceStartModulator::registerApiClasses()
 	engineObject = new ScriptingApi::Engine(this);
 	synthObject = new ScriptingApi::Synth(this, currentMidiMessage.get(), dynamic_cast<ModulatorSynth*>(ProcessorHelpers::findParentProcessor(this, true)));
 
-	scriptEngine->registerNativeObject("Content", content);
-	scriptEngine->registerApiClass(currentMidiMessage);
-	scriptEngine->registerApiClass(engineObject);
+	scriptEngine->registerNativeObject("Content", content.get());
+	scriptEngine->registerApiClass(currentMidiMessage.get());
+	scriptEngine->registerApiClass(engineObject.get());
 	scriptEngine->registerApiClass(new ScriptingApi::Console(this));
 	scriptEngine->registerApiClass(new ScriptingApi::ModulatorApi(this));
 	scriptEngine->registerApiClass(synthObject);
@@ -1048,12 +1053,15 @@ void JavascriptTimeVariantModulator::prepareToPlay(double sampleRate, int sample
 	TimeVariantModulator::prepareToPlay(sampleRate, samplesPerBlock);
 
 	if (auto n = getActiveNetwork())
+    {
 		n->prepareToPlay(getControlRate(), samplesPerBlock / HISE_EVENT_RASTER);
+        n->setNumChannels(1);
+    }
 
 	if(internalBuffer.getNumChannels() > 0)
 		buffer->referToData(internalBuffer.getWritePointer(0), samplesPerBlock);
 
-	bufferVar = var(buffer);
+	bufferVar = var(buffer.get());
 
 	if (!prepareToPlayCallback->isSnippetEmpty())
 	{
@@ -1136,9 +1144,9 @@ void JavascriptTimeVariantModulator::registerApiClasses()
 	engineObject = new ScriptingApi::Engine(this);
 	synthObject = new ScriptingApi::Synth(this, currentMidiMessage.get(), dynamic_cast<ModulatorSynth*>(ProcessorHelpers::findParentProcessor(this, true)));
 
-	scriptEngine->registerNativeObject("Content", content);
-	scriptEngine->registerApiClass(currentMidiMessage);
-	scriptEngine->registerApiClass(engineObject);
+	scriptEngine->registerNativeObject("Content", content.get());
+	scriptEngine->registerApiClass(currentMidiMessage.get());
+	scriptEngine->registerApiClass(engineObject.get());
 	scriptEngine->registerApiClass(new ScriptingApi::Console(this));
 	scriptEngine->registerApiClass(new ScriptingApi::ModulatorApi(this));
 	scriptEngine->registerApiClass(synthObject);
@@ -1249,8 +1257,8 @@ void JavascriptEnvelopeModulator::prepareToPlay(double sampleRate, int samplesPe
 
 	if (auto n = getActiveNetwork())
 	{
-		n->setNumChannels(1);
 		n->prepareToPlay(getControlRate(), samplesPerBlock / HISE_EVENT_RASTER);
+        n->setNumChannels(1);
 	}
 }
 
@@ -1371,9 +1379,9 @@ void JavascriptEnvelopeModulator::registerApiClasses()
 	engineObject = new ScriptingApi::Engine(this);
 	synthObject = new ScriptingApi::Synth(this, currentMidiMessage.get(), dynamic_cast<ModulatorSynth*>(ProcessorHelpers::findParentProcessor(this, true)));
 
-	scriptEngine->registerNativeObject("Content", content);
-	scriptEngine->registerApiClass(currentMidiMessage);
-	scriptEngine->registerApiClass(engineObject);
+	scriptEngine->registerNativeObject("Content", content.get());
+	scriptEngine->registerApiClass(currentMidiMessage.get());
+	scriptEngine->registerApiClass(engineObject.get());
 	scriptEngine->registerApiClass(new ScriptingApi::Console(this));
 	scriptEngine->registerApiClass(new ScriptingApi::ModulatorApi(this));
 	scriptEngine->registerApiClass(synthObject);
@@ -1411,9 +1419,9 @@ public:
 		rightBuffer = new VariantBuffer(0);
 		pitchData = new VariantBuffer(0);
 
-		channels.add(var(leftBuffer));
-		channels.add(var(rightBuffer));
-		channels.add(var(pitchData));
+		channels.add(var(leftBuffer.get()));
+		channels.add(var(rightBuffer.get()));
+		channels.add(var(pitchData.get()));
 	};
 
 	bool canPlaySound(SynthesiserSound *) override
@@ -1591,7 +1599,7 @@ void JavascriptModulatorSynth::prepareToPlay(double newSampleRate, int samplesPe
 	ModulatorSynth::prepareToPlay(newSampleRate, samplesPerBlock);
 }
 
-void JavascriptModulatorSynth::preHiseEventCallback(const HiseEvent& m)
+void JavascriptModulatorSynth::preHiseEventCallback(HiseEvent& m)
 {
 	scriptChain1->handleHiseEvent(m);
 	scriptChain2->handleHiseEvent(m);
@@ -1675,9 +1683,9 @@ void JavascriptModulatorSynth::registerApiClasses()
 	engineObject = new ScriptingApi::Engine(this);
 	synthObject = new ScriptingApi::Synth(this, currentMidiMessage.get(), this);
 
-	scriptEngine->registerNativeObject("Content", content);
-	scriptEngine->registerApiClass(currentMidiMessage);
-	scriptEngine->registerApiClass(engineObject);
+	scriptEngine->registerNativeObject("Content", content.get());
+	scriptEngine->registerApiClass(currentMidiMessage.get());
+	scriptEngine->registerApiClass(engineObject.get());
 	scriptEngine->registerApiClass(new ScriptingApi::Console(this));
 	scriptEngine->registerApiClass(synthObject);
 
@@ -1801,7 +1809,7 @@ void JavascriptSynthesiser::registerApiClasses()
 {
 	engineObject = new ScriptingApi::Engine(this);
 
-	scriptEngine->registerNativeObject("Content", content);
+	scriptEngine->registerNativeObject("Content", content.get());
 	scriptEngine->registerApiClass(engineObject);
 	scriptEngine->registerApiClass(new ScriptingApi::Console(this));
 
@@ -1814,7 +1822,7 @@ void JavascriptSynthesiser::postCompileCallback()
 	prepareToPlay(getSampleRate(), getLargestBlockSize());
 }
 
-void JavascriptSynthesiser::preHiseEventCallback(const HiseEvent &e)
+void JavascriptSynthesiser::preHiseEventCallback(HiseEvent &e)
 {
 	ModulatorSynth::preHiseEventCallback(e);
 
@@ -1859,15 +1867,13 @@ void JavascriptSynthesiser::prepareToPlay(double newSampleRate, int samplesPerBl
 
 	if (auto n = getActiveNetwork())
 	{
-		n->prepareToPlay(newSampleRate, (double)samplesPerBlock);
+        n->prepareToPlay(newSampleRate, (double)samplesPerBlock);
+        n->setNumChannels(getMatrix().getNumSourceChannels());
 	}
 }
 
 
-float JavascriptSynthesiser::getModValueAtVoiceStart(int modIndex) const
-{
-	return getModValueForNode(modIndex, currentVoiceStartSample);
-}
+
 
 void JavascriptSynthesiser::restoreFromValueTree(const ValueTree &v)
 {

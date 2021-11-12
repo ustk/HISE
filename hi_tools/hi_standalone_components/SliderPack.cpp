@@ -130,6 +130,38 @@ void SliderPackData::writeToFloatArray(Array<float> &valueArray) const
 	memcpy(valueArray.begin(), dataBuffer->buffer.getReadPointer(0), sizeof(float)*getNumSliders());
 }
 
+String SliderPackData::dataVarToBase64(const var& data)
+{
+	Array<float> fd;
+	fd.ensureStorageAllocated(data.size());
+
+	if (auto d = data.getArray())
+	{
+		for (const auto& v : *d)
+			fd.add((float)v);
+	}
+
+	MemoryBlock mb = MemoryBlock(fd.getRawDataPointer(), fd.size() * sizeof(float));
+	return mb.toBase64Encoding();
+}
+
+var SliderPackData::base64ToDataVar(const String& b64)
+{
+	MemoryBlock mb;
+	mb.fromBase64Encoding(b64);
+
+	int numElements = (int)(mb.getSize() / sizeof(float));
+	auto ptr = (float*)mb.getData();
+
+	Array<var> data;
+	data.ensureStorageAllocated(numElements);
+
+	for (int i = 0; i < numElements; i++)
+		data.add(ptr[i]);
+
+	return data;
+}
+
 String SliderPackData::toBase64() const
 {
 	auto data = getCachedData();
@@ -165,7 +197,7 @@ void SliderPackData::swapData(const var &otherData)
 		{
 			auto v = (float)otherData[i];;
 			FloatSanitizers::sanitizeFloatNumber(v);
-			newBuffer[i] = v;
+			(*newBuffer)[i] = (float)v;
 		}
 
 		swapBuffer(newBuffer);
@@ -224,7 +256,7 @@ dummyData(new SliderPackData(nullptr, nullptr))
 
 	if (data == nullptr)
 	{
-		data = dummyData;
+		data = dummyData.get();
 		data->setNumSliders(128);
 	}
 		
@@ -354,7 +386,7 @@ void SliderPack::sliderValueChanged(Slider *s)
 
 	if(data.get() == nullptr) return;
     
-	data->setValue(index, (float)s->getValue(), sendNotificationAsync, true);
+	data->setValue(index, (float)s->getValue(), sendNotificationSync, true);
 }
 
 void SliderPack::mouseDown(const MouseEvent &e)

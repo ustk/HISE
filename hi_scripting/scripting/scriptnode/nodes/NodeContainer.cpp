@@ -70,6 +70,11 @@ const scriptnode::NodeBase* NodeContainer::asNode() const
 	return n;
 }
 
+Component* NodeContainer::createLeftTabComponent() const
+{
+	return new ContainerComponent::MacroToolbar();
+}
+
 void NodeContainer::prepareContainer(PrepareSpecs& ps)
 {
 	originalSampleRate = ps.sampleRate;
@@ -133,8 +138,6 @@ void NodeContainer::nodeAddedOrRemoved(ValueTree child, bool wasAdded)
 {
 	auto n = asNode();
 
-	DspNetwork::AnonymousNodeCloner cloner(*n->getRootNetwork(), n->getNodeHolder());
-	
 	bool useLock = n->getRootNetwork()->isInitialised();
 
 	if (auto nodeToProcess = n->getRootNetwork()->getNodeForValueTree(child))
@@ -146,27 +149,21 @@ void NodeContainer::nodeAddedOrRemoved(ValueTree child, bool wasAdded)
 
 			nodeToProcess->setParentNode(asNode());
 
-			auto isDuplicate = asNode()->isUINodeOfDuplicate();
-
-			nodeToProcess->setIsUINodeOfDuplicates(isDuplicate);
-
 			int insertIndex = getNodeTree().indexOf(child);
 
 			SimpleReadWriteLock::ScopedWriteLock sl(n->getRootNetwork()->getConnectionLock(), useLock);
 
 			nodes.insert(insertIndex, nodeToProcess);
-			updateChannels(n->getValueTree(), PropertyIds::NumChannels);
+            updateChannels(n->getValueTree(), Identifier());
 		}
 		else
 		{
 			nodeToProcess->setParentNode(nullptr);
 
-			nodeToProcess->setIsUINodeOfDuplicates(false);
-
 			SimpleReadWriteLock::ScopedWriteLock sl(n->getRootNetwork()->getConnectionLock(), useLock);
 			
 			nodes.removeAllInstancesOf(nodeToProcess);
-			updateChannels(n->getValueTree(), PropertyIds::NumChannels);
+			updateChannels(n->getValueTree(), Identifier());
 		}
 	}
 }
@@ -176,8 +173,18 @@ void NodeContainer::parameterAddedOrRemoved(ValueTree child, bool wasAdded)
 {
 	auto n = asNode();
 
+    n->getRootNetwork()->getExceptionHandler().removeError(n, Error::CloneMismatch);
+    
 	if (wasAdded)
 	{
+        if(auto cn = dynamic_cast<CloneNode*>(asNode()->getParentNode()))
+        {
+            Error e;
+            e.error = Error::CloneMismatch;
+            cn->getRootNetwork()->getExceptionHandler().addError(asNode(), e, "A cloned container must not have any parameters of its own");
+            jassertfalse;
+        }
+        
 		auto newParameter = new MacroParameter(asNode(), child);
 		n->addParameter(newParameter);
 	}
@@ -200,7 +207,7 @@ void NodeContainer::updateChannels(ValueTree v, Identifier id)
 	{
 		channelLayoutChanged(nullptr);
 
-		if (originalSampleRate > 0.0 && !asNode()->isUINodeOfDuplicate())
+		if (originalSampleRate > 0.0)
 		{
 			PrepareSpecs ps;
 			ps.numChannels = asNode()->getCurrentChannelAmount();
@@ -308,10 +315,17 @@ juce::Rectangle<int> NodeContainer::getContainerPosition(bool isVerticalContaine
 	using namespace UIValues;
 	auto an = asNode();
 
+	int minWidth = 0;
+
+	if (ScopedPointer<Component> c = createLeftTabComponent())
+		minWidth += c->getWidth();
+
+	minWidth += 100 * an->getNumParameters();
+
+	minWidth = jmax(UIValues::NodeWidth, minWidth);
+
 	if (isVerticalContainer)
 	{
-		const int minWidth = jmax(NodeWidth, 100 * an->getNumParameters() + 50);
-		int maxW = minWidth;
 		int h = 0;
 
 		h += UIValues::NodeMargin;
@@ -324,22 +338,37 @@ juce::Rectangle<int> NodeContainer::getContainerPosition(bool isVerticalContaine
 
 		Point<int> childPos(NodeMargin, NodeMargin);
 
+		int numHidden = 0;
+		int index = 0;
+
 		for (auto n : nodes)
 		{
+			if (auto cn = dynamic_cast<const CloneNode*>(this))
+			{
+				if (!cn->shouldCloneBeDisplayed(index++))
+				{
+					numHidden++;
+					continue;
+				}
+			}
+
 			auto bounds = n->getPositionInCanvas(childPos);
 			//bounds = n->getBoundsToDisplay(bounds);
-			maxW = jmax<int>(maxW, bounds.getWidth());
+			minWidth = jmax<int>(minWidth, bounds.getWidth());
 			h += bounds.getHeight() + NodeMargin;
 			childPos = childPos.translated(0, bounds.getHeight());
+	
 		}
+
+		if (numHidden > 0 || (!an->getValueTree()[PropertyIds::ShowClones] && an->getValueTree().hasProperty(PropertyIds::DisplayedClones)))
+			h += UIValues::DuplicateSize;
 
 		h += PinHeight; // the "hole" for the cable
 
-		return { topLeft.getX(), topLeft.getY(), maxW + 2 * NodeMargin, h };
+		return { topLeft.getX(), topLeft.getY(), minWidth + 2 * NodeMargin, h };
 	}
 	else
 	{
-
 		int y = UIValues::NodeMargin;
 		y += UIValues::HeaderHeight;
 		y += UIValues::PinHeight;
@@ -350,20 +379,34 @@ juce::Rectangle<int> NodeContainer::getContainerPosition(bool isVerticalContaine
 		Point<int> startPos(UIValues::NodeMargin, y);
 
 		int maxy = startPos.getY();
-		int maxWidth = NodeWidth + NodeMargin;
 
+		int index = 0;
+		int numHidden = 0;
+		
 		for (auto n : nodes)
 		{
+			if (auto cn = dynamic_cast<const CloneNode*>(this))
+			{
+				if (!cn->shouldCloneBeDisplayed(index++))
+				{
+					numHidden++;
+					continue;
+				}
+			}
+
 			auto b = n->getPositionInCanvas(startPos);
 			maxy = jmax(b.getBottom(), maxy);
 			startPos = startPos.translated(b.getWidth() + UIValues::NodeMargin, 0);
-			maxWidth = startPos.getX();
+			minWidth = jmax(minWidth, startPos.getX());
 		}
+
+		if (numHidden > 0 || (!an->getValueTree()[PropertyIds::ShowClones] && an->getValueTree().hasProperty(PropertyIds::DisplayedClones)))
+			minWidth += UIValues::DuplicateSize;
 
 		maxy += UIValues::PinHeight;
 		maxy += UIValues::NodeMargin;
 
-		return { topLeft.getX(), topLeft.getY(), maxWidth, maxy };
+		return { topLeft.getX(), topLeft.getY(), minWidth, maxy };
 	}
 }
 
@@ -379,10 +422,6 @@ void NodeContainer::initListeners(bool initParameterListener)
 			valuetree::AsyncMode::Synchronously,
 			BIND_MEMBER_FUNCTION_2(NodeContainer::parameterAddedOrRemoved));
 	}
-
-	channelListener.setCallback(asNode()->getValueTree(), { PropertyIds::NumChannels },
-		valuetree::AsyncMode::Synchronously,
-		BIND_MEMBER_FUNCTION_2(NodeContainer::updateChannels));
 }
 
 SerialNode::SerialNode(DspNetwork* root, ValueTree data) :
@@ -475,6 +514,7 @@ NodeContainerFactory::NodeContainerFactory(DspNetwork* parent) :
 	registerNodeRaw<FixedBlockNode<256>>();
 	registerNodeRaw<FixedBlockXNode>();
 	registerNodeRaw<OfflineChainNode>();
+	registerNodeRaw<CloneNode>();
 	registerNodeRaw<NoMidiChainNode>();
 	registerNodeRaw<SoftBypassNode>();
 }
@@ -497,7 +537,7 @@ NodeContainer::MacroParameter::Connection::Connection(NodeBase* parent, MacroPar
 		{
 			nodeToBeBypassed = targetNode;
 			auto originalRange = RangeHelpers::getDoubleRange(d.getParent().getParent());
-			rangeMultiplerForBypass = jlimit(1.0, 9000.0, originalRange.end);
+			rangeMultiplerForBypass = jlimit(1.0, 9000.0, originalRange.rng.end);
 		}
 		else
 		{
@@ -547,7 +587,7 @@ juce::ValueTree NodeContainer::MacroParameter::getConnectionTree()
 
 NodeContainer::MacroParameter::MacroParameter(NodeBase* parentNode, ValueTree data_) :
 	Parameter(parentNode, data_),
-	SimpleTimer(parentNode->getScriptProcessor()->getMainController_()->getGlobalUIUpdater())
+	pholder(new parameter::dynamic_base_holder())
 {
 	rangeListener.setCallback(getConnectionTree(),
 		RangeHelpers::getRangeIds(),
@@ -569,8 +609,7 @@ NodeContainer::MacroParameter::MacroParameter(NodeBase* parentNode, ValueTree da
 		rebuildCallback();
 	});
 
-	auto initialValue = (double)data[PropertyIds::Value];
-	getDynamicParameter()->call(initialValue);
+	
 }
 
 void NodeContainer::MacroParameter::rebuildCallback()
@@ -586,60 +625,11 @@ void NodeContainer::MacroParameter::rebuildCallback()
 
 		if (newC->isValid())
 			connections.add(newC.release());
-
-#if 0
-		else
-		{
-			cTree.removeChild(c, nullptr);
-			break;
-		}
-#endif
 	}
 
-#if 0
-	if (connections.size() > 0)
-	{
-		Array<DspHelpers::ParameterCallback> connectionCallbacks;
+	auto nc = Connection::createParameterFromConnectionTree(parent, cTree, true);
 
-		for (auto c : connections)
-			connectionCallbacks.add(c->createCallbackForNormalisedInput());
-
-		if (RangeHelpers::isIdentity(inputRange))
-		{
-			setCallback([connectionCallbacks](double newValue)
-			{
-				for (auto& cb : connectionCallbacks)
-					cb(newValue);
-			});
-		}
-		else
-		{
-			auto cp = inputRange;
-			setCallback([cp, connectionCallbacks](double newValue)
-			{
-				auto normedValue = cp.convertTo0to1(newValue);
-
-				for (auto& cb : connectionCallbacks)
-					cb(normedValue);
-			});
-		}
-	}
-	else
-	{
-		setCallback({});
-	}
-#endif
-
-	ScopedPointer<parameter::dynamic_chain> chain = Connection::createParameterFromConnectionTree(parent, cTree);
-
-	if (auto s = chain->getFirstIfSingle())
-		setCallbackNew(s);
-	else if (!chain->isEmpty())
-		setCallbackNew(chain.release());
-	else
-		setCallbackNew(nullptr);
-
-	start();
+	setDynamicParameter(nc);
 }
 
 
@@ -647,6 +637,12 @@ void NodeContainer::MacroParameter::updateRangeForConnection(ValueTree v, Identi
 {
 	//RangeHelpers::checkInversion(v, &rangeListener, parent->getUndoManager());
 	rebuildCallback();
+}
+
+void NodeContainer::MacroParameter::setDynamicParameter(parameter::dynamic_base::Ptr ownedNew)
+{
+	pholder->setParameter(parent, ownedNew);
+	Parameter::setDynamicParameter(pholder);
 }
 
 void NodeContainer::MacroParameter::updateInputRange(Identifier, var)

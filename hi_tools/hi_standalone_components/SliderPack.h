@@ -128,6 +128,9 @@ public:
 		
 	}
 
+	static String dataVarToBase64(const var& data);
+	static var base64ToDataVar(const String& b64);
+
 	bool fromBase64String(const String& b64) override
 	{
 		fromBase64(b64);
@@ -176,7 +179,7 @@ public:
 		return dataBuffer->buffer.getReadPointer(0);
 	}
 
-	var getDataArray() const { return var(dataBuffer); }
+	var getDataArray() const { return var(dataBuffer.get()); }
 
 	void setFlashActive(bool shouldBeShown) { flashActive = shouldBeShown; };
 	void setShowValueOverlay(bool shouldBeShown) { showValueOverlay = shouldBeShown; };

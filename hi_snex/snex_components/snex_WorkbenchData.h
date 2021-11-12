@@ -142,19 +142,12 @@ struct WorkbenchData : public ReferenceCountedObject,
 		}
 	}
 
-	ValueTree createApiTree() override
-	{
-		return getLastJitObject().createValueTree();
-	}
+    ApiProviderBase* getProviderBase() override
+    {
+        return &getLastResultReference();
+    }
 
-	ApiProviderBase* getProviderBase() override 
-	{
-		if(lastCompileResult.compiledOk())
-			return &lastCompileResult.obj; 
-
-		return nullptr;
-	}
-
+    
 	void handleBreakpoints(const Identifier& codeFile, Graphics& g, Component* c) override
 	{
 		jassertfalse;
@@ -369,7 +362,7 @@ struct WorkbenchData : public ReferenceCountedObject,
 
 			var toJson() const
 			{
-				DynamicObject::Ptr obj = new DynamicObject();
+				auto obj = new DynamicObject();
 
 				obj->setProperty("Index", parameterIndex);
 				obj->setProperty("Value", valueToUse);
@@ -611,20 +604,25 @@ struct WorkbenchData : public ReferenceCountedObject,
 
 		double cpuUsage = 0.0;
 
-		TestSignalMode currentTestSignalType = TestSignalMode::Empty;
-		int testSignalLength = 1024;
+		TestSignalMode currentTestSignalType = TestSignalMode::Ramp;
+		int testSignalLength = 4096;
 
 		String getErrorMessage() const
 		{
 			return testResult.getErrorMessage();
 		}
 
-		void initProcessing(int blockSize, double sampleRate)
+		void initProcessing(PrepareSpecs specsToUse)
 		{
-			ps.numChannels = 2;
-			ps.blockSize = jmin(blockSize, testSourceData.getNumSamples());
-			ps.sampleRate = sampleRate;
+            ps = specsToUse;
 			ps.voiceIndex = parent.getGlobalScope().getPolyHandler();
+            
+            int numChannelsTestSignal = testSourceData.getNumChannels();
+            
+            if(numChannelsTestSignal != ps.numChannels)
+                rebuildTestSignal(dontSendNotification);
+            
+            ps.blockSize = jmin(ps.blockSize, testSourceData.getNumSamples());
 		}
 
 		PrepareSpecs getPrepareSpecs() { return ps; }
@@ -633,21 +631,21 @@ struct WorkbenchData : public ReferenceCountedObject,
 		{
 			if (isPositiveAndBelow(index, tables.size()))
 			{
-				return tables[index];
+				return tables[index].get();
 			}
 
 			tables.add(new SampleLookupTable());
 
 			sendMessageToListeners(true);
 
-			return tables.getLast();
+			return tables.getLast().get();
 		}
 
 		SliderPackData* getSliderPack(int index) override
 		{
 			if (isPositiveAndBelow(index, sliderPacks.size()))
 			{
-				return sliderPacks[index];
+				return sliderPacks[index].get();
 			}
 
 			sliderPacks.add(new SliderPackData(nullptr, updater));
@@ -655,14 +653,14 @@ struct WorkbenchData : public ReferenceCountedObject,
 
 			sendMessageToListeners(true);
 
-			return sliderPacks.getLast();
+			return sliderPacks.getLast().get();
 		}
 
 		MultiChannelAudioBuffer* getAudioFile(int index) override
 		{
 			if (isPositiveAndBelow(index, buffers.size()))
 			{
-				return buffers[index];
+				return buffers[index].get();
 			}
 
 			auto b = new MultiChannelAudioBuffer();
@@ -671,29 +669,29 @@ struct WorkbenchData : public ReferenceCountedObject,
 
 			sendMessageToListeners(true);
 
-			return buffers.getLast();
+			return buffers.getLast().get();
 		}
 
 		FilterDataObject* getFilterData(int index) override
 		{
 			if (isPositiveAndBelow(index, filterData.size()))
-				return filterData[index];
+				return filterData[index].get();
 
 			auto fd = new FilterDataObject();
 			filterData.add(fd);
 			sendMessageToListeners(true);
-			return filterData.getLast();
+			return filterData.getLast().get();
 		}
 
 		SimpleRingBuffer* getDisplayBuffer(int index) override
 		{
 			if (isPositiveAndBelow(index, displayBuffers.size()))
-				return displayBuffers[index];
+				return displayBuffers[index].get();
 
 			auto fd = new SimpleRingBuffer();
 			displayBuffers.add(fd);
 			sendMessageToListeners(true);
-			return displayBuffers.getLast();
+			return displayBuffers.getLast().get();
 		}
 
 
@@ -939,6 +937,8 @@ struct WorkbenchData : public ReferenceCountedObject,
 
 		virtual String loadCode() const = 0;
 
+		virtual bool providesCode() const { return true; }
+
 		/** You can override this method and supply a custom preprocessing
 			which will not be return by loadCode() (and thus not be saved).
 		*/
@@ -1079,6 +1079,9 @@ struct WorkbenchData : public ReferenceCountedObject,
 
 	void triggerPostCompileActions()
 	{
+		if (compileHandler == nullptr)
+			return;
+
 		compileHandler->postCompile(lastCompileResult);
 
 		callAsyncWithSafeCheck([](WorkbenchData* d)
@@ -1096,13 +1099,17 @@ struct WorkbenchData : public ReferenceCountedObject,
 		}
 	}
 
+    
+    
 	void callAsyncWithSafeCheck(const std::function<void(WorkbenchData* d)>& f, bool callSyncIfMessageThread=false);
 
 	void postCompile()
 	{
 		if (getLastResult().compiledOk())
 		{
-			getLastJitObject().rebuildDebugInformation();
+            
+            
+			//gegetLastResult().rebuildDebugInformation();
 			rebuild();
 		}
 
@@ -1317,7 +1324,7 @@ private:
 struct ValueTreeCodeProvider : public snex::ui::WorkbenchData::CodeProvider,
 	public Timer
 {
-	ValueTreeCodeProvider(snex::ui::WorkbenchData* data) :
+	ValueTreeCodeProvider(snex::ui::WorkbenchData* data, int numChannelsToCompile) :
 		CodeProvider(data)
 	{
 		timerCallback();
@@ -1349,6 +1356,7 @@ struct ValueTreeCodeProvider : public snex::ui::WorkbenchData::CodeProvider,
 
 	ValueTree lastTree;
 	String customCode;
+    int numChannelsToCompile;
 };
 
 struct WorkbenchManager final: public AsyncUpdater
@@ -1380,8 +1388,7 @@ struct WorkbenchManager final: public AsyncUpdater
 
 	void resetToRoot()
 	{
-		if (rootWb != nullptr)
-			setCurrentWorkbench(rootWb, false);
+		setCurrentWorkbench(rootWb, false);
 	}
 
 	void setCurrentWorkbench(WorkbenchData::Ptr newWorkbench, bool setAsRoot);

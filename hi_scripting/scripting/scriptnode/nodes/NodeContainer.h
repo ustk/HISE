@@ -41,8 +41,7 @@ using namespace hise;
 struct NodeContainer : public AssignableObject
 {
 	struct MacroParameter : public NodeBase::Parameter,
-							public SnexDebugHandler,
-							public PooledUIUpdater::SimpleTimer
+							public SnexDebugHandler
 	{
 		struct Connection: public ConnectionBase
 		{
@@ -76,19 +75,14 @@ struct NodeContainer : public AssignableObject
 		void rebuildCallback();
 		void updateRangeForConnection(ValueTree v, Identifier);
 
+		void setDynamicParameter(parameter::dynamic_base::Ptr ownedNew) override;
+
 		void updateConnectionForExpression(ValueTree v, Identifier)
 		{
 			rebuildCallback();
 		}
 
 		void updateInputRange(Identifier, var);
-
-		void timerCallback() override
-		{
-			getDynamicParameter()->updateUI();
-		}
-
-		
 
 		var addParameterTarget(NodeBase::Parameter* p)
 		{
@@ -103,12 +97,12 @@ struct NodeContainer : public AssignableObject
 			ValueTree newC(PropertyIds::Connection);
 			newC.setProperty(PropertyIds::NodeId, p->parent->getId(), nullptr);
 			newC.setProperty(PropertyIds::ParameterId, p->getId(), nullptr);
-			RangeHelpers::storeDoubleRange(newC, false, RangeHelpers::getDoubleRange(p->data), nullptr);
+			RangeHelpers::storeDoubleRange(newC, RangeHelpers::getDoubleRange(p->data), nullptr);
 			newC.setProperty(PropertyIds::Expression, "", nullptr);
 
 			getConnectionTree().addChild(newC, -1, p->parent->getUndoManager());
 
-			return var(connections.getLast());
+			return var(connections.getLast().get());
 		}
 
 		void logMessage(int level, const String& s) override
@@ -122,6 +116,7 @@ struct NodeContainer : public AssignableObject
 		valuetree::RecursivePropertyListener rangeListener;
 		valuetree::RecursivePropertyListener expressionListener;
 		valuetree::PropertyListener inputRangeListener;
+		ReferenceCountedObjectPtr<parameter::dynamic_base_holder> pholder;
 
 		ReferenceCountedArray<Connection> connections;
 		bool initialised = false;
@@ -132,12 +127,14 @@ struct NodeContainer : public AssignableObject
 
 	NodeContainer();
 
+
+
 	template <int P> static void setParameterStatic(void* obj, double v)
 	{
 		auto typed = static_cast<NodeContainer*>(obj);
 
 		if(auto p = typed->asNode()->getParameter(P))
-			p->setValueAndStoreAsync(v);
+			p->setValue(v);
 	}
 
 	void resetNodes();
@@ -146,6 +143,10 @@ struct NodeContainer : public AssignableObject
 
 	NodeBase* asNode();
 	const NodeBase* asNode() const;
+
+	virtual bool hasFixedParameters() const { return false; }
+
+	virtual Component* createLeftTabComponent() const;
 
 	void prepareContainer(PrepareSpecs& ps);
 
@@ -205,7 +206,7 @@ private:
 
 	void nodeAddedOrRemoved(ValueTree v, bool wasAdded);
 	void parameterAddedOrRemoved(ValueTree v, bool wasAdded);
-	void updateChannels(ValueTree v, Identifier id);
+	void updateChannels(ValueTree v, Identifier unused);
 
 	PolyHandler* lastVoiceIndex = nullptr;
 	bool channelRecursionProtection = false;

@@ -286,6 +286,8 @@ public:
 		/** Creates a (or returns an existing ) script look and feel object. */
 		var createGlobalScriptLookAndFeel();
 
+		var createFFT();
+
 		/** Returns the latency of the plugin as reported to the host. Default is 0. */
 		int getLatencySamples() const;
 
@@ -310,6 +312,9 @@ public:
 		/** Creates a reference to the DSP network of another script processor. */
 		var getDspNetworkReference(String processorId, String id);
 
+		/** Creates a background task that can execute heavyweight functions. */
+		var createBackgroundTask(String name);
+
 		/** Sends an allNotesOff message at the next buffer. */
 		void allNotesOff();
 
@@ -333,6 +338,9 @@ public:
 
 		/** Shows a message with an overlay on the compiled plugin with an "OK" button in order to notify the user about important events. */
 		void showMessage(String message);
+
+		/** Shows a message box with an OK button and a icon defined by the type variable. */
+		void showMessageBox(String title, String markdownMessage, int type);
 
 		/** Returns the millisecond value for the supplied tempo (HINT: Use "TempoSync" mode from Slider!) */
 		double getMilliSecondsForTempo(int tempoIndex) const;;
@@ -730,6 +738,9 @@ public:
 		/** Returns a list of the sounds selected in the samplemap. */
 		var createListFromGUISelection();
 
+		/** Sets the currently selected samples on the interface to the given list. */
+		void setGUISelection(var sampleList, bool addToSelection);
+
         /** Loads the content of the given sample into an array of VariantBuffers that can be used
             for analysis.
         */
@@ -749,6 +760,21 @@ public:
 
 		/** Loads a new samplemap into this sampler. */
 		void loadSampleMap(const String &fileName);
+
+		/** Loads a samplemap from a list of JSON objects. */
+		void loadSampleMapFromJSON(var jsonSampleMap);
+
+		/** Loads a base64 compressed string with the samplemap. */
+		void loadSampleMapFromBase64(const String& b64);
+
+		/** Returns a base64 compressed string containing the entire samplemap. */
+		String getSampleMapAsBase64();
+
+		/** Creates a JSON object from the sample file that can be used with loadSampleMapFromJSON. */
+		var parseSampleFile(var sampleFile);
+
+		/** Converts the user preset data of a audio waveform to a base 64 samplemap. */
+		String getAudioWaveformContentAsBase64(var presetObj);
 
 		/** Loads an SFZ file into the sampler. */
 		var loadSfzFile(var sfzFile);
@@ -791,6 +817,8 @@ public:
 		struct Wrapper;
 
 	private:
+
+		ValueTree convertJSONListToValueTree(var jsonSampleList);
 
 		WeakReference<Processor> sampler;
 		SelectedItemSet<ModulatorSamplerSound::Ptr> soundSelection;

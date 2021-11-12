@@ -196,6 +196,8 @@ ScriptingContentOverlay::ScriptingContentOverlay(ScriptEditHandler* handler_) :
 	setEditMode(handler->editModeEnabled());
 
 	setWantsKeyboardFocus(true);
+
+	
 }
 
 
@@ -225,6 +227,9 @@ void ScriptingContentOverlay::buttonClicked(Button* /*buttonThatWasClicked*/)
 void ScriptingContentOverlay::toggleEditMode()
 {
 	setEditMode(!dragMode);
+
+	if (!dragMode)
+		getScriptComponentEditBroadcaster()->setLearnMode(false);
 
 	handler->toggleComponentSelectMode(dragMode);
 }
@@ -276,11 +281,14 @@ void ScriptingContentOverlay::paint(Graphics& g)
 
 		auto mulAlpha = 1.0f - jlimit(0.0f, 1.0f, (1.0f / 3.0f * ug.getPixelSize()));
 
+		float tenAlpha = JUCE_LIVE_CONSTANT_OFF(0.15f);
+		float oneAlpha = JUCE_LIVE_CONSTANT_OFF(.06f);
+		
 		if (mulAlpha > 0.1f)
 		{
 			for (int x = 10; x < getWidth(); x += 10)
 			{
-				float alpha = (x % 100 == 0) ? 0.12f : 0.05f;
+				float alpha = (x % 100 == 0) ? tenAlpha : oneAlpha;
 				alpha *= mulAlpha;
 				g.setColour(lineColour.withAlpha(alpha));
 				ug.draw1PxVerticalLine(x, 0.0f, (float)getHeight());
@@ -288,7 +296,7 @@ void ScriptingContentOverlay::paint(Graphics& g)
 
 			for (int y = 10; y < getHeight(); y += 10)
 			{
-				float alpha = (y % 100 == 0) ? 0.12f : 0.05f;
+				float alpha = (y % 100 == 0) ? tenAlpha : oneAlpha;
 				alpha *= mulAlpha;
 				g.setColour(lineColour.withAlpha(alpha));
 				ug.draw1PxHorizontalLine(y, 0.0f, (float)getWidth());
@@ -325,6 +333,9 @@ void ScriptingContentOverlay::scriptComponentSelectionChanged()
 	ScriptComponentEditBroadcaster::Iterator iter(getScriptComponentEditBroadcaster());
 
 	auto content = handler->getScriptEditHandlerContent();
+	auto singleSelection = getScriptComponentEditBroadcaster()->getNumSelected() == 1;
+
+	getScriptComponentEditBroadcaster()->setCurrentlyLearnedComponent(nullptr);
 
 	while (auto c = iter.getNextScriptComponent())
 	{
@@ -337,7 +348,14 @@ void ScriptingContentOverlay::scriptComponentSelectionChanged()
 			return;
 		}
 
+		
+
 		auto d = new Dragger(c, draggedComponent);
+
+		getScriptComponentEditBroadcaster()->getLearnBroadcaster().addListener(*d, Dragger::learnComponentChanged);
+
+		if (singleSelection && getScriptComponentEditBroadcaster()->learnModeEnabled())
+			getScriptComponentEditBroadcaster()->setCurrentlyLearnedComponent(c);
 
 		addAndMakeVisible(d);
 
@@ -449,6 +467,18 @@ bool ScriptingContentOverlay::keyPressed(const KeyPress &key)
 	return false;
 }
 
+bool isParent(ScriptComponent* cp, ScriptComponent* possibleParent)
+{
+	if (cp == nullptr)
+		return false;
+
+	auto thisParent = cp->getParentScriptComponent();
+
+	if (thisParent == possibleParent)
+		return true;
+
+	return isParent(thisParent, possibleParent);
+}
 
 void ScriptingContentOverlay::findLassoItemsInArea(Array<ScriptComponent*> &itemsFound, const Rectangle< int > &area)
 {
@@ -464,17 +494,38 @@ void ScriptingContentOverlay::findLassoItemsInArea(Array<ScriptComponent*> &item
 	
 
 	ScriptComponentSelection newSelection;
+	bool isTwo = itemsFound.size() == 2;
+	for (int i = 0; i < itemsFound.size(); i++)
+	{
+		auto sc = itemsFound[i];
+
+		for (int j = 0; j < itemsFound.size(); j++)
+		{
+			if (isParent(sc, itemsFound[j]))
+			{
+				itemsFound.remove(i--);
+				break;
+			}
+		}
+	}
 
 	for (auto i : itemsFound)
+	{
 		newSelection.addIfNotAlreadyThere(i);
+	}
+		
 
 	b->setSelection(newSelection, sendNotificationAsync);
 }
 
-
-
 void ScriptingContentOverlay::mouseUp(const MouseEvent &e)
 {
+	if (e.mods.isMiddleButtonDown())
+	{
+		return;
+	}
+		
+
 	if (isDisabledUntilUpdate)
 		return;
 
@@ -499,6 +550,7 @@ void ScriptingContentOverlay::mouseUp(const MouseEvent &e)
 				showCallback,
 				restoreToData,
 				copySnapshot,
+				toggleLearnMode,
 				editComponentOffset = 20000,
 
 			};
@@ -537,6 +589,17 @@ void ScriptingContentOverlay::mouseUp(const MouseEvent &e)
 				auto first = components.getFirst();
 
 				m.addItem(showCallback, "Show callback for " + first->getName().toString(), first->getCustomControlCallback() != nullptr);
+
+				bool learnable = b->getNumSelected() == 1;
+
+				Identifier id = learnable ? b->getFirstFromSelection()->getObjectName() : Identifier();
+
+				learnable |= (id == ScriptingApi::Content::ScriptSlider::getStaticObjectName());
+				learnable |= (id == ScriptingApi::Content::ScriptButton::getStaticObjectName());
+				learnable |= (id == ScriptingApi::Content::ScriptComboBox::getStaticObjectName());
+				learnable |= (id == ScriptingApi::Content::ScriptPanel::getStaticObjectName());
+				
+				m.addItem(toggleLearnMode, "Enable Connection Learn", learnable, b->getCurrentlyLearnedComponent() == b->getFirstFromSelection());
 			}
 
 			int result = m.show();
@@ -557,6 +620,10 @@ void ScriptingContentOverlay::mouseUp(const MouseEvent &e)
 
 				SystemClipboard::copyTextToClipboard(code);
 			}
+			else if (result == toggleLearnMode)
+			{
+				b->setCurrentlyLearnedComponent(b->getFirstFromSelection());
+			}
 			else if (result >= (int)ScriptEditHandler::ComponentType::Knob && result < (int)ScriptEditHandler::ComponentType::numComponentTypes)
 			{
 				int insertX = e.getEventRelativeTo(content).getMouseDownPosition().getX();
@@ -566,7 +633,11 @@ void ScriptingContentOverlay::mouseUp(const MouseEvent &e)
 
 				if (parent != nullptr)
 				{
-					if (auto d = draggers.getFirst())
+					auto parentBounds = ApiHelpers::getRectangleFromVar(parent->getLocalBounds(0)).toNearestInt();
+
+					if (!parentBounds.contains(insertX, insertY ))
+						parent = nullptr;
+					else if (auto d = draggers.getFirst())
 					{
 						auto bounds = d->getLocalArea(this, d->getLocalBounds());
 
@@ -602,7 +673,7 @@ void ScriptingContentOverlay::mouseUp(const MouseEvent &e)
 			{
 				auto sc = components[result - editComponentOffset];
 
-				getScriptComponentEditBroadcaster()->updateSelectionBasedOnModifier(sc, e.mods, sendNotification);
+				getScriptComponentEditBroadcaster()->updateSelectionBasedOnModifier(sc.get(), e.mods, sendNotification);
 			}
 		}
 		else
@@ -635,6 +706,9 @@ void ScriptingContentOverlay::mouseUp(const MouseEvent &e)
 
 void ScriptingContentOverlay::mouseDrag(const MouseEvent& e)
 {
+	if (e.mods.isMiddleButtonDown())
+		return;
+
 	if (isDisabledUntilUpdate)
 		return;
 
@@ -659,6 +733,7 @@ ScriptingContentOverlay::Dragger::Dragger(ScriptComponent* sc_, Component* compo
 	draggedComponent(componentToDrag)
 {
 	currentMovementWatcher = new MovementWatcher(componentToDrag, this);
+
 
 	
 	constrainer.setMinimumOnscreenAmounts(0xFFFFFF, 0xFFFFFF, 0xFFFFFF, 0xFFFFFF);
@@ -708,6 +783,17 @@ void ScriptingContentOverlay::Dragger::paint(Graphics &g)
 		g.setFont(GLOBAL_BOLD_FONT().withHeight(28.0f));
 		g.drawText("+", getLocalBounds().withTrimmedLeft(2).expanded(0, 4), Justification::topLeft);
 	}
+
+	if (learnModeEnabled)
+	{
+		g.setColour(Colours::black.withAlpha(0.2f));
+		g.fillRect(getLocalBounds().reduced(1));
+		Learnable::Factory f;
+		auto p = f.createPath("source");
+		f.scalePath(p, getLocalBounds().reduced(3).removeFromRight(28).removeFromTop(18).reduced(2).toFloat());
+		g.setColour(Colour(SIGNAL_COLOUR));
+		g.fillPath(p);
+	}
 }
 
 void ScriptingContentOverlay::Dragger::mouseDown(const MouseEvent& e)
@@ -735,10 +821,10 @@ void ScriptingContentOverlay::Dragger::mouseDown(const MouseEvent& e)
 
 void ScriptingContentOverlay::Dragger::mouseDrag(const MouseEvent& e)
 {
-	if (e.mods.isRightButtonDown())
+	if (e.mods.isRightButtonDown() || e.mods.isMiddleButtonDown())
 		return;
 
-	constrainer.setRasteredMovement(e.mods.isCommandDown());
+	constrainer.setRasteredMovement(!e.mods.isCommandDown());
 	constrainer.setLockedMovement(e.mods.isShiftDown());
 
 	
@@ -895,6 +981,12 @@ void ScriptingContentOverlay::Dragger::duplicateSelection(int deltaX, int deltaY
 		if (auto content = first->parent)
 			ScriptingApi::Content::Helpers::duplicateSelection(content, b->getSelection(), deltaX, deltaY, &b->getUndoManager());
 	}
+}
+
+void ScriptingContentOverlay::Dragger::learnComponentChanged(Dragger& d, ScriptComponent* newComponent)
+{
+	d.learnModeEnabled = newComponent != nullptr && d.sc == newComponent;
+	d.repaint();
 }
 
 void ScriptingContentOverlay::Dragger::MovementWatcher::componentMovedOrResized(bool /*wasMoved*/, bool /*wasResized*/)

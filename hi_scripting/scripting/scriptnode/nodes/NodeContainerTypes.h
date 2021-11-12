@@ -39,7 +39,7 @@ using namespace hise;
 
 class ChainNode : public SerialNode
 {
-	using InternalWrapper = bypass::smoothed<SerialNode::DynamicSerialProcessor>;
+	using InternalWrapper = bypass::simple<SerialNode::DynamicSerialProcessor>;
 
 public:
 
@@ -114,7 +114,7 @@ public:
 	Colour getContainerColour() const override {
 		return Colour(MIDI_PROCESSOR_COLOUR);
 	}
-
+    
 	String getNodeDescription() const override { return "Sends MIDI events to child nodes"; }
 
 private:
@@ -186,6 +186,222 @@ public:
 private:
 
 	wrap::data<wrap::offline<SerialNode::DynamicSerialProcessor>, scriptnode::data::dynamic::audiofile> obj;
+};
+
+namespace wrap {
+template <typename T> struct clone
+{
+	
+};
+}
+
+/** TODO:
+
+	- sync values? OK
+	- sync parameter ranges OK
+	- sync modulation connections OK
+	- make toolbar: clone, delete all clones, hide clones OK
+	- make spread OK
+	- remove clone_holder as lambda listener somehow (enforce bug when switching to other clone container?) OK
+	- fix crashes, dupli_pack OK
+	- add clone-ducker OK
+	- make duplicable fix mode OK
+	- implement multiple target parameters OK
+	- force connection to first module OK
+	- disallow modulation, connections from outside OK
+	- cppgen
+	- rename everything from dupli to clone
+	- remove all old unisono stuff
+*/
+class CloneNode : public SerialNode
+{
+public:
+
+	enum class Parameters
+	{
+		NumClones,
+		SplitSignal
+	};
+
+	DEFINE_PARAMETERS
+	{
+		DEF_PARAMETER(NumClones, CloneNode);
+		DEF_PARAMETER(SplitSignal, CloneNode);
+	}
+
+	PARAMETER_MEMBER_FUNCTION;
+
+	SCRIPTNODE_FACTORY(CloneNode, "clone");
+
+	String getNodeDescription() const override { return "An array of equal nodes with dynamic resizing"; }
+
+	virtual bool hasFixedParameters() const { return true; }
+
+	CloneNode(DspNetwork* n, ValueTree t);
+
+	ParameterDataList createInternalParameterList() override;
+
+	void processFrame(FrameType& data) noexcept final override;
+	void process(ProcessDataDyn& data) noexcept final override;
+	void prepare(PrepareSpecs ps) override;
+	void handleHiseEvent(HiseEvent& e) final override;
+	void reset() final override;
+
+	void setNumClones(double newNumVoices);
+
+	void setSplitSignal(double shouldSplit);
+
+	static int getCloneIndex(NodeBase* n);
+
+	void syncCloneProperty(const ValueTree& v, const Identifier& id);
+
+	Component* createLeftTabComponent() const override;
+
+	void updateConnections(const ValueTree& v, bool wasAdded);
+
+	void checkValidClones(const ValueTree& v, bool wasAdded);
+
+	ValueTree getValueTreeForPath(const ValueTree& v, Array<int>& path);
+
+	Array<int> getPathForValueTree(const ValueTree& v);
+
+	LambdaBroadcaster<NodeBase*> cloneChangeBroadcaster;
+
+    struct DynamicCloneData
+    {
+        // This class just forwards the node methods to the weak reference
+        struct NodeWrapper: public WeakReference<NodeBase>
+        {
+			static constexpr int NumChannels = NUM_MAX_CHANNELS;
+            using WrappedObjectType = NodeBase;
+            
+            void reset() { if(get() != nullptr) get()->reset(); }
+            void prepare(PrepareSpecs ps) { if (get() != nullptr) get()->prepare(ps); }
+            template <typename PT> void process(PT& d) { get()->process(d.template as<ProcessDataDyn>()); }
+            template <typename FT> void processFrame(FT& d) { get()->processFrame(d); };
+            void handleHiseEvent(HiseEvent& e) { get()->handleHiseEvent(e); }
+        };
+        
+        using ObjectType = NodeWrapper;
+        
+        DynamicCloneData(wrap::clone_manager& m):
+          manager(m)
+        {
+            static_assert(std::is_standard_layout<NodeWrapper>(), "wrapper is not a standard layout");
+            static_assert(std::is_standard_layout<WeakReference<NodeBase>>(), "wrapper is not a standard layout");
+        }
+        
+        static constexpr int getInitialCloneAmount() { return 1; }
+        
+        int getTotalNumClones() const { return n->nodes.size(); }
+        
+        template <bool AllNodes> struct Iterator
+        {
+            Iterator(DynamicCloneData& d):
+              parent(d)
+            {
+                
+            }
+            
+            NodeWrapper* begin() const
+            {
+                // rather ugly, but the node list is a array of weak references...
+                return static_cast<NodeWrapper*>(parent.n->nodes.begin());
+            }
+            
+            NodeWrapper* end() const
+            {
+                if constexpr (AllNodes)
+                    return static_cast<NodeWrapper*>(parent.n->nodes.end());
+                else
+                    return begin() + jmin(parent.getTotalNumClones(), parent.manager.getNumClones());
+            }
+            
+            DynamicCloneData& parent;
+        };
+        
+        void setCloneNode(CloneNode* n_)
+        {
+            n = n_;
+        }
+        
+        wrap::clone_manager& manager;
+        CloneNode* n = nullptr;
+    };
+    
+    wrap::clone_base<DynamicCloneData, CloneProcessType::Dynamic> obj;
+    
+	struct CloneIterator
+	{
+		CloneIterator(CloneNode& n, const ValueTree& v, bool skipOriginal);
+
+		ValueTree* begin() { return cloneSiblings.begin(); }
+		ValueTree* end() { return cloneSiblings.end(); }
+
+		const ValueTree* begin() const { return cloneSiblings.begin(); }
+		const ValueTree* end() const { return cloneSiblings.end(); }
+
+		int getCloneIndex() const { return path[0]; }
+
+		Parameter* getParameterForValueTree(const ValueTree& pTree, NodeBase::Ptr root=nullptr) const;
+
+		void throwError(const String& e);
+
+		void resetError();
+
+	private:
+
+		CloneNode& cn;
+		ValueTree original;
+		const Array<int> path;
+		Array<ValueTree> cloneSiblings;
+	};
+
+	bool shouldCloneBeDisplayed(int index) const;
+
+    Colour getContainerColour() const override
+    {
+        return Colour(0xFF949494);
+    }
+    
+    
+    
+private:
+
+    void updateDisplayedClones(const Identifier&, const var& v);
+
+	BigInteger displayedCloneState;
+
+	static bool sameNodes(const ValueTree& n1, const ValueTree& n2);
+
+	auto begin() const
+	{
+		return nodes.begin();
+	}
+
+	auto end() const
+	{
+		return nodes.begin() + jmin(nodes.size(), obj.getNumClones());
+	}
+
+	CachedValue<bool> showClones;
+
+	valuetree::ChildListener numVoicesListener;
+
+	valuetree::RecursivePropertyListener valueSyncer;
+	
+	valuetree::RecursivePropertyListener uiSyncer;
+
+	valuetree::RecursiveTypedChildListener cloneWatcher;
+
+    Array<Identifier> currentlySyncedIds;
+    
+	bool connectionRecursion = false;
+	valuetree::RecursiveTypedChildListener connectionListener;
+
+	valuetree::PropertyListener displayCloneRangeListener;
+    
+    valuetree::RecursivePropertyListener complexDataSyncer;
 };
 
 template <int OversampleFactor> class OversampleNode : public SerialNode
@@ -568,6 +784,8 @@ public:
 
 	AudioSampleBuffer leftoverBuffer;
 };
+
+
 
 
 }

@@ -909,6 +909,26 @@ File ProjectHandler::getWorkDirectory() const
 }
 
 
+juce::ValueTree ProjectHandler::getEmbeddedNetwork(const String& id)
+{
+#if USE_BACKEND
+	auto f = BackendDllManager::getSubFolder(getMainController(), BackendDllManager::FolderSubType::Networks);
+	auto nf = f.getChildFile(id).withFileExtension("xml");
+
+	if (nf.existsAsFile())
+	{
+		if (auto xml = XmlDocument::parse(nf))
+		{
+			debugToConsole(getMainController()->getMainSynthChain(), "Load network " + nf.getFileName() + " from project folder");
+			return ValueTree::fromXml(*xml);
+		}
+	}
+#endif
+
+	jassertfalse;
+	return {};
+}
+
 struct FileModificationComparator
 {
 	static int compareElements(const File &first, const File &second)
@@ -2126,7 +2146,7 @@ void PresetHandler::checkMetaParameters(Processor* p)
 
 				DynamicObject::Ptr values = new DynamicObject();
 
-				forEachScriptComponent(content, values, writeToObj, c);
+				forEachScriptComponent(content, values.get(), writeToObj, c);
 
 				var newValue;
 
@@ -2155,7 +2175,7 @@ void PresetHandler::checkMetaParameters(Processor* p)
 
 				try
 				{
-					forEachScriptComponent(content, values, checkAsExpected, c);
+					forEachScriptComponent(content, values.get(), checkAsExpected, c);
 				}
 				catch (String& s)
 				{

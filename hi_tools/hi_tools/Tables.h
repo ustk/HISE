@@ -80,6 +80,28 @@ public:
 		}
 	};
 
+	/** Delays the notification until this object goes out of scope. 
+		Use this if you're creating a lot of calls to the add point method
+		to avoid unnecessary updates between those calls. */
+	struct ScopedUpdateDelayer
+	{
+		ScopedUpdateDelayer(Table& t) :
+			table(t)
+		{
+			prevValue = t.delayUpdates;
+		}
+
+		~ScopedUpdateDelayer()
+		{
+			table.internalUpdater.sendContentChangeMessage(sendNotificationAsync, -1);
+			table.fillLookUpTable();
+			table.delayUpdates = prevValue;
+		}
+
+		Table& table;
+		bool prevValue = false;
+	};
+
 	static String getDefaultTextValue(float input) { return String(roundToInt(input * 100.0f)) + "%"; };
 
 	using ValueTextConverter = std::function<String(float)>;
@@ -126,37 +148,16 @@ public:
 	*
 	*	@see restoreData()
 	*/
-	virtual String exportData() const
-	{
-		if (graphPoints.size() == 2)
-		{
-			auto first = graphPoints.getFirst();
-			auto second = graphPoints.getLast();
+	virtual String exportData() const;;
 
-			if (first.x == 0.0f && first.y == 0.0f)
-			{
-				if (second.x == 1.0f && second.y == 1.0f && second.curve == 0.5f)
-					return "";
-			}
-		}
+	static String dataVarToBase64(const var& data);
+	static var base64ToDataVar(const String& b64);
 
-		Array<GraphPoint> copy = Array<GraphPoint>(graphPoints);
+	bool fromBase64String(const String& b64) override;
 
-		MemoryBlock b(copy.getRawDataPointer(), sizeof(Table::GraphPoint) * copy.size());
+	String toBase64String() const override;
 
-		return b.toBase64Encoding();
-	};
-
-	bool fromBase64String(const String& b64) override
-	{
-		restoreData(b64);
-		return true;
-	}
-
-	String toBase64String() const override
-	{
-		return exportData();
-	}
+	
 
 	/** Restores the data from a base64 encoded String.
 	*
@@ -170,7 +171,6 @@ public:
 			return;
 		}
 			
-
 		MemoryBlock b;
 		
 		b.fromBase64Encoding(savedString);
@@ -180,9 +180,11 @@ public:
 		graphPoints.clear();
 		graphPoints.insertArray(0, static_cast<const Table::GraphPoint*>(b.getData()), (int)(b.getSize() / sizeof(Table::GraphPoint)));
 		
-		fillLookUpTable();
-
-		internalUpdater.sendContentChangeMessage(sendNotificationAsync, -1);
+		if (!delayUpdates)
+		{
+			fillLookUpTable();
+			internalUpdater.sendContentChangeMessage(sendNotificationAsync, -1);
+		}
 	};
 
 	void setTablePoint(int pointIndex, float x, float y, float curve)
@@ -203,9 +205,15 @@ public:
 			graphPoints.getRawDataPointer()[pointIndex].curve = sanitizedCurve;
 		}
 
-		internalUpdater.sendContentChangeMessage(sendNotificationAsync, pointIndex);
-		fillLookUpTable();
+		if (!delayUpdates)
+		{
+			internalUpdater.sendContentChangeMessage(sendNotificationAsync, pointIndex);
+			fillLookUpTable();
+		}
+		
 	}
+
+	
 
 	void reset()
 	{
@@ -213,16 +221,22 @@ public:
 		graphPoints.add(GraphPoint(0.0f, 0.0f, 0.5f));
 		graphPoints.add(GraphPoint(1.0f, 1.0f, 0.5f));
 
-		internalUpdater.sendContentChangeMessage(sendNotificationAsync, -1);
-		fillLookUpTable();
+		if (!delayUpdates)
+		{
+			internalUpdater.sendContentChangeMessage(sendNotificationAsync, -1);
+			fillLookUpTable();
+		}
 	}
 
-	void addTablePoint(float x, float y)
+	void addTablePoint(float x, float y, float curve=0.5f)
 	{
-		graphPoints.add(GraphPoint(x, y, 0.5f));
+		graphPoints.add(GraphPoint(x, y, curve));
 
-		internalUpdater.sendContentChangeMessage(sendNotificationAsync, graphPoints.size() - 1);
-		fillLookUpTable();
+		if (!delayUpdates)
+		{
+			internalUpdater.sendContentChangeMessage(sendNotificationAsync, graphPoints.size() - 1);
+			fillLookUpTable();
+		}
 	}
 
 	/** Returns the number of graph points */
@@ -235,13 +249,22 @@ public:
 	*
 	*	This is called by the editor to draw the path under the DragPoints.
 	*/
-	void createPath(Path &normalizedPath, bool fillPath) const;
+	void createPath(Path &normalizedPath, bool fillPath, bool addStartEnd=true) const;
+
+	void setStartAndEndY(float newStartY, float newEndY)
+	{
+		startY = newStartY;
+		endY = newEndY;
+		fillLookUpTable();
+	}
 
 	/** Fills the look up table with the graph points generated from calculateGraphPoints()
 	*
 	*	Don't call this too often as it is quite heavy!
 	*/
 	virtual void fillLookUpTable();
+
+	void fillExternalLookupTable(float* d, int numValues);
 
 	CriticalSection &getLock()
 	{
@@ -307,6 +330,11 @@ public:
 	}
 
 private:
+
+	bool delayUpdates = false;
+
+	float startY = -1.0f;
+	float endY = -1.0f;
 
 	class GraphPointComparator
 	{

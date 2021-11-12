@@ -110,8 +110,6 @@ Set this to 1 if you want to embed the libraries created with this module into y
 
 #include "node_api/helpers/node_macros.h"
 
-#include "dywapitchtrack/dywapitchtrack.h"
-#include "dywapitchtrack/PitchDetection.h"
 
 #include "snex_basics/snex_Types.h"
 
@@ -146,6 +144,7 @@ Set this to 1 if you want to embed the libraries created with this module into y
 #include "dsp_basics/chunkware_simple_dynamics/chunkware_simple_dynamics.h"
 #include "dsp_basics/AllpassDelay.h"
 
+#include "dsp_basics/logic_classes.h"
 #include "dsp_basics/DelayLine.h"
 #include "dsp_basics/DelayLine.cpp"
 #include "dsp_basics/Oscillators.h"
@@ -163,6 +162,7 @@ Set this to 1 if you want to embed the libraries created with this module into y
 #include "node_api/helpers/parameter_impl.h"
 
 
+
 #include "node_api/nodes/prototypes.h"
 #include "node_api/nodes/duplicate.h"
 
@@ -177,7 +177,6 @@ Set this to 1 if you want to embed the libraries created with this module into y
 
 #include "node_api/nodes/OpaqueNode.h"
 #include "node_api/nodes/processors.h"
-#include "node_api/nodes/duplicate.h"
 
 #include "dsp_nodes/CoreNodes.h"
 

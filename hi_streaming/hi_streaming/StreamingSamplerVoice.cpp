@@ -318,7 +318,7 @@ StereoChannelData SampleLoader::fillVoiceBuffer(hlac::HiseSampleBuffer &voiceBuf
 
 bool SampleLoader::advanceReadIndex(double uptime)
 {
-	const int numSamplesInBuffer = readBuffer.get()->getNumSamples();
+	int numSamplesInBuffer = readBuffer.get()->getNumSamples();
 	readIndexDouble = uptime - lastSwapPosition;
 
 	if (readIndexDouble >= numSamplesInBuffer)

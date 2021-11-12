@@ -182,6 +182,7 @@ public:
 		
 
 		static bool isSelected(Editor& e);
+		static bool isSingleSelection(Editor& e);
 
 		struct Actions
 		{
@@ -318,16 +319,30 @@ public:
 
 
 
-class ScriptWatchTablePanel : public PanelWithProcessorConnection
+class ScriptWatchTablePanel : public PanelWithProcessorConnection,
+                              public snex::ui::WorkbenchManager::WorkbenchChangeListener
 {
 public:
 
-	ScriptWatchTablePanel(FloatingTile* parent) :
-		PanelWithProcessorConnection(parent)
-	{
-		
-	};
+    ScriptWatchTablePanel(FloatingTile* parent);
 
+    ~ScriptWatchTablePanel();
+    
+    void workbenchChanged(snex::ui::WorkbenchData::Ptr newWorkbench) override
+    {
+        if(auto w = getContent<ScriptWatchTable>())
+        {
+            if(newWorkbench != nullptr && newWorkbench->getCodeProvider()->providesCode())
+            {
+                w->setHolder(newWorkbench.get());
+            }
+            else
+            {
+                w->setHolder(dynamic_cast<JavascriptProcessor*>(getProcessor()));
+            }
+        }
+    }
+    
 	SET_PANEL_NAME("ScriptWatchTable");
 
 	Identifier getProcessorTypeId() const override;

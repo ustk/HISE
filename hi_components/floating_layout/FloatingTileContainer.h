@@ -71,6 +71,10 @@ public:
 	/** Returns the number of floating tiles in this container. */
 	int getNumComponents() const;
 
+    int getNumVisibleComponents() const;
+    
+    int getNumVisibleAndResizableComponents() const;
+    
 	/** Deletes all floating tiles in this container. */
 	void clear();
 	
@@ -198,6 +202,18 @@ public:
 	var toDynamicObject() const override;
 	void fromDynamicObject(const var& objectData) override;
 
+    void setDisplayedFloatingTile(FloatingTile* t)
+    {
+        for(int i = 0; i < getNumComponents(); i++)
+        {
+            if(getComponent(i) == t)
+            {
+                setCurrentTabIndex(i);
+                return;
+            }
+        }
+    }
+    
 	int getNumDefaultableProperties() const override;
 	Identifier getDefaultablePropertyId(int i) const override;
 	var getDefaultProperty(int id) const override;
@@ -249,6 +265,8 @@ public:
 		void mouseUp(const MouseEvent& event) override;
 		void mouseDown(const MouseEvent& e) override;
 
+        bool isDragEnabled() const;
+        
 	private:
 
 		int downOffset = 0;

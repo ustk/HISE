@@ -9,6 +9,7 @@
 *   (at your option) any later version.
 *
 *   HISE is distributed in the hope that it will be useful,
+*   HISE is distributed in the hope that it will be useful,
 *   but WITHOUT ANY WARRANTY; without even the implied warranty of
 *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 *   GNU General Public License for more details.
@@ -107,6 +108,65 @@ class SlotFX;
 */
 namespace ScriptingObjects
 {
+	class ScriptBuffer : public ConstScriptingObject
+	{
+	public:
+
+		ScriptBuffer(ProcessorWithScriptingContent* p, int size) :
+			ConstScriptingObject(p, 0)
+		{
+			jassertfalse;
+		};
+
+		Identifier getObjectName() const override { return "Buffer"; }
+
+		/** Returns the magnitude in the given range. */
+		float getMagnitude(int startSample, int numSamples)
+		{
+			jassertfalse;
+		}
+
+		/** Returns the RMS value in the given range. */
+		float getRMSLevel(int startSample, int numSamples)
+		{
+
+		}
+
+		/** Normalises the buffer to the given decibel value. */
+		void normalise(float gainInDecibels)
+		{
+			jassertfalse;
+		};
+
+		/** Detects the pitch of the given buffer. */
+		double detectPitch(double sampleRate, int startSample, int numSamples)
+		{
+			return 0.0;
+		}
+
+		/** Converts a buffer with up to 44100 samples to a Base64 string. */
+		String toBase64()
+		{
+
+		}
+
+		/** Loads the content from the Base64 string (and resizes the buffer if necessary). */
+		void fromBase64(String b64String)
+		{
+
+		}
+
+		/** Returns the sample index with the highest peak. */
+		int indexOfPeak(int startSample, int numSamples)
+		{
+			jassertfalse;
+		}
+
+		/** Returns an array with the min and max value in the given range. */
+		var getPeakRange(int startSample, int numSamples);
+
+	};
+
 	class MidiList : public ConstScriptingObject,
 					 public AssignableObject
 	{
@@ -223,6 +283,9 @@ namespace ScriptingObjects
 		/** Returns a String representation of that file. */
 		String toString(int formatType) const;
 		
+		/** Returns a reference string with a wildcard. */
+		String toReferenceString(String folderType);
+
 		/** Checks if this file exists and is a file. */
 		bool isFile() const;
 
@@ -259,6 +322,9 @@ namespace ScriptingObjects
 		/** Extracts the ZIP archive if this file is a .zip file. */
 		void extractZipFile(var targetDirectory, bool overwriteFiles, var callback);
 
+		/** Changes the read/write permission for the given file. */
+		void setReadOnly(bool shouldBeReadOnly, bool applyRecursively);
+
 		// ================================================= End of API calls
 
 		File f;
@@ -268,6 +334,246 @@ namespace ScriptingObjects
 		struct Wrapper;
 
 		JUCE_DECLARE_WEAK_REFERENCEABLE(ScriptFile);
+	};
+
+	struct ScriptBackgroundTask : public ConstScriptingObject,
+								  public Thread
+	{
+		struct Wrapper;
+		
+
+		ScriptBackgroundTask(ProcessorWithScriptingContent* p, const String& name);
+
+		~ScriptBackgroundTask()
+		{
+			stopThread(timeOut);
+		}
+
+		Identifier getObjectName() const override { RETURN_STATIC_IDENTIFIER("BackgroundTask"); }
+
+		struct TaskViewer : public Component,
+							public ComponentForDebugInformation,
+							public PooledUIUpdater::SimpleTimer
+		{
+			TaskViewer(ScriptBackgroundTask* t);;
+
+			void timerCallback() override;
+
+			void paint(Graphics& g) override;
+
+			void resized() override
+			{
+				auto b = getLocalBounds();
+				cancelButton.setBounds(b.removeFromBottom(24));
+			}
+
+			
+			BlackTextButtonLookAndFeel laf;
+			TextButton cancelButton;
+			
+		};
+
+		Component* createPopupComponent(const MouseEvent& e, Component *c) override
+		{
+			return new TaskViewer(this);
+		}
+
+		// ==================================================================================== Start of API Methods
+
+		/** Signal that this thread should exit. */
+		void sendAbortSignal(bool blockUntilStopped);
+
+		/** Checks whether the task should be aborted (either because of recompilation or when you called abort(). */
+		bool shouldAbort();
+
+		/** Set a property to a thread safe container. */
+		void setProperty(String id, var value);
+
+		/** Retrieve a property through a thread safe container. */
+		var getProperty(String id);
+
+		/** Set a function that will be called when the task has started / stopped. */
+		void setFinishCallback(var newFinishCallback);
+
+		/** Call a function on the background thread. */
+		void callOnBackgroundThread(var backgroundTaskFunction);
+
+		/** Set a progress for this task. */
+		void setProgress(double p);
+
+		/** Get the progress for this task. */
+		double getProgress() const { return progress.load(); }
+
+		/** Set timeout. */
+		void setTimeOut(int ms)
+		{
+			timeOut = ms;
+		}
+
+		/** Returns the current status message. */
+		String getStatusMessage()
+		{
+			SimpleReadWriteLock::ScopedReadLock sl(lock);
+			return message;
+		}
+
+		/** Sets a status message. */
+		void setStatusMessage(String m);
+
+		/** Forward the state of this thread to the sample loading thread notification system. */
+		void setForwardStatusToLoadingThread(bool shouldForward)
+		{
+			forwardToLoadingThread = shouldForward;
+		}
+
+		// ==================================================================================== End of API Methods
+
+		void run() override;
+
+	private:
+
+		bool forwardToLoadingThread = false;
+
+		void callFinishCallback(bool isFinished, bool wasCancelled)
+		{
+			
+
+			if (finishCallback)
+			{
+				var args[2] = { var(isFinished), var(wasCancelled) };
+				finishCallback.call(args, 2);
+			}
+		}
+
+		std::atomic<double> progress = { 0.0 };
+		String message;
+		int timeOut = 500;
+		SimpleReadWriteLock lock;
+		NamedValueSet synchronisedData;
+		WeakCallbackHolder currentTask;
+		WeakCallbackHolder finishCallback;
+	};
+
+	class ScriptFFT : public ConstScriptingObject,
+					  public Spectrum2D::Holder
+	{
+	public:
+
+		using WindowType = FFTHelpers::WindowType;
+		
+		struct Wrapper
+		{
+			API_VOID_METHOD_WRAPPER_1(ScriptFFT, setWindowType);
+			API_VOID_METHOD_WRAPPER_2(ScriptFFT, prepare);
+			API_VOID_METHOD_WRAPPER_1(ScriptFFT, setOverlap);
+			API_METHOD_WRAPPER_1(ScriptFFT, process);
+			API_VOID_METHOD_WRAPPER_2(ScriptFFT, setMagnitudeFunction);
+			API_VOID_METHOD_WRAPPER_1(ScriptFFT, setPhaseFunction);
+			API_VOID_METHOD_WRAPPER_1(ScriptFFT, setEnableSpectrum2D);
+			API_VOID_METHOD_WRAPPER_1(ScriptFFT, setEnableInverseFFT);
+		};
+
+		ScriptFFT(ProcessorWithScriptingContent* pwsc);
+
+		~ScriptFFT();
+
+		Identifier getObjectName() const override { RETURN_STATIC_IDENTIFIER("FFT"); }
+
+		struct FFTDebugComponent;
+
+		Component* createPopupComponent(const MouseEvent& e, Component *c) override;
+
+		Spectrum2D::Parameters::Ptr getParameters() const override { return spectrumParameters; }
+
+		// ======================================================================================================= API Methods
+
+		/** Sets a function that will be executed with the amplitude information of the FFT bins. */
+		void setMagnitudeFunction(var newMagnitudeFunction, bool convertToDecibels);
+
+		/** Sets a function that will be executed with the phase information of the FFT bins. */
+		void setPhaseFunction(var newPhaseFunction);
+
+		/** Sets a window function that will be applied to the data chunks before processing. */
+		void setWindowType(int windowType);
+
+		/** Sets an overlap (from 0...1) for the chunks. */
+		void setOverlap(double percentageOfOverlap);
+
+		/** Allocates the buffers required for processing. */
+		void prepare(int powerOfTwoSize, int maxNumChannels);
+
+		/** Process the given data (either a buffer or a array of buffers. */
+		var process(var dataToProcess);
+
+		/** Enables the creation of a 2D spectrograph image. */
+		void setEnableSpectrum2D(bool shouldBeEnabled);
+
+		/** This enables the inverse transform that will reconstruct the signal from the
+			processed FFT. */
+		void setEnableInverseFFT(bool shouldApplyReverseTransformToInput);
+
+		// ======================================================================================================= End of API Methods
+
+	private:
+
+		AudioSampleBuffer windowBuffer;
+
+		var getBufferArgs(bool useMagnitude, int numToUse);
+
+		void reinitialise()
+		{
+			if (lastSpecs)
+			{
+				prepare(lastSpecs.blockSize, lastSpecs.numChannels);
+			}
+		}
+
+		bool convertMagnitudesToDecibel = false;
+
+		PrepareSpecs lastSpecs;
+
+		bool enableInverse = false;
+		bool enableSpectrum = false;
+
+		AudioSampleBuffer fullBuffer;
+		Image spectrum;
+		Image outputSpectrum;
+		Spectrum2D::Parameters::Ptr spectrumParameters;
+		SimpleReadWriteLock lock;
+
+		static int getNumToProcess(var inputData);
+
+		void copyToWorkBuffer(var inputData, int offset, int channel);
+
+		void copyFromWorkBuffer(int offset, int channel);
+
+		void applyFFT(int numChannelsThisTime, bool skipFirstWindowHalf);
+
+		void applyInverseFFT(int numChannelsThisTime);
+
+		struct WorkBuffer
+		{
+			VariantBuffer::Ptr chunkInput;
+			VariantBuffer::Ptr chunkOutput;
+			VariantBuffer::Ptr magBuffer;
+			VariantBuffer::Ptr phaseBuffer;
+
+			
+		};
+		
+		Array<WorkBuffer> scratchBuffers;
+
+		Array<var> thisProcessBuffer;
+
+		Array<var> outputData;
+
+		ScopedPointer<juce::dsp::FFT> fft;
+		WeakCallbackHolder magnitudeFunction;
+		WeakCallbackHolder phaseFunction;
+
+		WindowType currentWindowType = WindowType::Rectangle;
+		double overlap = 0.0;
+		int maxNumSamples = 0;
 	};
 
 	struct ScriptDownloadObject : public ConstScriptingObject,
@@ -382,7 +688,8 @@ namespace ScriptingObjects
 		JavascriptProcessor* jp = nullptr;
 	};
 
-	class ScriptComplexDataReferenceBase: public ConstScriptingObject
+	class ScriptComplexDataReferenceBase: public ConstScriptingObject,
+										  public ComplexDataUIUpdaterBase::EventListener
 	{
 	public:
 
@@ -399,6 +706,8 @@ namespace ScriptingObjects
 
 		ScriptComplexDataReferenceBase(ProcessorWithScriptingContent* c, int dataIndex, snex::ExternalData::DataType type, ExternalDataHolder* otherHolder=nullptr);;
 
+		virtual ~ScriptComplexDataReferenceBase();
+
 		void setPosition(double newPosition);
 
 		float getCurrentDisplayIndexBase() const;
@@ -406,11 +715,32 @@ namespace ScriptingObjects
 		int getIndex() const { return index; }
 		ExternalDataHolder* getHolder() { return holder; }
 
+		void onComplexDataEvent(ComplexDataUIUpdaterBase::EventType t, var data)
+		{
+			if (t == ComplexDataUIUpdaterBase::EventType::DisplayIndex &&
+				displayCallback)
+			{
+				displayCallback.call1(data);
+			}
+			else if (contentCallback)
+			{
+				contentCallback.call1(data);
+			}
+		}
+
+		
+
 	protected:
+
+		void setCallbackInternal(bool isDisplay, var f);
 
 		WeakReference<ComplexDataUIBase> complexObject;
 
+		WeakCallbackHolder displayCallback;
+		WeakCallbackHolder contentCallback;
+
 	private:
+
 
 		const snex::ExternalData::DataType type;
 		WeakReference<ExternalDataHolder> holder;
@@ -450,6 +780,12 @@ namespace ScriptingObjects
 
 		/** Returns the reference string for the currently loaded file. */
 		String getCurrentlyLoadedFile() const;
+
+		/** Sets a callback that is being executed when the playback position changes. */
+		void setDisplayCallback(var displayFunction);
+
+		/** Sets a callback that is being executed when a new file is loaded (or the sample range changed). */
+		void setContentCallback(var contentFunction);
 
 		// ============================================================================================================
 
@@ -513,6 +849,18 @@ namespace ScriptingObjects
 		/** Returns the current ruler position (from 0 to 1). */
 		float getCurrentlyDisplayedIndex() const;
 
+		/** Sets a callback that is being executed when the ruler position changes. */
+		void setDisplayCallback(var displayFunction);
+
+		/** Sets a callback that is being executed when a point is added / removed / changed. */
+		void setContentCallback(var contentFunction);
+
+		/** Returns an array containing all table points ([[x0, y0, curve0], ...]). */
+		var getTablePointsAsArray();
+
+		/** Sets the table points from a multidimensional array ([x0, y0, curve0], ...]). */
+		void setTablePointsFromArray(var pointList);
+
 		// ============================================================================================================
 
 	private:
@@ -522,6 +870,8 @@ namespace ScriptingObjects
 
 		struct Wrapper;
 	};
+
+	
 
 	class ScriptSliderPackData : public ScriptComplexDataReferenceBase
 	{
@@ -553,6 +903,12 @@ namespace ScriptingObjects
 
 		/** Returns the currently displayed slider index. */
 		float getCurrentlyDisplayedIndex() const;
+
+		/** Sets a callback that is being executed when the ruler position changes. */
+		void setDisplayCallback(var displayFunction);
+
+		/** Sets a callback that is being executed when a point is added / removed / changed. */
+		void setContentCallback(var contentFunction);
 
 		// ============================================================================================================
 
@@ -592,6 +948,8 @@ namespace ScriptingObjects
 
 		int getCachedIndex(const var &indexExpression) const override;
 
+		ModulatorSamplerSound::Ptr getSoundPtr() { return sound; }
+
 		// ============================================================================================================
 
 		/** Sets the sample property. */
@@ -602,6 +960,12 @@ namespace ScriptingObjects
 
 		/** Returns the sample property. */
 		var get(int propertyIndex) const;
+
+		/** Returns the value range that the given property can have (eg. the loop end might not go beyond the sample end. */
+		var getRange(int propertyIndex) const;
+
+		/*** Returns the samplerate of the sample (!= the processing samplerate). */
+		var getSampleRate();
 
 		/** Loads the sample into a array of buffers for analysis. */
 		var loadIntoBufferArray();
@@ -739,6 +1103,9 @@ namespace ScriptingObjects
 		/** Creates a info string for debugging. */
 		String dump() const;
 
+		/** Sets the start offset. */
+		void setStartOffset(int offset);
+
 		// ============================================================================================================
 
 		void setMessage(const HiseEvent &newEvent) { e = HiseEvent(newEvent); }
@@ -795,6 +1162,9 @@ namespace ScriptingObjects
 
 		/** Stores the event into the message holder. */
 		bool storeEvent(int index, var holder);
+
+		/** Removes the matching event from the stack and puts it in the holder. */
+		bool removeIfEqual(var holder);
 
 		/** Inserts a number at the end of the stack. */
 		bool insert(var value);
@@ -1736,7 +2106,7 @@ namespace ScriptingObjects
 		WeakReference<ConstScriptingObject> connectedPanel;
 
 		bool sequenceValid() const { return getPlayer() != nullptr && getSequence() != nullptr; }
-		HiseMidiSequence* getSequence() const { return getPlayer()->getCurrentSequence(); }
+		HiseMidiSequence::Ptr getSequence() const { return getPlayer()->getCurrentSequence(); }
 	};
 
 	

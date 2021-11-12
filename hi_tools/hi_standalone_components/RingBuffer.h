@@ -485,6 +485,14 @@ struct ModPlotter : public Component,
 		{
 			return new ModPlotter();
 		}
+
+		void transformReadBuffer(AudioSampleBuffer& b) override
+		{
+			if (transformFunction)
+				transformFunction(b.getWritePointer(0), b.getNumSamples());
+		}
+
+		std::function<void(float*, int)> transformFunction;
 	};
 
 	ModPlotter();
@@ -493,6 +501,7 @@ struct ModPlotter : public Component,
 	
 	Rectangle<int> getFixedBounds() const override { return { 0, 0, 256, 80 }; }
 
+	Colour getColourForAnalyserBase(int colourId) override;
 	
 
 	int getSamplesPerPixel(float rectangleWidth) const;
@@ -655,7 +664,7 @@ public:
 	struct Properties
 	{
 		WindowType window = BlackmannHarris;
-		Range<double> dbRange = { -70.0, 0.0 };
+		Range<double> dbRange = { -50.0, 0.0 };
 		Domain domain = Amplitude;
 		ConverterFunction freq2x;
 		ConverterFunction gain2y;
@@ -673,15 +682,11 @@ public:
 protected:
 
 	FFTDisplayBase()
-#if USE_IPP
-		:fftObject(IppFFT::DataType::RealFloat)
-#endif
 	{}
 
-#if USE_IPP
-	IppFFT fftObject;
-#endif
 
+    ScopedPointer<juce::dsp::FFT> fftObject;
+    
 	virtual double getSamplerate() const = 0;
 
 	virtual ~FFTDisplayBase() {};

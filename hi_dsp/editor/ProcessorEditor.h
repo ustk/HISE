@@ -55,12 +55,19 @@ class ProcessorEditorContainer : public Component,
 {
 public:
 
+	LambdaBroadcaster<Processor*, Processor*> rootBroadcaster;
+
 	ProcessorEditorContainer() {};
+
+	~ProcessorEditorContainer();
 
 	void processorDeleted(Processor* /*deletedProcessor*/) override
 	{
-		
+		if (deleteCallback)
+			deleteCallback();
 	}
+
+	std::function<void()> deleteCallback;
 
 	void updateChildEditorList(bool forceUpdate) override;
 
@@ -131,6 +138,12 @@ public:
 
 	};
 
+	static void deleteProcessorFromUI(Component* c, Processor* pToDelete);
+
+    static void createProcessorFromPopup(Component* editorIfPossible, Processor* parentChainProcessor, Processor* insertBeforeSibling);
+    
+	static void showContextMenu(Component* c, Processor* p);
+
 	bool isInterestedInDragSource(const SourceDetails &dragSourceDetails) override;
 
 	void itemDragEnter(const SourceDetails &dragSourceDetails) override;
@@ -145,6 +158,8 @@ public:
 	{
 		return ProcessorHelpers::getMarkdownLink(getProcessor());
 	}
+
+	
 
 	ProcessorEditorContainer *getRootContainer()
 	{

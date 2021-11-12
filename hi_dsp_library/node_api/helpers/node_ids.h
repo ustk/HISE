@@ -74,6 +74,8 @@ DECLARE_ID(MaxValue);
 DECLARE_ID(UpperLimit);
 DECLARE_ID(SkewFactor);
 DECLARE_ID(ShowParameters);
+DECLARE_ID(ShowClones);
+DECLARE_ID(DisplayedClones);
 DECLARE_ID(Bypassed);
 DECLARE_ID(SoulPatch);
 DECLARE_ID(Debug);
@@ -82,12 +84,12 @@ DECLARE_ID(Value);
 DECLARE_ID(ID);
 DECLARE_ID(Index);
 DECLARE_ID(NodeId);
+DECLARE_ID(NumClones);
 DECLARE_ID(ParameterId);
 DECLARE_ID(Type);
 DECLARE_ID(Folded);
 DECLARE_ID(FactoryPath);
 DECLARE_ID(Frozen);
-DECLARE_ID(NumChannels);
 DECLARE_ID(EmbeddedData);
 DECLARE_ID(SwitchTargets);
 DECLARE_ID(SwitchTarget);
@@ -129,11 +131,13 @@ DECLARE_ID(HasModeTemplateArgument);
 DECLARE_ID(ModeNamespaces);
 DECLARE_ID(IsOptionalSnexNode);
 DECLARE_ID(TemplateArgumentIsPolyphonic);
+DECLARE_ID(IsCloneCableNode);
 DECLARE_ID(IsRoutingNode);
 DECLARE_ID(IsPublicMod);
 DECLARE_ID(UseUnnormalisedModulation);
 DECLARE_ID(AllowPolyphonic);
 DECLARE_ID(AllowCompilation);
+DECLARE_ID(CompileChannelAmount);
 
 
 struct Helpers
@@ -150,10 +154,10 @@ struct Helpers
 			StepSize,
 			Inverted,
 			EmbeddedData,
-			NumChannels,
 			Automated,
 			AllowPolyphonic,
-			AllowCompilation
+			AllowCompilation,
+            CompileChannelAmount
 		};
 
 		return dIds;
@@ -171,10 +175,10 @@ struct Helpers
 		returnIfDefault(StepSize, 0.0);
 		returnIfDefault(Inverted, false);
 		returnIfDefault(EmbeddedData, -1);
-		returnIfDefault(NumChannels, 2);
 		returnIfDefault(Automated, false);
 		returnIfDefault(AllowCompilation, false);
 		returnIfDefault(AllowPolyphonic, false);
+        returnIfDefault(CompileChannelAmount, 2);
 
         return {};
 	}
@@ -225,6 +229,8 @@ struct Error
 		DeprecatedNode,
 		IllegalPolyphony,
 		IllegalBypassConnection,
+		CloneMismatch,
+		IllegalMod,
 		numErrorCodes
 	};
 

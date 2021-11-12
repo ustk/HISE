@@ -165,7 +165,7 @@ struct Node : public ReferenceCountedObject,
 
 	bool addOptionalModeTemplate()
 	{
-		if (readOnly)
+		if (readOnly || optionalModeWasAdded)
 			return false;
 
 		if (hasProperty(PropertyIds::HasModeTemplateArgument, false))
@@ -179,6 +179,8 @@ struct Node : public ReferenceCountedObject,
 				ud.addTemplateIntegerArgument("NV", true);
 
 			*this << ud;// fId.getChildId(cId).toString();
+
+			optionalModeWasAdded = true;
 
 			return true;
 		}
@@ -194,6 +196,7 @@ struct Node : public ReferenceCountedObject,
 	ValueTree nodeTree;
 
 	bool readOnly = false;
+	bool optionalModeWasAdded = false;
 };
 
 
@@ -203,6 +206,7 @@ struct Connection
 	{
 		Parameter,
 		Modulation,
+		CloneCable,
 		SwitchTargets,
 		SwitchTarget,
 		numCableTypes
@@ -236,10 +240,10 @@ struct Connection
 		if (RangeHelpers::isIdentity(targetRange))
 			return ConnectionType::Plain;
 
-		if (targetRange.skew != 1.0)
+		if (targetRange.rng.skew != 1.0)
 			return ConnectionType::RangeWithSkew;
 
-		if (targetRange.interval > 0.02)
+		if (targetRange.rng.interval > 0.02)
 			return ConnectionType::RangeWithStep;
 
 		return ConnectionType::Range;
@@ -251,17 +255,15 @@ struct Connection
 		auto sameExpression = expressionCode.compare(other.expressionCode) == 0;
 		auto sameIndex = index == other.index;
 		auto sameN = n == other.n;
-		auto sameInv = inverted == other.inverted;
 
-		return sameRange && sameExpression && sameIndex && sameN && sameInv;
+		return sameRange && sameExpression && sameIndex && sameN;
 	}
 
 	Node::Ptr n;
 	int index = -1;
 	CableType cableType = CableType::numCableTypes;
-	NormalisableRange<double> targetRange;
+	scriptnode::InvertableParameterRange targetRange;
 	String expressionCode;
-	bool inverted = false;
 };
 
 struct PooledRange : public ReferenceCountedObject
@@ -270,7 +272,7 @@ struct PooledRange : public ReferenceCountedObject
 		id(s)
 	{};
 
-	bool operator==(const NormalisableRange<double>& r) const
+	bool operator==(const scriptnode::InvertableParameterRange& r) const
 	{
 		return RangeHelpers::isEqual(c.targetRange, r);
 	}
@@ -516,6 +518,24 @@ struct ValueTreeBuilder: public Base
 		Result r;
 		String code;
 	};
+    
+    struct ScopedChannelSetter
+    {
+        ScopedChannelSetter(ValueTreeBuilder& vtb_, int numChannels):
+          vtb(vtb_),
+          prevNumChannels(vtb_.numChannelsToCompile)
+        {
+            jassert(numChannels <= vtb.numChannelsToCompile);
+            vtb.numChannelsToCompile = numChannels;
+        }
+        ~ScopedChannelSetter()
+        {
+            vtb.numChannelsToCompile = prevNumChannels;
+        }
+        
+        ValueTreeBuilder& vtb;
+        int prevNumChannels;
+    };
 
 	enum class Format
 	{
@@ -538,8 +558,14 @@ struct ValueTreeBuilder: public Base
 		Base(Base::OutputType::AddTabs),
 		v(data),
 		outputFormat(Format::CppDynamicLibrary),
-		r(Result::ok())
+		r(Result::ok()),
+        numChannelsToCompile((int)v.getParent()[PropertyIds::CompileChannelAmount])
 	{
+		if (numChannelsToCompile == 0)
+			numChannelsToCompile = 2;
+
+		// The channel amount will not work otherwise...
+		jassert(v.getParent().isValid());
 		setHeaderForFormat();
 	}
 
@@ -549,6 +575,7 @@ struct ValueTreeBuilder: public Base
 
 		BuildResult br;
 		br.r = r;
+
 
 		if (r.wasOk())
 			br.code = getCurrentCode();
@@ -767,7 +794,9 @@ private:
 	
 	Node::Ptr parseContainer(Node::Ptr u);
 
-	void emitRangeDefinition(const Identifier& rangeId, NormalisableRange<double> r);
+	Node::Ptr parseCloneContainer(Node::Ptr u);
+
+	void emitRangeDefinition(const Identifier& rangeId, InvertableParameterRange r);
 
 	void parseContainerChildren(Node::Ptr container);
 	void parseContainerParameters(Node::Ptr container);
@@ -809,6 +838,7 @@ private:
 	NamespacedIdentifier getNodeVariable(const ValueTree& n);
 
 	ValueTree v;
+    int numChannelsToCompile;
 };
 
 

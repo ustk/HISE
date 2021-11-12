@@ -41,6 +41,19 @@ class FloatingTilePopup: public Component,
 {
 public:
 
+	enum class RectangleType
+	{
+		FullBounds,
+		BoxPath,
+		Title,
+		CloseButton,
+		ContentBounds
+	};
+
+	
+
+	Rectangle<int> getRectangle(RectangleType t) const;
+
 	enum class ColourIds
 	{
 		backgroundColourId = 0,
@@ -59,6 +72,17 @@ public:
 		return content != nullptr && content->getName().containsNonWhitespaceChars();
 	}
 
+    bool keyPressed(const KeyPress& k) override
+    {
+        if(k == KeyPress::escapeKey)
+        {
+            deleteAndClose();
+            return true;
+        }
+        
+        return false;
+    }
+    
 	void resized();
 
 	void deleteAndClose();
@@ -83,13 +107,76 @@ public:
 
 	Component* getAttachedComponent() const { return attachedComponent.getComponent(); }
 
+	void mouseDrag(const MouseEvent& e) override;
+
+	void mouseUp(const MouseEvent& e) override
+	{
+		dragging = false;
+	}
+
+	void mouseDown(const MouseEvent& e) override;
+
+	void rebuildBoxPath();
+
+	void addFixComponent(Component* c);
+
+    std::function<void(bool)> onDetach;
+    
+	bool skipToggle = false;
+
+	Component* getTrueContent();
+
+	template <typename ComponentType> ComponentType* getContent()
+	{
+		if(auto c = dynamic_cast<ComponentType*>(getTrueContent()))
+			return c;
+
+		return nullptr;
+	}
+
 private:
 
+	
+
+	bool dragging = false;
+	ComponentDragger dragger;
+
+	juce::ComponentBoundsConstrainer constrainer;
+
+	struct Factory : public PathFactory
+	{
+		Path createPath(const String& url) const override;
+	} factory;
+
+	struct CloseButton : public Button
+	{
+		CloseButton() :
+			Button("closeButton")
+		{};
+
+		void paintButton(Graphics& g, bool over, bool down) override;
+
+		void resized() override;
+
+		Path p;
+	};
+
+    
+    
+    PostGraphicsRenderer::DataStack stack;
+    
+    Path boxPath;
+	Image shadowImage;
+    
 	Component::SafePointer<Component> attachedComponent;
 	Point<int> localPointInComponent;
 
 	ScopedPointer<Component> content;
-	ScopedPointer<ImageButton> closeButton;
+	ScopedPointer<CloseButton> closeButton;
+    
+public:
+
+	HiseShapeButton moveButton;
 };
 
 
@@ -146,6 +233,7 @@ public:
 			Folded,
 			Visible,
 			ForceFoldButton,
+            ForceShowTitle,
 			MinSize,
 			numProperties
 		};
@@ -168,6 +256,7 @@ public:
 			case FloatingTile::LayoutData::LayoutDataIds::ForceFoldButton: return var(0);
 			case FloatingTile::LayoutData::LayoutDataIds::Visible: return var(true);
 			case FloatingTile::LayoutData::LayoutDataIds::MinSize: return var(-1);
+            case FloatingTile::LayoutData::LayoutDataIds::ForceShowTitle: return var(0);
 			default:
 				break;
 			}
@@ -205,6 +294,11 @@ public:
 			return foldState >= 0; 
 		}
 
+        int getForceTitleState() const
+        {
+            return getPropertyWithDefault(layoutDataObject, LayoutDataIds::ForceShowTitle);
+        }
+        
 		void setFoldState(int newFoldState)
 		{
 			storePropertyInObject(layoutDataObject, LayoutDataIds::Folded, newFoldState);
@@ -218,6 +312,12 @@ public:
 			return currentSize;
 		}
 
+        void setForceShowTitle(int shouldForceTitle)
+        {
+            storePropertyInObject(layoutDataObject, LayoutDataIds::ForceShowTitle, shouldForceTitle);
+            cachedValues.forceShowTitle = shouldForceTitle;
+        }
+        
 		void setCurrentSize(double newSize)
 		{
 			storePropertyInObject(layoutDataObject, LayoutDataIds::Size, newSize);
@@ -290,6 +390,7 @@ public:
 			int minSize = -1;
 			bool visible = true;
 			bool forceFoldButton = false;
+            int forceShowTitle = 0;
 
 			String id = "anonymous";
 		};
@@ -415,7 +516,7 @@ public:
 
 	FloatingTile(MainController* mc, FloatingTileContainer* parent, var data=var());
 
-	
+	void forEachDetachedPopup(const std::function<void(FloatingTilePopup* p)>& f);
 
 	~FloatingTile()
 	{
@@ -462,6 +563,8 @@ public:
 	bool isLayoutModeEnabled() const;;
 	bool canDoLayoutMode() const;
 
+    void ensureVisibility();
+    
 	ParentType getParentType() const;
 
 	const FloatingTileContainer* getParentContainer() const { return parentContainer; }
@@ -521,7 +624,11 @@ public:
 
 	void editJSON();
 
-	FloatingTilePopup* showComponentInRootPopup(Component* newComponent, Component* attachedComponent, Point<int> localPoint);
+	FloatingTilePopup* showComponentInRootPopup(Component* newComponent, Component* attachedComponent, Point<int> localPoint, bool wrapInViewport=false);
+
+	FloatingTilePopup* showComponentAsDetachedPopup(Component* newComponent, Component* attachedComponent, Point<int> localPoint, bool wrapInViewport = false);
+
+	Component* wrapInViewport(Component* c, bool shouldBeMaximised);
 
 	bool isRootPopupShown() const;
 
@@ -546,6 +653,11 @@ public:
 	void setCloseTogglesVisibility(bool shouldToggleVisibility)
 	{
 		closeTogglesVisibility = shouldToggleVisibility;
+	}
+
+	void setForceShowTitle(bool shouldShowTitle)
+	{
+        getLayoutData().setForceShowTitle(shouldShowTitle ? 2 : 1);
 	}
 
 	FloatingTileContent::Factory* getPanelFactory() { return &panelFactory; };
@@ -612,6 +724,45 @@ public:
 
 	bool isOnInterface() const { return interfaceFloatingTile; }
 
+	void removePopup(FloatingTilePopup* p)
+	{
+		if (currentPopup == p)
+		{
+			showComponentInRootPopup(nullptr, nullptr, {});
+		}
+		else
+		{
+			detachedPopups.removeObject(p);
+		}
+	}
+
+	void detachCurrentPopupAsync()
+	{
+		Component::SafePointer<FloatingTile> safeThis(this);
+
+		MessageManager::callAsync([safeThis]()
+		{
+			if (safeThis != nullptr)
+				safeThis->toggleDetachPopup(safeThis.getComponent()->currentPopup);
+		});
+	}
+
+	void toggleDetachPopup(FloatingTilePopup* p)
+	{
+		if (p == nullptr)
+			return;
+
+		if (currentPopup == p)
+		{
+			detachedPopups.add(currentPopup.release());
+		}
+		else
+		{
+			auto index = detachedPopups.indexOf(p);
+			currentPopup = detachedPopups.removeAndReturn(index);
+		}
+	}
+
 private:
 
 	bool interfaceFloatingTile = false;
@@ -658,6 +809,8 @@ private:
 
 	ScopedPointer<Component> content;
 
+	OwnedArray<FloatingTilePopup> detachedPopups;
+
 	ScopedPointer<FloatingTilePopup> currentPopup;
 
 
@@ -667,6 +820,8 @@ private:
 	FloatingTileContent::Factory panelFactory;
 
 	ScopedPointer<Component> overlayComponent;
+    
+    ZoomableViewport::Laf slaf;
 };
 
 #if USE_BACKEND
@@ -716,7 +871,7 @@ struct FloatingTileHelpers
 
 		while (auto t = iter.getNextPanel())
 		{
-			if (t->getParentShell()->getLayoutData().getID() == id)
+			if (t->getParentShell()->getLayoutData().getID() == id || id.isNull())
 				return t;
 		}
 

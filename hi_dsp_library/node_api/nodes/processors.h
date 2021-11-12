@@ -532,6 +532,13 @@ struct oversample_base
 	{
 		ScopedPointer<Oversampler> newOverSampler;
 
+        if(ps.voiceIndex != nullptr)
+        {
+            scriptnode::Error e;
+            e.error = Error::IllegalPolyphony;
+            throw e;
+        }
+        
 		auto originalBlockSize = ps.blockSize;
 
 		ps.sampleRate *= (double)oversamplingFactor;
@@ -1099,7 +1106,7 @@ private:
 };
 
 
-template <typename T> struct illegal_poly
+template <typename T> struct illegal_poly: public scriptnode::data::base
 {
 	SN_GET_SELF_AS_OBJECT(illegal_poly);
 
@@ -1114,6 +1121,12 @@ template <typename T> struct illegal_poly
 		throw e;
 	}
 
+    void setExternalData(const ExternalData& d, int index) override
+    {
+        if constexpr (prototypes::check::setExternalData<T>::value)
+            obj.setExternalData(d, index);
+    }
+    
 	SN_DESCRIPTION("(not available in a poly network)");
 
 	HISE_EMPTY_PROCESS;
@@ -1175,7 +1188,7 @@ template <class T> struct node : public scriptnode::data::base
 	template <int P> static void setParameterStatic(void* ptr, double v)
 	{
 		auto* objPtr = &static_cast<node*>(ptr)->obj;
-		T::setParameter<P>(objPtr, v);
+		T::template setParameterStatic<P>(objPtr, v);
 	}
 
 	PARAMETER_MEMBER_FUNCTION;
@@ -1270,10 +1283,24 @@ template <class T> struct node : public scriptnode::data::base
 using namespace snex;
 using namespace Types;
 
-template <typename T, int NumDuplicates=16>	  using duplichain = duplicate_base<T, options::no, options::yes, NumDuplicates>;
-template <typename T, int NumDuplicates = 16> using duplisplit = duplicate_base<T, options::yes, options::yes, NumDuplicates>;
-template <typename T, int NumDuplicates>	  using fix_duplichain = duplicate_base<T, options::no, options::no, NumDuplicates>;
-template <typename T, int NumDuplicates>	  using fix_duplisplit = duplicate_base<T, options::yes, options::no, NumDuplicates>;
+template <typename T, int NumDuplicates>
+using clonechain = clone_base<clone_data<T, options::yes, NumDuplicates>, CloneProcessType::Serial>;
+
+template <typename T, int NumDuplicates>
+using clonesplit = clone_base<clone_data<T, options::yes, NumDuplicates>, CloneProcessType::Parallel>;
+
+template <typename T, int NumDuplicates>
+using clonecopy = clone_base<clone_data<T, options::yes, NumDuplicates>, CloneProcessType::Copy>;
+
+template <typename T, int NumDuplicates>
+using fix_clonechain = clone_base<clone_data<T, options::no, NumDuplicates>, CloneProcessType::Serial>;
+
+template <typename T, int NumDuplicates>
+using fix_clonesplit = clone_base<clone_data<T, options::no, NumDuplicates>, CloneProcessType::Parallel>;
+
+template <typename T, int NumDuplicates>
+using fix_clonecopy = clone_base<clone_data<T, options::no, NumDuplicates>, CloneProcessType::Copy>;
+
 
 }
 

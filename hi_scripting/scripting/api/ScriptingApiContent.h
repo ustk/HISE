@@ -186,6 +186,50 @@ private:
     JUCE_DECLARE_WEAK_REFERENCEABLE(ValueTreeUpdateWatcher);
 };
 
+
+class ScriptComponentPropertyTypeSelector
+{
+public:
+
+	struct SliderRange
+	{
+		double min, max, interval;
+	};
+
+	enum SelectorTypes
+	{
+		ToggleSelector = 0,
+		ColourPickerSelector,
+		SliderSelector,
+		ChoiceSelector,
+		MultilineSelector,
+		TextSelector,
+		FileSelector,
+		CodeSelector,
+		numSelectorTypes
+	};
+
+	SelectorTypes getTypeForId(const Identifier &id) const;
+
+	void addToTypeSelector(SelectorTypes type, Identifier id, double min = 0.0, double max = 1.0, double interval = 0.01);
+
+	SliderRange getRangeForId(const Identifier &id) const
+	{
+		return sliderRanges[id.toString()];
+	}
+
+private:
+
+	Array<Identifier> toggleProperties;
+	Array<Identifier> sliderProperties;
+	Array<Identifier> colourProperties;
+	Array<Identifier> choiceProperties;
+	Array<Identifier> multilineProperties;
+	Array<Identifier> fileProperties;
+	Array<Identifier> codeProperties;
+	HashMap<String, SliderRange> sliderRanges;
+};
+
 /** This is the interface area that can be filled with buttons, knobs, etc.
 *	@ingroup scriptingApi
 *
@@ -698,6 +742,10 @@ public:
 		
 		bool removePropertyIfDefault = true;
 
+#if USE_BACKEND
+		juce::SharedResourcePointer<hise::ScriptComponentPropertyTypeSelector> selectorTypes;
+#endif
+
 	private:
 
 		WeakCallbackHolder keyboardCallback;
@@ -1178,7 +1226,7 @@ public:
 
 		ComplexDataUIBase* getCachedDataObject() const { return cachedObjectReference.get(); };
 
-		void registerComplexDataObjectAtParent(int index = -1);
+		var registerComplexDataObjectAtParent(int index = -1);
 
 	protected:
 
@@ -1249,8 +1297,8 @@ public:
 		/** Connects it to a table data object (or UI element in the same interface). */
 		void referToData(var tableData);
 
-		/** Registers this table with the given index so you can use it from the outside. */
-		void registerAtParent(int index);
+		/** Registers this table (and returns a reference to the data) with the given index so you can use it from the outside. */
+		var registerAtParent(int index);
 
 		// ========================================================================================================
 
@@ -1326,6 +1374,9 @@ public:
 		/** Sets a non-uniform width per slider using an array in the form [0.0, ... a[i], ... 1.0]. */
 		void setWidthArray(var normalizedWidths);
         
+		/** Registers this sliderpack to the script processor to be acessible from the outside. */
+		var registerAtParent(int pIndex);
+
 		// ========================================================================================================
 
 		struct Wrapper;
@@ -1354,6 +1405,7 @@ public:
 			showLines,
 			showFileName,
 			sampleIndex,
+			enableRange,
 			numProperties
 		};
 
@@ -1370,6 +1422,22 @@ public:
 		virtual Identifier 	getObjectName() const override { return getStaticObjectName(); };
 		ScriptCreatedComponentWrapper *createComponentWrapper(ScriptContentComponent *content, int index) override;
 
+		// ======================================================================================================== API Methods
+
+		/** Connects this AudioFile to an existing ScriptAudioFile object. */
+		void referToData(var audioData);
+
+		/** Returns the current range start. */
+		int getRangeStart();
+
+		/** Returns the current range end. */
+		int getRangeEnd();
+
+		/** Registers this waveform to the script processor to be acessible from the outside. */
+		var registerAtParent(int pIndex);
+
+		// ========================================================================================================
+
 		void handleDefaultDeactivatedProperties() override;
 
 		void resetValueToDefault() override;
@@ -1383,6 +1451,8 @@ public:
 		// ========================================================================================================
 
 	private:
+
+		struct Wrapper;
 
 		MultiChannelAudioBuffer* getCachedAudioFile() { return static_cast<MultiChannelAudioBuffer*>(getCachedDataObject()); };
 		const MultiChannelAudioBuffer* getCachedAudioFile() const { return static_cast<const MultiChannelAudioBuffer*>(getCachedDataObject()); };
@@ -1843,6 +1913,8 @@ public:
 			scrollbarThickness = ScriptComponent::numProperties,
 			autoHide,
 			useList,
+			viewPositionX,
+			viewPositionY,
 			Items,
 			FontName,
 			FontSize,
@@ -1871,10 +1943,11 @@ public:
 
 		Array<PropertyWithValue> getLinkProperties() const override;
 
+		LambdaBroadcaster<double, double> positionBroadcaster;
+
 	private:
 
 		StringArray currentItems;
-
 
 		JUCE_DECLARE_WEAK_REFERENCEABLE(ScriptedViewport);
 	};
@@ -2157,7 +2230,7 @@ public:
 	bool isEmpty();
 	int getNumComponents() const noexcept{ return components.size(); };
 	ScriptComponent *getComponent(int index);
-	const ScriptComponent *getComponent(int index) const { return components[index]; };
+	const ScriptComponent *getComponent(int index) const { return components[index].get(); };
 	ScriptComponent * getComponentWithName(const Identifier &componentName);
 	const ScriptComponent * getComponentWithName(const Identifier &componentName) const;
 	int getComponentIndex(const Identifier &componentName) const;

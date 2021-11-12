@@ -547,6 +547,8 @@ struct DspNetworkPathFactory : public PathFactory
 };
 
 
+
+
 class DspNetworkGraph : public Component,
 	public AsyncUpdater,
 	public DspNetwork::SelectionListener
@@ -564,8 +566,11 @@ public:
 
 		~ActionButton()
 		{
-			if (parent.getComponent() != nullptr)
-				parent.getComponent()->network->removeSelectionListener(this);
+			if (auto pc = parent.getComponent())
+            {
+                if(pc->network != nullptr)
+                    pc->network->removeSelectionListener(this);
+            }
 		}
 
 
@@ -736,6 +741,10 @@ public:
 
 		static bool toggleProbe(DspNetworkGraph& g);
 		static bool setRandomColour(DspNetworkGraph& g);
+        
+		static bool toggleDebug(DspNetworkGraph& g);
+
+        static bool eject(DspNetworkGraph& g);
 
 		static bool copyToClipboard(DspNetworkGraph& g);
 		static bool toggleCableDisplay(DspNetworkGraph& g);
@@ -752,6 +761,9 @@ public:
 		static bool undo(DspNetworkGraph& g);
 		static bool redo(DspNetworkGraph& g);
 
+        static bool exportAsSnippet(DspNetworkGraph& g);
+        static bool save(DspNetworkGraph& g);
+        
 		static bool addBookMark(DspNetworkGraph& g);
 
 		static bool zoomIn(DspNetworkGraph& g);
@@ -782,11 +794,19 @@ public:
 		{
 			auto child = c->getChildComponent(i);
 
-			if (!child->isShowing())
-				continue;
-
 			if (auto typed = dynamic_cast<T*>(child))
 			{
+				bool isShowing = child->isVisible();
+				Component* c = child;
+				while (c != nullptr && isShowing)
+				{
+					isShowing &= c->isVisible();
+					c = c->getParentComponent();
+				}
+
+				if (!isShowing)
+					continue;
+
 				list.add(typed);
 			}
 
@@ -804,7 +824,7 @@ public:
 
 		if (!probeSelectionEnabled && !ft->isRootPopupShown())
 		{
-			DynamicObject::Ptr obj = new DynamicObject();
+			auto obj = new DynamicObject();
 			
 			auto l = network->getListOfProbedParameters();
 

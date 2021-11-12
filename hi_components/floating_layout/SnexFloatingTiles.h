@@ -152,7 +152,7 @@ template <typename C> struct SnexWorkbenchPanel : public FloatingTileContent,
 
 		if (wb != nullptr)
 		{
-			content = new C(wb);
+			content = new C(wb.get());
 			auto asComponent = static_cast<Component*>(content.get());
 
 			asComponent->setLookAndFeel(&getMainController()->getGlobalLookAndFeel());
@@ -197,6 +197,9 @@ struct SnexEditorPanel : public Component,
 
 	void workbenchChanged(Ptr newWorkbench) override
 	{
+		if (newWorkbench != nullptr && newWorkbench->getCodeProvider()->providesCode())
+			return;
+
 		setWorkbenchData(newWorkbench);
 	}
 
@@ -205,13 +208,17 @@ struct SnexEditorPanel : public Component,
 		if (wb != nullptr)
 			wb->removeListener(this);
 
-		wb = newWorkbench;
+		wb = newWorkbench.get();
 
 		if (wb != nullptr)
 		{
-			addAndMakeVisible(playground = new snex::jit::SnexPlayground(newWorkbench, false));
+			addAndMakeVisible(playground = new snex::jit::SnexPlayground(newWorkbench.get(), false));
 			wb->addListener(this);
 		}
+        else
+        {
+            playground = nullptr;
+        }
 
 		resized();
 	}

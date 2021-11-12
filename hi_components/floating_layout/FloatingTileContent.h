@@ -581,16 +581,8 @@ public:
 	}
 
 	/** This returns the title that is supposed to be displayed. */
-	String getBestTitle() const
-	{
-		if (hasDynamicTitle())
-			return getDynamicTitle();
-
-		if (hasCustomTitle())
-			return getCustomTitle();
-
-		return getTitle();
-	}
+    String getBestTitle() const;
+	
 
 	BackendProcessorEditor* getMainPanel();
 
@@ -684,6 +676,7 @@ public:
 			SnexWorkbenchInfo,
 			SnexTestDataInfo,
 			SnexComplexTestData,
+			SnexWorkbenchPlayer,
 			MenuCommandOffset = 10000,
 			numOptions
 		};
@@ -814,8 +807,8 @@ private:
 		{
 			for (int i = 0; i < (int)ColourId::numColourIds; i++)
 			{
-				colours[i] = Colours::pink;
-				defaultColours[i] = Colours::pink;
+				colours[i] = Colours::transparentBlack;
+				defaultColours[i] = Colours::transparentBlack;
 			}	
 		}
 
@@ -882,7 +875,7 @@ private:
 
 		var toDynamicObject() const override
 		{
-			DynamicObject::Ptr o = new DynamicObject();
+			auto o = new DynamicObject();
 
 			var obj(o);
 
@@ -985,6 +978,9 @@ struct FloatingPanelTemplates
 	static Component* createScriptingWorkspace(FloatingTile* root);
 
 	static Component* createSamplerWorkspace(FloatingTile* root);
+
+	static Component* createCodeEditorPanel(FloatingTile* root);
+	static Component* createScriptnodeEditorPanel(FloatingTile* root);
 
 	static var createSettingsWindow(MainController* mc);
 

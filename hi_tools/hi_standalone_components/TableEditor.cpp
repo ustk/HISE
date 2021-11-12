@@ -45,7 +45,8 @@ TableEditor::TableEditor(UndoManager* undoManager_, Table *tableToBeEdited):
 	else
 		setEditedTable(&dummyTable);
 
-	
+	setSpecialLookAndFeel(&defaultLaf, false);
+
 	setEnablePaintProfiling("TableEditor");
 
     // MUST BE SET!
@@ -114,6 +115,8 @@ int TableEditor::snapXValueToGrid(int x) const
 
 void TableEditor::mouseWheelMove(const MouseEvent &e, const MouseWheelDetails &wheel)
 {
+	return;
+
 	MouseEvent parentEvent = e.getEventRelativeTo(this);
 	int x = parentEvent.getMouseDownPosition().getX();
 	int y = parentEvent.getMouseDownPosition().getY();
@@ -355,6 +358,9 @@ void TableEditor::mouseDown(const MouseEvent &e)
 {
 	if (!isEnabled()) return;
 
+	if (e.mods.isAltDown())
+		return;
+
 	grabCopyAndPasteFocus();
 
 	MouseEvent parentEvent = e.getEventRelativeTo(this);
@@ -467,9 +473,12 @@ void TableEditor::mouseDoubleClick(const MouseEvent& e)
 	repaint();
 }
 
-void TableEditor::mouseUp(const MouseEvent &)
+void TableEditor::mouseUp(const MouseEvent& e)
 {	
 	if (!isEnabled()) return;
+
+	if (e.mods.isAltDown())
+		return;
 
 	closeTouchOverlay();
 
@@ -491,6 +500,9 @@ void TableEditor::mouseUp(const MouseEvent &)
 void TableEditor::mouseDrag(const MouseEvent &e)
 {
 	if (!isEnabled()) return;
+
+	if (e.mods.isAltDown())
+		return;
 
 	MouseEvent parentEvent = e.getEventRelativeTo(this);
 
@@ -833,69 +845,73 @@ bool TableEditor::TableAction::undo()
 	return true;
 }
 
-void TableEditor::HiseTableLookAndFeel::drawTablePath(Graphics& g, TableEditor& te, Path& p, Rectangle<float> area, float )
+void TableEditor::LookAndFeelMethods::drawTablePath(Graphics& g, TableEditor& te, Path& p, Rectangle<float> area, float )
 {
-	g.setColour(Colours::lightgrey.withAlpha(0.1f));
-	g.drawRect(area, 1);
+    if(te.useFlatDesign)
+    {
+        g.setColour(te.findColour(ColourIds::bgColour));
+        g.fillAll();
 
-	GlobalHiseLookAndFeel::fillPathHiStyle(g, p, area.getWidth(), area.getHeight());
+        g.setColour(te.findColour(ColourIds::fillColour));
+        g.fillPath(p);
+        g.setColour(te.findColour(ColourIds::lineColour));
+        g.strokePath(p, PathStrokeType(te.lineThickness));
+    }
+    else
+    {
+        g.setColour(Colours::lightgrey.withAlpha(0.1f));
+        g.drawRect(area, 1);
+
+        GlobalHiseLookAndFeel::fillPathHiStyle(g, p, area.getWidth(), area.getHeight());
+    }
 }
 
-void TableEditor::HiseTableLookAndFeel::drawTablePoint(Graphics& g, TableEditor& te, Rectangle<float> tablePoint, bool isEdge, bool isHover, bool isDragged)
+void TableEditor::LookAndFeelMethods::drawTablePoint(Graphics& g, TableEditor& te, Rectangle<float> tablePoint, bool isEdge, bool isHover, bool isDragged)
 {
-	const float width = (float)tablePoint.getWidth() - 6.0f;
-	const float round = width * 0.2f;
-
-	if (isEdge)
-	{
-		g.setColour(Colours::white.withAlpha(0.3f));
-		g.drawRoundedRectangle(3.0f, 3.0f, width, width, round, isHover ? 2.0f : 1.0f);
-		g.setColour(Colours::white.withAlpha(0.2f));
-		g.fillRoundedRectangle(3.0f, 3.0f, width, width, round);
-	}
-	else
-	{
-		g.setColour(Colours::white.withAlpha(0.3f));
-		g.drawRoundedRectangle(3.0f, 3.0f, width, width, round, isHover ? 2.0f : 1.0f);
-		g.setColour(Colours::white.withAlpha(0.2f));
-		g.fillRoundedRectangle(3.0f, 3.0f, width, width, round);
-	}
+    const float width = (float)tablePoint.getWidth() - 6.0f;
+    const float round = width * 0.2f;
+    
+    if(te.useFlatDesign)
+    {
+        g.setColour(te.findColour(TableEditor::ColourIds::lineColour));
+        g.fillRoundedRectangle(tablePoint.reduced(3.0f), round);
+    }
+    else
+    {
+        if (isEdge)
+        {
+            g.setColour(Colours::white.withAlpha(0.3f));
+            g.drawRoundedRectangle(3.0f, 3.0f, width, width, round, isHover ? 2.0f : 1.0f);
+            g.setColour(Colours::white.withAlpha(0.2f));
+            g.fillRoundedRectangle(3.0f, 3.0f, width, width, round);
+        }
+        else
+        {
+            g.setColour(Colours::white.withAlpha(0.3f));
+            g.drawRoundedRectangle(3.0f, 3.0f, width, width, round, isHover ? 2.0f : 1.0f);
+            g.setColour(Colours::white.withAlpha(0.2f));
+            g.fillRoundedRectangle(3.0f, 3.0f, width, width, round);
+        }
+    }
+	
 }
 
-void TableEditor::HiseTableLookAndFeel::drawTableRuler(Graphics& g, TableEditor& te, Rectangle<float> area, float lineThickness, double rulerPosition)
+void TableEditor::LookAndFeelMethods::drawTableRuler(Graphics& g, TableEditor& te, Rectangle<float> area, float lineThickness, double rulerPosition)
 {
-	g.setColour(Colours::lightgrey.withAlpha(0.05f));
-	g.fillRect(jmax(0.0f, (float)rulerPosition * area.getWidth() - 5.0f), 0.0f, rulerPosition == 0.0f ? 5.0f : 10.0f, area.getHeight());
-	g.setColour(Colours::white.withAlpha(0.6f));
-	g.drawLine(Line<float>(rulerPosition * area.getWidth(), 0.0f, rulerPosition * area.getWidth(), area.getHeight()), 0.5f);
-}
+    if(te.useFlatDesign)
+    {
+        auto c = te.findColour(TableEditor::ColourIds::rulerColour);
 
-void TableEditor::FlatTableLookAndFeel::drawTablePath(Graphics& g, TableEditor& te, Path& p, Rectangle<float> area, float lineThickness)
-{
-	g.setColour(te.findColour(ColourIds::bgColour));
-	g.fillAll();
-
-	g.setColour(te.findColour(ColourIds::fillColour));
-	g.fillPath(p);
-	g.setColour(te.findColour(ColourIds::lineColour));
-	g.strokePath(p, PathStrokeType(lineThickness));
-}
-
-void TableEditor::FlatTableLookAndFeel::drawTablePoint(Graphics& g, TableEditor& te, Rectangle<float> tablePoint, bool isEdge, bool isHover, bool isDragged)
-{
-	const float width = (float)tablePoint.getWidth() - 6.0f;
-	const float round = width * 0.2f;
-
-	g.setColour(te.findColour(TableEditor::ColourIds::lineColour));
-	g.fillRoundedRectangle(tablePoint.reduced(3.0f), round);
-}
-
-void TableEditor::FlatTableLookAndFeel::drawTableRuler(Graphics& g, TableEditor& te, Rectangle<float> area, float lineThickness, double rulerPosition)
-{
-	auto c = te.findColour(TableEditor::ColourIds::rulerColour);
-
-	g.setColour(c);
-	g.drawLine(Line<float>((float)rulerPosition * area.getWidth(), 0.0f, (float)rulerPosition * area.getWidth(), area.getHeight()), lineThickness);
+        g.setColour(c);
+        g.drawLine(Line<float>((float)rulerPosition * area.getWidth(), 0.0f, (float)rulerPosition * area.getWidth(), area.getHeight()), lineThickness);
+    }
+    else
+    {
+        g.setColour(Colours::lightgrey.withAlpha(0.05f));
+        g.fillRect(jmax(0.0f, (float)rulerPosition * area.getWidth() - 5.0f), 0.0f, rulerPosition == 0.0f ? 5.0f : 10.0f, area.getHeight());
+        g.setColour(Colours::white.withAlpha(0.6f));
+        g.drawLine(Line<float>(rulerPosition * area.getWidth(), 0.0f, rulerPosition * area.getWidth(), area.getHeight()), 0.5f);
+    }
 }
 
 void FileNameValuePropertyComponent::MyFunkyFilenameComponent::updateFromTextEditor()

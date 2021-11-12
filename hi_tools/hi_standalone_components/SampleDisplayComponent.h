@@ -42,7 +42,7 @@ class ModulatorSamplerSound;
 
 class AudioDisplayComponent;
 
-#define EDGE_WIDTH 5
+#define EDGE_WIDTH 8
 
 #ifndef HISE_USE_SYMMETRIC_WAVEFORMS
 #define HISE_USE_SYMMETRIC_WAVEFORMS 0
@@ -50,9 +50,19 @@ class AudioDisplayComponent;
 
 
 class HiseAudioThumbnail: public Component,
-						  public AsyncUpdater
+						  public AsyncUpdater,
+                          public Spectrum2D::Holder
 {
 public:
+
+	using RectangleListType = RectangleList<int>;
+
+	enum class DisplayMode
+	{
+		SymmetricArea,
+		DownsampledCurve,
+		numDisplayModes
+	};
 
 	struct LookAndFeelMethods
 	{
@@ -60,8 +70,9 @@ public:
 
 		virtual void drawHiseThumbnailBackground(Graphics& g, HiseAudioThumbnail& th, bool areaIsEnabled, Rectangle<int> area);
 		virtual void drawHiseThumbnailPath(Graphics& g, HiseAudioThumbnail& th, bool areaIsEnabled, const Path& path);
-		virtual void drawHiseThumbnailRectList(Graphics& g, HiseAudioThumbnail& th, bool areaIsEnabled, const RectangleList<float>& rectList);
+		virtual void drawHiseThumbnailRectList(Graphics& g, HiseAudioThumbnail& th, bool areaIsEnabled, const RectangleListType& rectList);
 		virtual void drawTextOverlay(Graphics& g, HiseAudioThumbnail& th, const String& text, Rectangle<float> area);
+        virtual void drawThumbnailRange(Graphics& g, HiseAudioThumbnail& te, Rectangle<float> area, int areaIndex, Colour c, bool areaEnabled);
 	};
 
 	struct DefaultLookAndFeel : public LookAndFeel_V3,
@@ -107,10 +118,18 @@ public:
 
 	void setBuffer(var bufferL, var bufferR = var(), bool synchronously=false);
 
+	void fillAudioSampleBuffer(AudioSampleBuffer& b);
+
+	AudioSampleBuffer getBufferCopy(Range<int> sampleRange) const;
+
 	void paint(Graphics& g) override;
 
+    int getNextZero(int samplePos) const;
+    
 	void drawSection(Graphics &g, bool enabled);
 
+    
+    
 	double getTotalLength() const
 	{
 		return lengthInSeconds;
@@ -122,6 +141,27 @@ public:
 	{
 		scaleVertically = shouldScale;
 	};
+
+	void setDisplayGain(float gainToApply, NotificationType notify=sendNotification)
+	{
+		if (gainToApply != 1.0f)
+			scaleVertically = false;
+
+		if (gainToApply != displayGain)
+		{
+			displayGain = gainToApply;
+
+			switch (notify)
+			{
+			case sendNotification:
+			case sendNotificationSync: rebuildPaths(true);
+			case sendNotificationAsync: rebuildPaths(false);
+			default: break;
+			}
+		}
+	}
+
+	Spectrum2D::Parameters::Ptr getParameters() const override { return spectrumParameters; };
 
 	void setReader(AudioFormatReader* r, int64 actualNumSamples=-1);
 
@@ -138,6 +178,15 @@ public:
 			
 	}
 
+	void setDisplayMode(DisplayMode newDisplayMode)
+	{
+		if (newDisplayMode != displayMode)
+		{
+			displayMode = newDisplayMode;
+			rebuildPaths();
+		}
+	};
+
 	void setDrawHorizontalLines(bool shouldDrawHorizontalLines)
 	{
 		drawHorizontalLines = shouldDrawHorizontalLines;
@@ -149,9 +198,6 @@ public:
 		if (rebuildOnUpdate)
 		{
 			loadingThread.stopThread(-1);
-			
-			
-
 			loadingThread.startThread(5);
 				
 			repaint();
@@ -171,10 +217,43 @@ public:
 		rebuildOnResize = shouldRebuild;
 	}
 
+    void setSpectrumAndWaveformAlpha(float wAlpha, float sAlpha);
+    
 	void setRange(const int left, const int right);
+
+	bool isEmpty() const noexcept
+	{
+		return isClear || !lBuffer.isBuffer();
+	}
+
+	using AudioDataProcessor = LambdaBroadcaster<var, var>;
+
+	AudioDataProcessor& getAudioDataProcessor() { return sampleProcessor; };
+
+	float waveformAlpha = 1.0f;
+	float spectrumAlpha = 0.0f;
+
 private:
 
+	AudioDataProcessor sampleProcessor;
+
+	DisplayMode displayMode = DisplayMode::SymmetricArea;
+	AudioSampleBuffer downsampledValues;
+
+    bool useRectList = false;
+    
+	void createCurvePathForCurrentView(bool isLeft, Rectangle<int> area);
+
+    
+    
+	float applyDisplayGain(float value)
+	{
+		return jlimit(-1.0f, 1.0f, value * displayGain);
+	}
+
 	double sampleRate = 44100.0;
+
+	float displayGain = 1.0f;
 
 	bool scaleVertically = false;
 	bool rebuildOnResize = true;
@@ -224,13 +303,13 @@ private:
 
 		void run() override;;
 
-		void scalePathFromLevels(Path &lPath, RectangleList<float>& rects, Rectangle<float> bounds, const float* data, const int numSamples, bool scaleVertically);
+		void scalePathFromLevels(Path &lPath, RectangleListType& rects, Rectangle<float> bounds, const float* data, const int numSamples, bool scaleVertically);
 
-		void calculatePath(Path &p, float width, const float* l_, int numSamples, RectangleList<float>& rects);
+		void calculatePath(Path &p, float width, const float* l_, int numSamples, RectangleListType& rects, bool isLeft);
 
 	private:
 
-		
+        AudioSampleBuffer tempBuffer;
 
 		WeakReference<HiseAudioThumbnail> parent;
 
@@ -242,9 +321,15 @@ private:
 
 	LoadingThread loadingThread;
 
+	Spectrum2D::Parameters::Ptr spectrumParameters;
+
+	bool specDirty = true;
+
 	ScopedPointer<AudioFormatReader> currentReader;
 
 	ScopedPointer<ScrollBar> scrollBar;
+
+	AudioSampleBuffer ab;
 
 	var lBuffer;
 	var rBuffer;
@@ -254,12 +339,14 @@ private:
 
 	Path leftWaveform, rightWaveform;
 
-	RectangleList<float> leftPeaks, rightPeaks;
+	RectangleListType leftPeaks, rightPeaks;
 
 	int leftBound = -1;
 	int rightBound = -1;
 
 	double lengthInSeconds = 0.0;
+    
+    Image spectrum;
 };
 
 /** An AudioDisplayComponent displays the content of audio data and has some areas that can be dragged and send a change message on Mouse up
@@ -383,6 +470,8 @@ public:
 			repaint();
 		};
 
+        bool isAreaEnabled() const { return areaEnabled; }
+        
 		/** Returns the x-coordinate of the given sample within its parent.
 		*
 		*	If a SampleArea is a child of another SampleArea, you can still get the absolute x value by passing 'true'.a
@@ -446,7 +535,7 @@ public:
 		}
 
 		/** Returns the hardcoded colour depending on the AreaType. */
-		Colour getAreaColour() const;
+		static Colour getAreaColour(AreaTypes a);
 
 		bool leftEdgeClicked;
 
@@ -463,8 +552,15 @@ public:
 		ScopedPointer<AreaEdge> leftEdge;
 		ScopedPointer<AreaEdge> rightEdge;
 
+		void setReversed(bool isReversed)
+		{
+			reversed = isReversed;
+			repaint();
+		}
+
 	private:
 
+		bool reversed = false;
 		bool useConstrainer;
 
 		bool areaEnabled;
@@ -550,36 +646,7 @@ public:
 		list.remove(l);
 	}
 
-	void refreshSampleAreaBounds(SampleArea* areaToSkip=nullptr)
-	{
-		bool somethingVisible = getTotalSampleAmount() != 0;
-
-		for(int i=0; i < areas.size(); i++)
-		{
-			if(areas[i] == areaToSkip) continue;
-
-			areas[i]->setVisible(somethingVisible);
-
-			Range<int> sampleRange = areas[i]->getSampleRange();
-
-			const int x = areas[i]->getXForSample(sampleRange.getStart(), false);
-			const int right = areas[i]->getXForSample(sampleRange.getEnd(), false);
-
-			areas[i]->leftEdge->setTooltip(String(sampleRange.getStart()));
-			areas[i]->rightEdge->setTooltip(String(sampleRange.getEnd()));
-
-			if (i == 0)
-			{
-				preview->setRange(x, right);
-			}
-
-			areas[i]->setBounds(x,0,right-x, getHeight());
-		}
-
-		
-
-		repaint();
-	}
+	void refreshSampleAreaBounds(SampleArea* areaToSkip=nullptr);
 
 	/** Overwrite this method and update the ranges of all SampleAreas of the AudioDisplayComponent. 
 	*
@@ -604,9 +671,10 @@ public:
 		preview->setBounds(getLocalBounds());
 		preview->resized();
 		refreshSampleAreaBounds();
+		updateRanges();
 	}
 
-	virtual void paint(Graphics &g) override;
+	virtual void paintOverChildren(Graphics &g) override;
 
 	HiseAudioThumbnail* getThumbnail()
 	{
@@ -1000,7 +1068,7 @@ struct MultiChannelAudioBuffer : public ComplexDataUIBase
 		return {};
 	}
 	
-	void setProvider(DataProvider* p)
+	void setProvider(DataProvider::Ptr p)
 	{
 		provider = p;
 	}
@@ -1348,20 +1416,44 @@ public:
 		if (showLoop != shouldShowLoop)
 		{
 			showLoop = shouldShowLoop;
-			repaint();
+
+			WeakReference<Component> safeThis(this);
+
+			MessageManager::callAsync([safeThis]()
+			{
+				if (safeThis != nullptr)
+					safeThis->repaint();
+			});
 		}
 	}
 
 	void bufferWasLoaded() override
 	{
-		if (connectedBuffer != nullptr)
-			preview->setBufferAndSampleRate(connectedBuffer->sampleRate, connectedBuffer->getChannelBuffer(0, true), connectedBuffer->getChannelBuffer(1, true));
-		else
-			preview->setBuffer({}, {});
-		
-		setShowLoop(connectedBuffer != nullptr && connectedBuffer->getLoopRange() != connectedBuffer->getCurrentRange());
+		Component::SafePointer<MultiChannelAudioBufferDisplay> safeThis(this);
 
-		updateRanges(nullptr);
+		auto f = [safeThis]()
+		{
+			if (safeThis == nullptr)
+				return;
+
+			auto cb = safeThis.getComponent()->connectedBuffer;
+
+			if (cb != nullptr)
+				safeThis->preview->setBufferAndSampleRate(cb->sampleRate, cb->getChannelBuffer(0, true), cb->getChannelBuffer(1, true));
+			else
+				safeThis->preview->setBuffer({}, {});
+
+			auto shouldShowLoop = cb != nullptr && cb->getLoopRange() != cb->getCurrentRange();
+			safeThis->setShowLoop(shouldShowLoop);
+
+			safeThis->updateRanges(nullptr);
+		};
+
+		if (MessageManager::getInstanceWithoutCreating()->isThisTheMessageThread())
+			f();
+		else
+			MessageManager::callAsync(f);
+		
 	}
 
 	void bufferWasModified() override

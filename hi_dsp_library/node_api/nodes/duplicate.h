@@ -38,137 +38,72 @@ using namespace hise;
 using namespace snex;
 using namespace snex::Types;
 
-namespace duplilogic
+enum class CloneProcessType
 {
-
-struct spread
-{
-	double getValue(int index, int numUsed, double inputValue, double gamma)
-	{
-		if (numUsed == 1)
-			return 0.5;
-
-		auto n = (double)index / (double)(numUsed - 1) - 0.5;
-		
-		if (gamma != 0.0)
-		{
-			auto gn = hmath::sin(double_Pi * n);
-			gn *= 0.5;
-			n = gn * gamma + n * (1.0 - gamma);
-		}
-
-		n *= inputValue;
-
-		return n + 0.5;
-	}
+    Serial,   // Processes the clones serially with the original signal
+    Parallel, // Processes the clones with an empty input,
+              // then adds the output to the original signal
+    Copy,     // Copies the input signal, then processes each clone
+              // and adds the output to the original signal
+    Dynamic   // Allows a dynamic change for this module
 };
-
-struct triangle
-{
-	double getValue(int index, int numUsed, double inputValue, double gamma)
-	{
-		if (numUsed == 1)
-			return 1.0;
-
-		auto n = (double)index / (double)(numUsed - 1);
-
-		n = hmath::abs(n - 0.5) * 2.0;
-
-		if (gamma != 0.0)
-		{
-			auto gn = hmath::sin(n * double_Pi * 0.5);
-			gn *= gn;
-
-			n = gamma * gn + (1.0 - gamma) * n;
-		}
-
-		return 1.0 - inputValue * n;
-	}
-};
-
-
-
-struct harmonics
-{
-	double getValue(int index, int numUsed, double inputValue, double gamma)
-	{
-		return (double)(index + 1) * inputValue;
-	}
-};
-
-struct random
-{
-	Random r;
-
-	double getValue(int index, int numUsed, double inputValue, double gamma)
-	{
-		double n;
-
-		if (numUsed == 1)
-			n = 0.5f;
-		else
-			n = (double)index / (double)(numUsed - 1) ;
-
-		return jlimit(0.0, 1.0, n + (2.0 * r.nextDouble() - 1.0) * inputValue);
-	}
-};
-
-struct scale
-{
-	double getValue(int index, int numUsed, double inputValue, double gamma)
-	{
-		if (numUsed == 1)
-			return inputValue;
-
-		auto n = (double)index / (double)(numUsed - 1) * inputValue;
-
-		if (gamma != 1.0)
-			n = hmath::pow(n, 1.0 + gamma);
-
-		return n;
-	}
-};
-
-}
 
 namespace wrap
 {
 
-struct duplicate_sender
+struct clone_manager
 {
 	struct Listener
 	{
 		virtual ~Listener() {};
 
-		virtual void numVoicesChanged(int newNumVoices) = 0;
+		virtual void numClonesChanged(int newNumClones) = 0;
 
 		JUCE_DECLARE_WEAK_REFERENCEABLE(Listener);
 	};
 
-    virtual ~duplicate_sender() {};
+    virtual ~clone_manager()
+    {
+        SimpleReadWriteLock::ScopedWriteLock sl(getCloneResizeLock());
+        listeners.clear();
+    };
     
-	duplicate_sender(int initialVoiceAmount) :
-		numVoices(initialVoiceAmount)
+	clone_manager(int initialCloneAmount) :
+		numClones(initialCloneAmount)
 	{};
 
-	void addNumVoiceListener(Listener* l)
+	virtual void addNumClonesListener(Listener* l)
 	{
 		listeners.addIfNotAlreadyThere(l);
+		l->numClonesChanged(numClones);
 	}
 
-	void removeNumVoiceListener(Listener* l)
+	void removeNumClonesListener(Listener* l)
 	{
 		listeners.removeAllInstancesOf(l);
 	}
 
-	int getNumVoices() const { return numVoices; }
+	int getNumClones() const { return numClones; }
 
-	virtual void setVoiceAmount(int newNumVoices)
-	{
-		numVoices = newNumVoices;
-	}
+    virtual int getTotalNumClones() const = 0;
 
-	SimpleReadWriteLock& getVoiceLock() { return voiceMultiplyLock; }
+    void setNumClones(int newSize)
+    {
+        auto maxClones = getTotalNumClones();
+        
+        if(maxClones == 0)
+            return;
+        
+        newSize = jlimit(1, maxClones, newSize);
+        
+        if(getNumClones() != newSize)
+        {
+            numClones = newSize;
+            sendMessageToListeners();
+        }
+    }
+    
+	SimpleReadWriteLock& getCloneResizeLock() { return cloneResizeLock; }
 
 protected:
 
@@ -177,214 +112,230 @@ protected:
 		for (auto l : listeners)
 		{
 			if (l.get() != nullptr)
-				l->numVoicesChanged(numVoices);
+                l->numClonesChanged(numClones);
 		}
 	}
 
 private:
 
-	hise::SimpleReadWriteLock voiceMultiplyLock;
-	int numVoices = 1;
+    hise::SimpleReadWriteLock cloneResizeLock;
+	int numClones = 1;
 	Array<WeakReference<Listener>> listeners;
 
-	JUCE_DECLARE_WEAK_REFERENCEABLE(duplicate_sender);
+	JUCE_DECLARE_WEAK_REFERENCEABLE(clone_manager);
 };
 
 
 
-template <typename T> struct duplicate_node_reference
+template <typename T> struct cloned_node_reference
 {
 	using ObjectType = T;
 
-	duplicate_node_reference() = default;
+	cloned_node_reference() = default;
 
 	template <int P> auto get()
 	{
 		auto& o = firstObj->template get<P>();
         using TType = typename std::remove_reference<decltype(o)>::type;
-		duplicate_node_reference<TType> hn;
+		cloned_node_reference<TType> hn;
 
 		hn.firstObj = &o;
 		hn.objectDelta = objectDelta;
+        hn.cloneManager = cloneManager;
 		
 		return hn;
 	}
+    
+    template <int P> void setParameter(double v)
+    {
+        auto numVoices = cloneManager->getNumClones();
+        
+        auto obj = reinterpret_cast<uint64>(firstObj);
+        
+        for(int i = 0; i < numVoices; i++)
+        {
+            T::template setParameterStatic<P>(reinterpret_cast<void*>(obj), v);
+            obj += objectDelta;
+        }
+    }
+    
+	void setExternalData(const ExternalData& cd, int index)
+	{
+		auto numVoices = cloneManager->getTotalNumClones();
+
+		auto obj = reinterpret_cast<uint64>(firstObj);
+
+		for (int i = 0; i < numVoices; i++)
+		{
+			auto typed = reinterpret_cast<T*>(obj);
+			typed->setExternalData(cd, index);
+			obj += objectDelta;
+		}
+	}
 
 	T* firstObj = nullptr;
-	scriptnode::wrap::duplicate_sender* sender;
+	scriptnode::wrap::clone_manager* cloneManager;
 	size_t objectDelta = 0;
 };
 
-
-template <typename T, int AllowCopySignal, int AllowResizing, int NumDuplicates> struct duplicate_base : public duplicate_sender
+/** A compile time clone data for exported nodes */
+template <typename T, int AllowResizing, int NumClones> struct clone_data
 {
-	constexpr auto& getObject() { return *this; }
+    template <bool AllClones> struct Iterator
+    {
+        Iterator(clone_data& p):
+          parent(p)
+        {};
+        
+        T* begin() const
+        {
+            return const_cast<T*>(parent.data);
+        }
+        
+        T* end() const
+        {
+            if constexpr (!AllowResizing || AllClones)
+                return begin() + NumClones;
+            else
+                return begin() + parent.getNumClones();
+        }
+        
+        clone_data& parent;
+    };
+    
+    clone_data(clone_manager& m):
+      manager(m)
+    {
+        
+    }
+    
+    using ObjectType = T;
+    
+    static constexpr int getInitialCloneAmount() { return NumClones; };
+    
+    int getTotalNumClones() const { return getInitialCloneAmount(); }
+    
+    int getNumClones() const
+    {
+        if constexpr (!AllowResizing)
+            return NumClones;
+        
+        return jlimit(1, NumClones, manager.getNumClones());
+    }
+    
+private:
+    
+    clone_manager& manager;
+    T data[NumClones];
+};
+
+template <typename DataType, CloneProcessType ProcessType>
+    struct clone_base : public clone_manager
+{
+    using ActiveIterator = typename DataType::template Iterator<false>;
+    using AllIterator = typename DataType::template Iterator<true>;
+    
+    constexpr auto& getObject() { return *this; }
 	constexpr const auto& getObject() const { return *this; }
 
-	constexpr auto& getWrappedObject() { return *begin(); }
-	constexpr const auto& getWrappedObject() const { return *begin(); }
+	constexpr auto& getWrappedObject() { return *DataType::Iterator<false>(cloneData).begin(); }
+	constexpr const auto& getWrappedObject() const { return *DataType::Iterator<false>(cloneData).begin(); }
 
-	using ObjectType = duplicate_base;
-	using WrappedObjectType = typename T::WrappedObjectType;
+    static constexpr int NumChannels = DataType::ObjectType::NumChannels;
+    
+	using ObjectType = clone_base;
+	using WrappedObjectType = typename DataType::ObjectType::WrappedObjectType;
 
-	duplicate_base() :
-		duplicate_sender(AllowResizing ? 1 : NumDuplicates)
+	clone_base() :
+		clone_manager(DataType::getInitialCloneAmount()),
+        cloneData(*this)
 	{};
 
-	template <int P> static void setWrapParameterStatic(void* obj, double v)
+    ~clone_base()
+    {
+        
+    }
+    
+    CloneProcessType getProcessType() const
+    {
+        if constexpr (ProcessType != CloneProcessType::Dynamic)
+            return ProcessType;
+        else
+            return processType;
+    }
+    
+	void setCloneProcessType(double newType)
 	{
-		auto value = (int)v;
-		auto typed = static_cast<duplicate_base*>(obj);
-
-		if constexpr (P == 0)
-			typed->setVoiceAmount(value);
-		if constexpr (P == 1)
-			typed->setDuplicateSignal(v > 0.0);
-
-	}
-
-	void setDuplicateSignal(bool shouldDuplicateSignal)
-	{
-		static_assert(options::isDynamic(AllowCopySignal), "AllowCopySignal is not a dynamic property");
-
-		if (shouldDuplicateSignal != copySignal)
-		{
-			copySignal = shouldDuplicateSignal;
-			resetCopyBuffer();
-		}
+		if constexpr (ProcessType == CloneProcessType::Dynamic)
+        {
+            auto newProcessType = (CloneProcessType)(int)newType;
+            
+            if (newProcessType != processType)
+            {
+                processType = newProcessType;
+                resetCopyBuffer();
+            }
+        }
 	}
 
 	template <int P> static void setParameterStatic(void* obj, double v)
 	{
-		auto typed = static_cast<duplicate_base*>(obj);
+		auto typed = static_cast<clone_base*>(obj);
 
-		for (auto& e : *typed)
-			e.setParameterStatic<P>(v);
+		if constexpr (P == 0)
+			typed->setNumClones(v);
+		if constexpr (P == 1)
+			typed->setCloneProcessType(v);
 	}
 
 	PARAMETER_MEMBER_FUNCTION;
 
 	void initialise(NodeBase* n)
 	{
-		jassert(getNumVoices() == 1);
-		parentNode = n;
-
-		if constexpr (prototypes::check::initialise<T>::value)
-			begin()->initialise(parentNode);
+        if constexpr (prototypes::check::initialise<typename DataType::ObjectType>::value)
+        {
+            for(auto& o: AllIterator(cloneData))
+                o.initialise(n);
+        }
 	}
 
-	void refreshFromFirst()
-	{
-		SimpleReadWriteLock::ScopedWriteLock sl(getVoiceLock());
-
-		auto& first = *begin();
-
-		auto ptr = begin() + 1;
-
-		while (ptr != end())
-		{
-			*ptr = std::move(T(first));
-			ptr++;
-		}
-	}
-
-	void resize(int delta)
-	{
-		{
-			SimpleReadWriteLock::ScopedWriteLock sl(getVoiceLock());
-
-			auto ptr = end();
-
-			if (delta > 0)
-			{
-				for (int i = 0; i < delta; i++)
-				{
-					*ptr = *begin();
-
-                    if constexpr (scriptnode::prototypes::check::initialise<T>::value)
-					{
-						if (parentNode != nullptr)
-							ptr->initialise(parentNode);
-					}
-
-					ptr++;
-				}
-			}
-			if (delta < 0)
-			{
-				ptr--;
-
-				for (int i = 0; i < -delta; i++)
-				{
-					*ptr = T();
-					ptr--;
-				}
-			}
-		}
-	}
-
-	void setVoiceAmount(int numVoices)
-	{
-		// AllowResizing is not a dynamic property
-		jassert(AllowResizing);
-
-		numVoices = jlimit(1, NumDuplicates, numVoices);
-
-		auto delta = numVoices - getNumVoices();
-
-		if (delta != 0)
-			resize(delta);
-
-		duplicate_sender::setVoiceAmount(numVoices);
-
-		if (lastSpecs)
-			prepare(lastSpecs);
-
-		sendMessageToListeners();
-	}
-
-	bool shouldCopySignal() const
-	{
-		return options::isTrue(copySignal, AllowCopySignal);
-	}
+	int getTotalNumClones() const override { return cloneData.getTotalNumClones(); }
 
 	void resetCopyBuffer()
 	{
-		if (options::isTrueOrDynamic(AllowCopySignal))
-		{
-			SimpleReadWriteLock::ScopedWriteLock sl(getVoiceLock());
+        SimpleReadWriteLock::ScopedWriteLock sl(getCloneResizeLock());
 
-			if (shouldCopySignal())
-			{
-				FrameConverters::increaseBuffer(signalCopy, lastSpecs);
-				FrameConverters::increaseBuffer(workBuffer, lastSpecs);
-			}
-			else
-			{
-				signalCopy.setSize(0);
-				workBuffer.setSize(0);
-			}
-		}
+        auto pt = getProcessType();
+        
+        workBuffer.setSize(0);
+        originalBuffer.setSize(0);
+        
+        if (pt > CloneProcessType::Serial)
+            FrameConverters::increaseBuffer(workBuffer, lastSpecs);
+        
+        if(pt == CloneProcessType::Copy)
+            FrameConverters::increaseBuffer(originalBuffer, lastSpecs);
 	}
 
 	void prepare(PrepareSpecs ps)
 	{
 		lastSpecs = ps;
-
 		resetCopyBuffer();
 
-		if (auto sl = SimpleReadWriteLock::ScopedTryReadLock(getVoiceLock()))
-		{
-			for (auto& obj : *this)
-				obj.prepare(ps);
-		}
+        SimpleReadWriteLock::ScopedReadLock sl(getCloneResizeLock());
+        
+        for (auto& obj : AllIterator(cloneData))
+        {
+            obj.prepare(ps);
+            obj.reset();
+        }
 	}
 
 	void reset()
 	{
-		if (auto sl = SimpleReadWriteLock::ScopedTryReadLock(getVoiceLock()))
+		if (auto sl = SimpleReadWriteLock::ScopedTryReadLock(getCloneResizeLock()))
 		{
-			for (auto& obj : *this)
+			for (auto& obj : ActiveIterator(cloneData))
 				obj.reset();
 		}
 	}
@@ -393,27 +344,45 @@ template <typename T, int AllowCopySignal, int AllowResizing, int NumDuplicates>
 	{
 		static_assert(FrameDataType::hasCompileTimeSize(), "Can't use this with dynamic data");
 
-		if (auto sl = SimpleReadWriteLock::ScopedTryReadLock(getVoiceLock()))
+		if (auto sl = SimpleReadWriteLock::ScopedTryReadLock(getCloneResizeLock()))
 		{
-			if (shouldCopySignal() && getNumVoices() > 1)
-			{
-				FrameDataType work;
-				FrameDataType original = frameData;
-
-				data[0].processFrame(frameData);
-
-				for (int i = 1; i < getNumVoices(); i++)
-				{
-					work = original;
-					data[1].processFrame(work);
-					frameData += work;
-				}
-			}
-			else
-			{
-				for (auto& obj : *this)
-					obj.processFrame(frameData);
-			}
+            auto pt = getProcessType();
+            
+            switch(pt)
+            {
+                case CloneProcessType::Serial:
+                {
+                    for (auto& obj : ActiveIterator(cloneData))
+                        obj.processFrame(frameData);
+                    break;
+                }
+                case CloneProcessType::Parallel:
+                {
+                    for(auto& obj: ActiveIterator(cloneData))
+                    {
+                        FrameDataType work;
+                        obj.processFrame(work);
+                        frameData += work;
+                    }
+                    break;
+                }
+                case CloneProcessType::Copy:
+                {
+                    FrameDataType original = frameData;
+                    frameData = {};
+                    
+                    for(auto& obj: ActiveIterator(cloneData))
+                    {
+                        FrameDataType work = original;
+                        obj.processFrame(work);
+                        frameData += work;
+                    }
+                    break;
+                }
+                default:
+                    jassertfalse;
+                    break;
+            }
 		}
 	}
 
@@ -421,138 +390,156 @@ template <typename T, int AllowCopySignal, int AllowResizing, int NumDuplicates>
 	{
 		constexpr int NumChannels = P;
 
-		snex::Types::ProcessDataHelpers<NumChannels>::copyTo(d, signalCopy);
-
+        bool shouldCopy = getProcessType() == CloneProcessType::Copy;
+        
+        if(shouldCopy)
+        {
+            ProcessDataHelpers<NumChannels>::copyTo(d, originalBuffer);
+            
+            for(int i = 0; i < d.getNumChannels(); i++)
+                FloatVectorOperations::clear(d.getRawDataPointers()[i], d.getNumSamples());
+        }
+        
 		auto wcd = snex::Types::ProcessDataHelpers<NumChannels>::makeChannelData(workBuffer);
+        ProcessData<NumChannels> wd(wcd.begin(), d.getNumSamples());
+        wd.copyNonAudioDataFrom(d);
+        
+        auto dPtr = d.getRawDataPointers();
+        const auto wPtr = wd.getRawDataPointers();
+        
+        for(auto& obj: ActiveIterator(cloneData))
+        {
+            if(shouldCopy)
+                FloatVectorOperations::copy(workBuffer.begin(), originalBuffer.begin(), workBuffer.size());
+            else
+                FloatVectorOperations::clear(workBuffer.begin(), workBuffer.size());
+            
+            obj.process(wd);
 
-		ProcessData<NumChannels> wd(wcd.begin(), d.getNumSamples());
-		wd.copyNonAudioDataFrom(d);
-
-		data[0].process(d);
-
-		auto dPtr = d.getRawDataPointers();
-		const auto wPtr = wd.getRawDataPointers();
-
-		for (int i = 1; i < getNumVoices(); i++)
-		{
-			signalCopy.copyTo(workBuffer);
-			data[i].process(wd);
-
-			for (int i = 0; i < NumChannels; i++)
-				FloatVectorOperations::add(dPtr[i], wPtr[i], d.getNumSamples());
-		}
+            for (int i = 0; i < NumChannels; i++)
+                FloatVectorOperations::add(dPtr[i], wPtr[i], d.getNumSamples());
+        }
 	}
 
 	template <typename ProcessDataType> void process(ProcessDataType& d)
 	{
-		if (auto sl = SimpleReadWriteLock::ScopedTryReadLock(getVoiceLock()))
+		if (auto sl = SimpleReadWriteLock::ScopedTryReadLock(getCloneResizeLock()))
 		{
-			if (shouldCopySignal() && getNumVoices() > 1)
-			{
-				if constexpr (ProcessDataType::hasCompileTimeSize())
-				{
-					processSplitFix(d);
-				}
-				else
-				{
-					switch (d.getNumChannels())
-					{
-					case 1: processSplitFix(d.template as<ProcessData<1>>()); break;
-					case 2: processSplitFix(d.template as<ProcessData<2>>()); break;
-					case 3: processSplitFix(d.template as<ProcessData<3>>()); break;
-					case 4: processSplitFix(d.template as<ProcessData<4>>()); break;
-					case 6: processSplitFix(d.template as<ProcessData<6>>()); break;
-					case 8: processSplitFix(d.template as<ProcessData<8>>()); break;
-					case 16: processSplitFix(d.template as<ProcessData<16>>()); break;
-					}
-				}
-			}
-			else
-			{
-				for (auto& obj : *this)
-					obj.process(d);
-			}
+            auto pt = getProcessType();
+            
+            switch(pt)
+            {
+                case CloneProcessType::Serial:
+                {
+                    for (auto& obj : ActiveIterator(cloneData))
+                        obj.process(d);
+                    break;
+                }
+                case CloneProcessType::Parallel:
+                case CloneProcessType::Copy:
+                {
+                    if constexpr (ProcessDataType::hasCompileTimeSize())
+                    {
+                        processSplitFix(d);
+                    }
+                    else
+                    {
+                        switch (d.getNumChannels())
+                        {
+                        case 1: processSplitFix(d.template as<ProcessData<1>>()); break;
+                        case 2: processSplitFix(d.template as<ProcessData<2>>()); break;
+                        case 3: processSplitFix(d.template as<ProcessData<3>>()); break;
+                        case 4: processSplitFix(d.template as<ProcessData<4>>()); break;
+                        case 6: processSplitFix(d.template as<ProcessData<6>>()); break;
+                        case 8: processSplitFix(d.template as<ProcessData<8>>()); break;
+                        case 16: processSplitFix(d.template as<ProcessData<16>>()); break;
+                        default: jassertfalse;
+                        }
+                    }
+                    
+                    break;
+                }
+                default: jassertfalse;
+            }
 		}
 	}
 
 	void handleHiseEvent(HiseEvent& e)
 	{
-		if (auto sl = SimpleReadWriteLock::ScopedTryReadLock(getVoiceLock()))
+		if (auto sl = SimpleReadWriteLock::ScopedTryReadLock(getCloneResizeLock()))
 		{
-			for (auto& obj : *this)
+			for (auto& obj : ActiveIterator(cloneData))
 				obj.handleHiseEvent(e);
 		}
 	}
 
 	template <int P> auto get()
 	{
-		auto d = begin();
+        AllIterator it(cloneData);
+		auto d = it.begin();
 		auto& o = d->template get<P>();
 		using TType = typename std::remove_reference<decltype(o)>::type;
 
-		duplicate_node_reference<TType> hn;
+		cloned_node_reference<TType> hn;
 
-		hn.objectDelta = sizeof(T);
-		hn.sender = static_cast<duplicate_sender*>(this);
+        hn.objectDelta = sizeof(typename DataType::ObjectType);
+		hn.cloneManager = dynamic_cast<clone_manager*>(this);
 		hn.firstObj = &o;
 
 		return hn;
 	}
 
-	T* begin() const
-	{
-		return const_cast<T*>(data);
-	}
-
-	T* end() const
-	{
-		return begin() + (AllowResizing ? getNumVoices() : NumDuplicates);
-	}
-
-	T data[NumDuplicates];
+    DataType cloneData;
 	PrepareSpecs lastSpecs;
-	NodeBase* parentNode = nullptr;
-
-	heap<float> signalCopy, workBuffer;
-	bool copySignal;
+	
+	heap<float> workBuffer;
+    heap<float> originalBuffer;
+	CloneProcessType processType;
 };
 
 }
 
 namespace parameter
 {
-using SenderType = scriptnode::wrap::duplicate_sender;
+using SenderType = wrap::clone_manager;
 
-template <class ParameterClass> struct dupli
+template <class ParameterClass> struct cloned
 {
-	PARAMETER_SPECS(ParameterType::Dupli, 1);
+	PARAMETER_SPECS(ParameterType::Clone, 1);
 
 	ParameterClass p;
 
-	void call(int index, double v)
-	{
-		jassert(sender != nullptr);
-
-		jassert(isPositiveAndBelow(index, sender->getNumVoices()));
-
-		auto thisPtr = (uint8*)firstObj + index * objectDelta;
-
-		p.setObjPtr(thisPtr);
-		p.call(v);
-	}
-
-	int getNumVoices() const
-	{
-		jassert(sender != nullptr);
-		return sender->getNumVoices();
-	}
-
-	void setParentNumVoiceListener(SenderType::Listener* l)
+    ~cloned()
+    {
+        if(sender != nullptr && parentListener != nullptr)
+            sender->removeNumClonesListener(parentListener);
+    }
+    
+	void callEachClone(int index, double v)
 	{
 		if (sender != nullptr)
-			sender->addNumVoiceListener(l);
-		else
-			parentListener = l;
+		{
+			jassert(isPositiveAndBelow(index, sender->getNumClones()));
+
+			auto thisPtr = (uint8*)firstObj + index * objectDelta;
+
+			p.setObjPtr(thisPtr);
+			p.call(v);
+		}
+	}
+
+	int getNumClones() const
+	{
+		jassert(sender != nullptr);
+		return sender->getNumClones();
+	}
+
+	void setParentNumClonesListener(SenderType::Listener* l)
+	{
+        parentListener = l;
+        
+		if (sender != nullptr)
+			sender->addNumClonesListener(l);
 	}
 
 	template <int Unused> auto& getParameter()
@@ -560,27 +547,31 @@ template <class ParameterClass> struct dupli
 		return *this;
 	}
 
-	template <int P, typename DupliRefType> void connect(DupliRefType& t)
+	template <int P, typename CloneRefType> void connect(CloneRefType& t)
 	{
-		sender = t.sender;
+        static_assert(std::is_same<typename CloneRefType::ObjectType, typename ParameterClass::TargetType>(), "class mismatch");
+        
+		sender = t.cloneManager;
 		objectDelta = t.objectDelta;
 		firstObj = t.firstObj;
 
+        jassert(sender != nullptr);
+        
 		if (parentListener != nullptr)
-			sender->addNumVoiceListener(parentListener);
+			sender->addNumClonesListener(parentListener);
 	}
 
-	SenderType* sender = nullptr;
+	WeakReference<SenderType> sender = nullptr;
 	void* firstObj = nullptr;
 	size_t objectDelta;
-	SenderType::Listener* parentListener = nullptr;
+	WeakReference<SenderType::Listener> parentListener = nullptr;
 };
 
-template <class... DupliParameters> struct duplichain : public advanced_tuple<DupliParameters...>
+template <class... CloneParameters> struct clonechain : public advanced_tuple<CloneParameters...>
 {
-	using Type = advanced_tuple<DupliParameters...>;
+	using Type = advanced_tuple<CloneParameters...>;
 
-	PARAMETER_SPECS(ParameterType::DupliChain, 1);
+	PARAMETER_SPECS(ParameterType::CloneChain, 1);
 
 	template <int P> auto& getParameter()
 	{
@@ -589,28 +580,28 @@ template <class... DupliParameters> struct duplichain : public advanced_tuple<Du
 
 	void* getObjectPtr() { return this; }
 
-	tuple_iterator2(call, int, index, double, v);
+	tuple_iterator2(callEachClone, int, index, double, v);
 
-	void call(int index, double v)
+	void callEachClone(int index, double v)
 	{
-		call_tuple_iterator2(call, index, v);
+		call_tuple_iterator2(callEachClone, index, v);
 	}
 
-	tuple_iterator1(setParentNumVoiceListener, SenderType::Listener*, l);
+	tuple_iterator1(setParentNumClonesListener, SenderType::Listener*, l);
 
-	void setParentNumVoiceListener(SenderType::Listener* l)
+	void setParentNumClonesListener(SenderType::Listener* l)
 	{
-		call_tuple_iterator1(setParentNumVoiceListener, l);
+		call_tuple_iterator1(setParentNumClonesListener, l);
 	}
 
-	template <int Index, class Target> void connect(Target& t)
+	template <int Index, class Target> void connect(const Target& t)
 	{
 		this->template get<Index>().template connect<0>(t);
 	}
 
-	int getNumVoices() const
+	int getNumClones() const
 	{
-		return this->template get<0>().getNumVoices();
+		return this->template get<0>().getNumClones();
 	}
 };
 }

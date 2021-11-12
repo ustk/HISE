@@ -47,6 +47,37 @@ int FloatingTileContainer::getNumComponents() const
 	return components.size();
 }
 
+int FloatingTileContainer::getNumVisibleComponents() const
+{
+    int num = 0;
+    
+    for(auto t: components)
+    {
+        if(t->getLayoutData().isVisible())
+        {
+            num++;
+        }
+    }
+    
+    return num;
+}
+
+int FloatingTileContainer::getNumVisibleAndResizableComponents() const
+{
+    int num = 0;
+    
+    for(auto t: components)
+    {
+        auto& l = t->getLayoutData();
+        
+        if(l.isVisible() && !l.isFolded() && !l.isAbsolute())
+            num++;
+    }
+    
+    return num;
+}
+
+
 void FloatingTileContainer::clear()
 {
 	// if this doesn't work, you're in trouble soon...
@@ -560,7 +591,7 @@ void ResizableFloatingTileContainer::refreshLayout()
 void ResizableFloatingTileContainer::paint(Graphics& g)
 {
 	g.setColour(findPanelColour(PanelColourId::bgColour));
-	g.fillRect(getContainerBounds());
+    g.fillRect(getContainerBounds());
 }
 
 Rectangle<int> ResizableFloatingTileContainer::getContainerBounds() const
@@ -658,6 +689,9 @@ void ResizableFloatingTileContainer::resized()
 	addButton->toFront(false);
 
 	performLayout(getContainerBounds());
+    
+    for(auto r: resizers)
+        r->setVisible(true);
 }
 
 bool ResizableFloatingTileContainer::isTitleBarDisplayed() const
@@ -704,7 +738,7 @@ void ResizableFloatingTileContainer::performLayout(Rectangle<int> area)
 	{
 		for (int i = 0; i < resizers.size(); i++)
 		{
-			resizers[i]->setVisible(false);
+			resizers[i]->setEnabled(false);
 		}
 
 		for (int i = 0; i < getNumComponents(); i++)
@@ -782,7 +816,7 @@ void ResizableFloatingTileContainer::performLayout(Rectangle<int> area)
 			else
 			{
 				// It's visible by default so just hide it if necessary
-				resizer->setVisible(false);
+				resizer->setEnabled(false);
 			}
 
 			
@@ -832,6 +866,7 @@ void ResizableFloatingTileContainer::rebuildResizers()
 			addAndMakeVisible(resizers.getLast());
 
 			resizers.getLast()->setVisible(resizers.getLast()->hasSomethingToDo());
+            
 		}
 	}
 
@@ -888,7 +923,12 @@ ResizableFloatingTileContainer::InternalResizer::InternalResizer(ResizableFloati
 
 
 	setRepaintsOnMouseActivity(true);
+    
+    if(isDragEnabled())
+    {
+    
 	setMouseCursor(parent_->isVertical() ? MouseCursor::UpDownResizeCursor : MouseCursor::LeftRightResizeCursor);
+    }
 
 	resizeIcon.loadPathFromData(ColumnIcons::bigResizeIcon, sizeof(ColumnIcons::bigResizeIcon));
 
@@ -912,12 +952,45 @@ int ResizableFloatingTileContainer::InternalResizer::getCurrentSize() const
 	return parent->getParentShell()->isLayoutModeEnabled() ? 4 : 4;
 }
 
+bool ResizableFloatingTileContainer::InternalResizer::isDragEnabled() const
+{
+    if(prevPanels.isEmpty())
+        return false;
+    
+    if(auto lastPrev = prevPanels.getLast())
+    {
+        if(lastPrev->isFolded() || lastPrev->getLayoutData().isAbsolute())
+            return false;
+    }
+    
+    return true;
+}
+
 void ResizableFloatingTileContainer::InternalResizer::paint(Graphics& g)
 {
 	g.setColour(parent->findPanelColour(ResizableFloatingTileContainer::PanelColourId::itemColour1));
 
-	g.fillAll();
+    
+    
+    
+    g.fillAll(Colour(0xFF373737));
+    
+    if(getHeight() > getWidth())
+    {
+        g.setColour(Colour(0xFF4C4C4C));
+        g.drawVerticalLine(0, 0.0f, (float)getHeight());
+        g.drawVerticalLine(getWidth() - 1, 0.0f, (float)getHeight());
+    }
+    else
+    {
+        g.setColour(Colour(0xFF404040));
+        g.drawHorizontalLine(0, 0.0f, (float)getWidth());
+        g.drawHorizontalLine(getHeight()-1, 0.0f, (float)getWidth());
+    }
 
+    if(!isDragEnabled())
+        return;
+    
 	Colour c = Colour(SIGNAL_COLOUR);
 
 	if (active)
@@ -940,7 +1013,7 @@ void ResizableFloatingTileContainer::InternalResizer::paint(Graphics& g)
 
 void ResizableFloatingTileContainer::InternalResizer::mouseDown(const MouseEvent& e)
 {
-	auto e2 = e.getEventRelativeTo(parent);
+    auto e2 = e.getEventRelativeTo(parent);
 
 	downOffset = parent->isVertical() ? e2.getMouseDownY() : e2.getMouseDownX();
 

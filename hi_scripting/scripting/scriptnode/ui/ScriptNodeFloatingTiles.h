@@ -43,9 +43,16 @@ struct NetworkPanel : public PanelWithProcessorConnection
 		PanelWithProcessorConnection(parent)
 	{};
 
+    void paint(Graphics& g) override
+    {
+        g.setColour(Colour(0xFF262626));
+        g.fillRect(getParentShell()->getContentBounds());
+    }
+    
 	Identifier getProcessorTypeId() const override;
 	virtual Component* createComponentForNetwork(DspNetwork* parent) = 0;
 	Component* createContentComponent(int index) override;
+	virtual Component* createEmptyComponent() { return nullptr; };
 	void fillModuleList(StringArray& moduleList) override;
 	virtual bool hasSubIndex() const { return true; }
 	void fillIndexList(StringArray& sa);
@@ -60,6 +67,8 @@ struct DspNetworkGraphPanel : public NetworkPanel
 	void paint(Graphics& g) override;
 
 	Component* createComponentForNetwork(DspNetwork* p) override;
+
+	Component* createEmptyComponent() override;
 
 	JUCE_DECLARE_WEAK_REFERENCEABLE(DspNetworkGraphPanel);
 };
@@ -76,7 +85,57 @@ public:
 	Component* createComponentForNetwork(DspNetwork* p) override;
 };
 
+#if USE_BACKEND
+struct WorkbenchTestPlayer : public FloatingTileContent,
+	public Component,
+	public WorkbenchManager::WorkbenchChangeListener,
+	public WorkbenchData::Listener,
+	public PooledUIUpdater::SimpleTimer
+{
+	struct Factory : public PathFactory
+	{
+		Path createPath(const String& url) const override;
+	} factory;
 
+	SET_PANEL_NAME("WorkbenchTestPlayer");
+
+	WorkbenchTestPlayer(FloatingTile* parent);;
+
+	void postPostCompile(WorkbenchData::Ptr wb);;
+
+	void play();
+
+	void stop();
+
+	void timerCallback() override;
+
+	void workbenchChanged(WorkbenchData::Ptr newWorkbench) override
+	{
+		if (wb != nullptr)
+			wb->removeListener(this);
+
+		wb = newWorkbench;
+
+		if(wb != nullptr)
+			wb->addListener(this);
+	}
+
+	void resized() override;
+
+	void paint(Graphics& g) override;
+
+	
+	
+	HiseAudioThumbnail outputPreview;
+	HiseAudioThumbnail inputPreview;
+
+	HiseShapeButton playButton;
+	HiseShapeButton stopButton;
+	HiseShapeButton midiButton;
+
+	WorkbenchData::Ptr wb;
+};
+#endif
 
 #if 0
 struct SnexPopupEditor : public Component,

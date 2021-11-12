@@ -144,9 +144,6 @@ void SnexSource::rebuildCallbacksAfterChannelChange(int numChannelsToProcess)
 {
 	if (wb != nullptr && parentNode->getCurrentChannelAmount() != numChannelsToProcess)
 	{
-		parentNode->setValueTreeProperty(PropertyIds::NumChannels, numChannelsToProcess);
-
-		
 		if (auto objPtr = wb->getLastResult().mainClassPtr)
 		{
 			if (lastResult.wasOk())
@@ -580,8 +577,8 @@ SnexSource::SnexParameter::SnexParameter(SnexSource* n, NodeBase* parent, ValueT
 	}
 
 	auto ndb = new parameter::dynamic_base(p);
-	ndb->dataTree = data;
-	setCallbackNew(ndb);
+	
+	setDynamicParameter(ndb);
 
 	auto ids = RangeHelpers::getRangeIds();
 	ids.add(PropertyIds::ID);
@@ -793,6 +790,9 @@ void SnexMenuBar::parameterChanged(int snexParameterId, double newValue)
 
 SnexMenuBar::~SnexMenuBar()
 {
+    if(source->getParentNode() == nullptr)
+        return;
+    
 	auto wb = static_cast<snex::ui::WorkbenchManager*>(source->getParentNode()->getScriptProcessor()->getMainController_()->getWorkbenchManager());
 	wb->removeListener(this);
 
@@ -819,7 +819,7 @@ void SnexMenuBar::workbenchChanged(snex::ui::WorkbenchData::Ptr newWb)
 		if (lastBench != nullptr)
 			lastBench->removeListener(this);
 
-		lastBench = newWb;
+		lastBench = newWb.get();
 		if (lastBench != nullptr)
 		{
 			lastBench->addListener(this);

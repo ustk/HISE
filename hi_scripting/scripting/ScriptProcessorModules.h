@@ -331,7 +331,7 @@ public:
 
 	float getAttribute(int index) const override
 	{
-		if (auto n = getActiveNetwork())
+		if (auto n = getActiveOrDebuggedNetwork())
 			return n->networkParameterHandler.getParameter(index);
 		else
 			return contentParameterHandler.getParameter(index);
@@ -339,7 +339,7 @@ public:
 
 	void setInternalAttribute(int index, float newValue) override
 	{
-		if (auto n = getActiveNetwork())
+		if (auto n = getActiveOrDebuggedNetwork())
 			n->networkParameterHandler.setParameter(index, newValue);
 		else
 			contentParameterHandler.setParameter(index, newValue);
@@ -347,7 +347,7 @@ public:
 
 	Identifier getIdentifierForParameterIndex(int parameterIndex) const override
 	{
-		if (auto n = getActiveNetwork())
+		if (auto n = getActiveOrDebuggedNetwork())
 			return n->networkParameterHandler.getParameterId(parameterIndex);
 		else
 			return contentParameterHandler.getParameterId(parameterIndex);
@@ -505,7 +505,7 @@ public:
 
 	float getAttribute(int index) const override
 	{
-		if (auto n = getActiveNetwork())
+		if (auto n = getActiveOrDebuggedNetwork())
 			return n->networkParameterHandler.getParameter(index);
 		else
 			return contentParameterHandler.getParameter(index);
@@ -526,7 +526,7 @@ public:
 
 	void setInternalAttribute(int index, float newValue) override
 	{
-		if (auto n = getActiveNetwork())
+		if (auto n = getActiveOrDebuggedNetwork())
 			n->networkParameterHandler.setParameter(index, newValue);
 		else
 			contentParameterHandler.setParameter(index, newValue);
@@ -534,7 +534,7 @@ public:
 
 	Identifier getIdentifierForParameterIndex(int parameterIndex) const override
 	{
-		if (auto n = getActiveNetwork())
+		if (auto n = getActiveOrDebuggedNetwork())
 			return n->networkParameterHandler.getParameterId(parameterIndex);
 		else
 			return contentParameterHandler.getParameterId(parameterIndex);
@@ -672,7 +672,7 @@ public:
 	virtual const Processor *getChildProcessor(int processorIndex) const override;;
 
 	void prepareToPlay(double sampleRate, int samplesPerBlock) override;
-	void preHiseEventCallback(const HiseEvent &m) override;
+	void preHiseEventCallback(HiseEvent &m) override;
 	void preStartVoice(int voiceIndex, const HiseEvent& e) override;;
 	float getAttribute(int parameterIndex) const override;;
 	void setInternalAttribute(int parameterIndex, float newValue) override;;
@@ -689,7 +689,7 @@ public:
 	void postCompileCallback() override;
 
 	ProcessorEditorBody* createEditor(ProcessorEditor *parentEditor) override;
-
+    
 private:
 
 	class Sound;
@@ -771,6 +771,8 @@ public:
 	void prepareToPlay(double sampleRate, int samplesPerBlock) override;
 	void applyEffect(AudioSampleBuffer &b, int startSample, int numSamples) override;
 
+    
+    
 	float getAttribute(int index) const override 
 	{ 
 		return getCurrentNetworkParameterHandler(&contentParameterHandler)->getParameter(index);
@@ -990,7 +992,7 @@ public:
 	void registerApiClasses() override;
 	void postCompileCallback() override;
 
-	void preHiseEventCallback(const HiseEvent &e) override;
+	void preHiseEventCallback(HiseEvent &e) override;
 
 	void preStartVoice(int voiceIndex, const HiseEvent& e) override;
 
@@ -998,28 +1000,11 @@ public:
 
 	bool isPolyphonic() const override { return true; }
 
-	void addProcessorsWhenEmpty() override
-	{
-		LockHelpers::freeToGo(getMainController());
-
-		jassert(finalised);
-
-		auto envList = ProcessorHelpers::getListOfAllProcessors<ScriptnodeVoiceKiller>(gainChain);
-
-		if (!envList.isEmpty())
-			return;
-
-		auto vk = new ScriptnodeVoiceKiller(getMainController(),
-			"ScriptnodeVoiceKiller",
-			voices.size());
-
-		gainChain->getHandler()->add(vk, nullptr);
-
-		setVoiceKillerToUse(vk);
-	}
-
 	float getModValueForNode(int modIndex, int startSample) const
 	{
+		if (startSample == -1)
+			startSample = currentVoiceStartSample;
+
 		if (modIndex == BasicChains::PitchChain)
 		{
 			auto& pc = modChains[BasicChains::PitchChain];
@@ -1034,10 +1019,6 @@ public:
 		}
 		
 	}
-
-	float getModValueAtVoiceStart(int modIndex) const;
-
-	
 
 	Processor* getChildProcessor(int processorIndex) override
 	{

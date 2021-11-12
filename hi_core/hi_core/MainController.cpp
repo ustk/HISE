@@ -156,28 +156,25 @@ void MainController::initProjectDocsWithURL(const String& projectDocURL)
 	getProjectDocHolder()->setProjectURL(URL(projectDocURL));
 }
 
+
 hise::SampleMapPool* MainController::getCurrentSampleMapPool()
 {
-#if ADD_LATER
 	if (FullInstrumentExpansion::isEnabled(this))
 	{
 		if (auto ce = getExpansionHandler().getCurrentExpansion())
 			return &ce->pool->getSampleMapPool();
 	}
-#endif
 
 	return &getSampleManager().getProjectHandler().pool->getSampleMapPool();
 }
 
 const hise::SampleMapPool* MainController::getCurrentSampleMapPool() const
 {
-#if ADD_LATER
 	if (FullInstrumentExpansion::isEnabled(this))
 	{
 		if (auto ce = getExpansionHandler().getCurrentExpansion())
 			return &ce->pool->getSampleMapPool();
 	}
-#endif
 
 	return &getSampleManager().getProjectHandler().pool->getSampleMapPool();
 }
@@ -235,6 +232,8 @@ void MainController::clearPreset()
 		mc->getMacroManager().getMidiControlAutomationHandler()->getMPEData().clear();
 		mc->getScriptComponentEditBroadcaster()->getUndoManager().clearUndoHistory();
 		mc->getControlUndoManager()->clearUndoHistory();
+
+		BACKEND_ONLY(mc->getJavascriptThreadPool().getGlobalServer()->setInitialised());
 		mc->getMainSynthChain()->reset();
 		mc->globalVariableObject->clear();
 
@@ -605,9 +604,10 @@ void MainController::stopBufferToPlay()
 {
 	if (previewBufferIndex != -1)
 	{
-
 		{
 			LockHelpers::SafeLock sl(this, LockHelpers::AudioLock);
+
+			previewFunction = {};
 
 			if (previewBufferIndex != -1 && !fadeOutPreviewBuffer)
 			{
@@ -623,14 +623,28 @@ void MainController::stopBufferToPlay()
 	}
 }
 
-void MainController::setBufferToPlay(const AudioSampleBuffer& buffer)
+void MainController::setBufferToPlay(const AudioSampleBuffer& buffer, const std::function<void(int)>& pf)
 {
+	if (buffer.getNumSamples() > 400000 && getKillStateHandler().getCurrentThread() != KillStateHandler::SampleLoadingThread)
 	{
+		AudioSampleBuffer copy;
+		copy.makeCopyOf(buffer);
 
+		killAndCallOnLoadingThread([copy, pf](Processor* p)
+		{
+			p->getMainController()->setBufferToPlay(copy, pf);
+			return SafeFunctionCall::OK;
+		});
+
+		return;
+	}
+
+	{
 		LockHelpers::SafeLock sl(this, LockHelpers::AudioLock);
 
 		previewBufferIndex = 0;
 		previewBuffer = buffer;
+		previewFunction = pf;
 		fadeOutPreviewBuffer = false;
 		fadeOutPreviewBufferGain = 1.0f;
 	}
@@ -639,6 +653,11 @@ void MainController::setBufferToPlay(const AudioSampleBuffer& buffer)
 	{
 		pl->previewStateChanged(true, previewBuffer);
 	}
+}
+
+int MainController::getPreviewBufferPosition() const
+{
+	return previewBufferIndex;
 }
 
 void MainController::setKeyboardCoulour(int keyNumber, Colour colour)
@@ -964,8 +983,18 @@ void MainController::processBlockCommon(AudioSampleBuffer &buffer, MidiBuffer &m
 
 		if (numToPlay > 0)
 		{
-			FloatVectorOperations::copy(multiChannelBuffer.getWritePointer(0, 0), previewBuffer.getReadPointer(0, previewBufferIndex), numToPlay);
-			FloatVectorOperations::copy(multiChannelBuffer.getWritePointer(1, 0), previewBuffer.getReadPointer(1, previewBufferIndex), numToPlay);
+            int numChannels = previewBuffer.getNumChannels();
+            
+            for(int i = 0; i < multiChannelBuffer.getNumChannels(); i++)
+            {
+                if(isPositiveAndBelow(i, previewBuffer.getNumChannels()))
+                {
+                    FloatVectorOperations::copy(multiChannelBuffer.getWritePointer(i, 0), previewBuffer.getReadPointer(i, previewBufferIndex), numToPlay);
+                }
+            }
+            
+			if (previewFunction)
+				previewFunction(previewBufferIndex);
 
 			previewBufferIndex += numToPlay;
 		}
@@ -973,7 +1002,7 @@ void MainController::processBlockCommon(AudioSampleBuffer &buffer, MidiBuffer &m
 		if (fadeOutPreviewBuffer)
 		{
 			float thisGain = fadeOutPreviewBufferGain;
-			fadeOutPreviewBufferGain = jmax<float>(thisGain * 0.93f, 0.0f);
+			fadeOutPreviewBufferGain = jmax<float>(thisGain * 0.75f, 0.0f);
 
 			multiChannelBuffer.applyGainRamp(0, numSamplesThisBlock, thisGain, fadeOutPreviewBufferGain);
 
@@ -1146,6 +1175,9 @@ void MainController::storePlayheadIntoDynamicObject(AudioPlayHead::CurrentPositi
 
 void MainController::prepareToPlay(double sampleRate_, int samplesPerBlock)
 {
+	auto srBefore = sampleRate;
+	auto bufferBefore = maxBufferSize.get();
+
     LOG_START("Preparing playback");
     
 	maxBufferSize = samplesPerBlock * currentOversampleFactor;
@@ -1205,6 +1237,16 @@ void MainController::prepareToPlay(double sampleRate_, int samplesPerBlock)
 
 	if (oversampler != nullptr)
 		oversampler->initProcessing(getOriginalBufferSize());
+
+	if (sampleRate != srBefore || maxBufferSize.get() != bufferBefore)
+	{
+		String s;
+		s << "New Buffer Specifications: ";
+		s << "Samplerate: " << sampleRate;
+		s << ", Buffersize: " << String(maxBufferSize.get());
+		getConsoleHandler().writeToConsole(s, 0, getMainSynthChain(), Colours::white.withAlpha(0.4f));
+	}
+
 }
 
 void MainController::setBpm(double newTempo)
@@ -1664,6 +1706,11 @@ void MainController::updateMultiChannelBuffer(int numNewChannels)
 	
 
 	ProcessorHelpers::increaseBufferIfNeeded(multiChannelBuffer, maxBufferSize.get());
+}
+
+double MainController::SampleManager::getPreloadProgressConst() const
+{
+	return internalPreloadJob.progress;
 }
 
 void MainController::SampleManager::handleNonRealtimeState()

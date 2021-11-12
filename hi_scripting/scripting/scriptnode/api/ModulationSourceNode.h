@@ -92,8 +92,7 @@ private:
 };
     
 class ModulationSourceNode: public WrapperNode,
-							public SnexDebugHandler,
-							public PooledUIUpdater::SimpleTimer
+							public SnexDebugHandler
 {
 public:
 
@@ -102,8 +101,6 @@ public:
 
 	struct ModulationTarget: public ConnectionBase
 	{
-		static void nothing(double) {}
-
 		ModulationTarget(ModulationSourceNode* parent_, ValueTree data_);
 
 		~ModulationTarget();
@@ -132,7 +129,7 @@ public:
 	virtual bool isUsingNormalisedRange() const = 0;
 	virtual parameter::dynamic_base_holder* getParameterHolder() { return nullptr; }
 
-	parameter::dynamic_base* createDynamicParameterData(ValueTree& m);
+	parameter::dynamic_base::Ptr createDynamicParameterData(ValueTree& m);
 
 	void rebuildModulationConnections();
 
@@ -142,7 +139,6 @@ public:
 
 	void checkTargets();
 
-	double sampleRateFactor = 1.0;
 	bool prepareWasCalled = false;
 
 	double lastModValue = 0.0;

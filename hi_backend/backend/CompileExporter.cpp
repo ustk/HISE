@@ -89,11 +89,13 @@ juce::ValueTree BaseExporter::exportEmbeddedFiles()
 	ValueTree externalScriptFiles = FileChangeListener::collectAllScriptFiles(chainToExport);
 	ValueTree customFonts = chainToExport->getMainController()->exportCustomFontsAsValueTree();
 	ValueTree markdownDocs = chainToExport->getMainController()->exportAllMarkdownDocsAsValueTree();
-	
+	ValueTree networkFiles = BackendDllManager::exportAllNetworks(chainToExport->getMainController(), false);
+
 	ValueTree externalFiles("ExternalFiles");
 	externalFiles.addChild(externalScriptFiles, -1, nullptr);
 	externalFiles.addChild(customFonts, -1, nullptr);
 	externalFiles.addChild(markdownDocs, -1, nullptr);
+	externalFiles.addChild(networkFiles, -1, nullptr);
 
 	return externalFiles;
 }
@@ -870,7 +872,7 @@ bool CompileExporter::checkSanity(BuildOption option)
 
 	for (auto n : networks)
 	{
-		if (auto network = n->getActiveNetwork())
+		if (auto network = n->getActiveOrDebuggedNetwork())
 		{
 			auto r = network->checkBeforeCompilation();
 
