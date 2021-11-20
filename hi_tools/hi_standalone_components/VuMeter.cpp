@@ -119,8 +119,8 @@ void VuMeter::drawMonoMeter(Graphics &g)
 
 void VuMeter::drawStereoMeter(Graphics &g)
 {
-	const float vL = jmin(1.0f, (l + 100.0f) / 100.0f);
-	const float vR = jmin(1.0f, (r + 100.0f) / 100.0f);
+	const float vL = jmin(1.0f, Decibels::decibelsToGain(l));
+	const float vR = jmin(1.0f, Decibels::decibelsToGain(r));
 
 	getLaf()->drawStereoMeter2(g, *this, type, vL, vR);
 }
