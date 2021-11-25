@@ -800,6 +800,17 @@ void ScriptingApi::Content::ScriptComponent::setControlCallback(var controlFunct
 {
 	auto obj = dynamic_cast<HiseJavascriptEngine::RootObject::InlineFunction::Object*>(controlFunction.getDynamicObject());
 
+    if(auto h = dynamic_cast<scriptnode::DspNetwork::Holder*>(getScriptProcessor()))
+    {
+        if(auto n = h->getActiveNetwork())
+        {
+            if(controlFunction.isObject() && n->isForwardingControlsToParameters())
+            {
+                reportScriptError("This script processor has a network that consumes the parameters");
+            }
+        }
+    }
+    
 	if (obj != nullptr)
 	{
 		int numParameters = obj->parameterNames.size();
@@ -2039,7 +2050,7 @@ ScriptingApi::Content::ComplexDataScriptComponent::ComplexDataScriptComponent(Pr
 	ScriptComponent(base, name),
 	type(type_)
 {
-	ownedObject = snex::ExternalData::create<MidiTable>(type);
+	ownedObject = snex::ExternalData::create(type);
 	ownedObject->setGlobalUIUpdater(base->getMainController_()->getGlobalUIUpdater());
 	ownedObject->setUndoManager(base->getMainController_()->getControlUndoManager());
 }
@@ -2203,11 +2214,7 @@ float ScriptingApi::Content::ScriptTable::getTableValue(int inputValue)
 {
 	if (auto t = getCachedTable())
 	{
-		if (MidiTable *mt = dynamic_cast<MidiTable*>(t))
-		{
-			return mt->get(inputValue, sendNotificationAsync);
-		}
-		else if (SampleLookupTable *st = dynamic_cast<SampleLookupTable*>(t))
+		if (SampleLookupTable *st = dynamic_cast<SampleLookupTable*>(t))
 		{
 			return st->getInterpolatedValue(inputValue, sendNotificationAsync);
 		}

@@ -706,7 +706,7 @@ namespace ScriptingObjects
 
 		Component* createPopupComponent(const MouseEvent& e, Component *c) override;
 
-		ScriptComplexDataReferenceBase(ProcessorWithScriptingContent* c, int dataIndex, snex::ExternalData::DataType type, ExternalDataHolder* otherHolder=nullptr);;
+		ScriptComplexDataReferenceBase(ProcessorWithScriptingContent* c, int dataIndex, snex::ExternalData::DataType type, ProcessorWithExternalData* otherHolder=nullptr);;
 
 		virtual ~ScriptComplexDataReferenceBase();
 
@@ -736,6 +736,42 @@ namespace ScriptingObjects
 
 		void setCallbackInternal(bool isDisplay, var f);
 
+        void linkToInternal(var o)
+        {
+            auto other = dynamic_cast<ScriptComplexDataReferenceBase*>(o.getObject());
+            
+            if(other == nullptr)
+            {
+                reportScriptError("Not a data object");
+                return;
+            }
+            
+            if(other->type != type)
+            {
+                reportScriptError("Type mismatch");
+                return;
+            }
+            
+            using PED = hise::ProcessorWithExternalData;
+            
+            if(auto pdst = dynamic_cast<PED*>(holder.get()))
+            {
+                if(auto psrc = dynamic_cast<PED*>(other->holder.get()))
+                {
+                    if(auto ex = psrc->getComplexBaseType(type, other->index))
+                    {
+                        complexObject->getUpdater().removeEventListener(this);
+
+						pdst->linkTo(type, *psrc, other->index, index);
+                        complexObject = holder->getComplexBaseType(type, index);
+                        complexObject->getUpdater().addEventListener(this);
+                    }
+                }
+            }
+            
+            return;
+        }
+        
 		WeakReference<ComplexDataUIBase> complexObject;
 
 		WeakCallbackHolder displayCallback;
@@ -753,7 +789,7 @@ namespace ScriptingObjects
 	{
 	public:
 
-		ScriptAudioFile(ProcessorWithScriptingContent* pwsc, int index, snex::ExternalDataHolder* otherHolder = nullptr);
+		ScriptAudioFile(ProcessorWithScriptingContent* pwsc, int index, ProcessorWithExternalData* otherHolder = nullptr);
 
 		// ============================================================================================================
 
@@ -791,6 +827,12 @@ namespace ScriptingObjects
 
 		// ============================================================================================================
 
+        /** Links this audio file to the other*/
+        void linkTo(var other)
+        {
+            linkToInternal(other);
+        }
+        
 	private:
 
 		MultiChannelAudioBuffer* getBuffer() { return static_cast<MultiChannelAudioBuffer*>(complexObject.get()); }
@@ -803,7 +845,7 @@ namespace ScriptingObjects
 	{
 	public:
 
-		ScriptRingBuffer(ProcessorWithScriptingContent* pwsc, int index, snex::ExternalDataHolder* other=nullptr);
+		ScriptRingBuffer(ProcessorWithScriptingContent* pwsc, int index, ProcessorWithExternalData* other=nullptr);
 
 		// ============================================================================================================
 
@@ -830,7 +872,7 @@ namespace ScriptingObjects
 	{
 	public:
 
-		ScriptTableData(ProcessorWithScriptingContent* pwsc, int index, snex::ExternalDataHolder* externalHolder=nullptr);
+		ScriptTableData(ProcessorWithScriptingContent* pwsc, int index, ProcessorWithExternalData* externalHolder=nullptr);
 
 		Component* createPopupComponent(const MouseEvent& e, Component *c) override;
 
@@ -863,8 +905,16 @@ namespace ScriptingObjects
 		/** Sets the table points from a multidimensional array ([x0, y0, curve0], ...]). */
 		void setTablePointsFromArray(var pointList);
 
+        /** Makes this table refer to the given table. */
+        void linkTo(var otherTable)
+        {
+            linkToInternal(otherTable);
+        }
+        
 		// ============================================================================================================
 
+        
+        
 	private:
 
 		Table* getTable() { return static_cast<Table*>(complexObject.get()); }
@@ -879,7 +929,7 @@ namespace ScriptingObjects
 	{
 	public:
 
-		ScriptSliderPackData(ProcessorWithScriptingContent* pwsc, int dataIndex, snex::ExternalDataHolder* otherHolder=nullptr);
+		ScriptSliderPackData(ProcessorWithScriptingContent* pwsc, int dataIndex, ProcessorWithExternalData* otherHolder=nullptr);
 
 		~ScriptSliderPackData() {};
 
@@ -912,6 +962,12 @@ namespace ScriptingObjects
 		/** Sets a callback that is being executed when a point is added / removed / changed. */
 		void setContentCallback(var contentFunction);
 
+        /** Links the sliderpack to the other slider pack. */
+        void linkTo(var other)
+        {
+            linkToInternal(other);
+        }
+        
 		// ============================================================================================================
 
 	private:
@@ -1848,7 +1904,7 @@ namespace ScriptingObjects
 	{
 	public:
 
-		ScriptDisplayBufferSource(ProcessorWithScriptingContent *p, ExternalDataHolder *h);
+		ScriptDisplayBufferSource(ProcessorWithScriptingContent *p, ProcessorWithExternalData *h);
 		~ScriptDisplayBufferSource() {};
 
 		// =============================================================================================

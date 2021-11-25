@@ -34,7 +34,7 @@ namespace hise { using namespace juce;
 
 ControlModulator::ControlModulator(MainController *mc, const String &id, Modulation::Mode m):
 	TimeVariantModulator(mc, id, m),
-	LookupTableProcessor(mc, 1, false),
+	LookupTableProcessor(mc, 1),
     targetValue(1.0f),
 	Modulation(m),
 	intensity(1.0f),
@@ -46,11 +46,7 @@ ControlModulator::ControlModulator(MainController *mc, const String &id, Modulat
 	controllerNumber(1),
 	defaultValue(0.0f)
 {
-	table = getMidiTable();
-
-	this->enableConsoleOutput(false);
-	
-	table->setXTextConverter(Modulation::getDomainAsMidiRange);
+    referenceShared(ExternalData::DataType::Table, 0);
 
 	for (int i = 0; i < 128; i++)
 	{
@@ -292,8 +288,10 @@ void ControlModulator::handleHiseEvent(const HiseEvent &m)
 		
 		float value;
 
-		if(useTable) value = table->get(roundToInt(inputValue * 127.0f), sendNotificationAsync);
-		else value = inputValue;
+		if(useTable)
+            value = table->getInterpolatedValue((double)inputValue, sendNotificationAsync);
+		else
+            value = inputValue;
 
 		if(inverted) value = 1.0f - value;
 

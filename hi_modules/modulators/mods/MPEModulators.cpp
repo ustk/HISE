@@ -39,17 +39,16 @@ using namespace juce;
 MPEModulator::MPEModulator(MainController *mc, const String &id, int voiceAmount, Modulation::Mode m) :
 	EnvelopeModulator(mc, id, voiceAmount, m),
 	Modulation(m),
-	LookupTableProcessor(mc, 1, true),
+	LookupTableProcessor(mc, 1),
 	monoState(-1),
 	g((Gesture)(int)getDefaultValue(GestureCC)),
 	smoothedIntensity(getIntensity())
 {
-	table = static_cast<SampleLookupTable*>(getTableUnchecked(0));
+    referenceShared(ExternalData::DataType::Table, 0);
+	
 
-	setAttribute(DefaultValue, getDefaultValue(DefaultValue), dontSendNotification);
-
-	table->setXTextConverter(Modulation::getDomainAsMidiRange);
-
+    setAttribute(DefaultValue, getDefaultValue(DefaultValue), dontSendNotification);
+    
 	parameterNames.add("GestureCC");
 	parameterNames.add("SmoothingTime");
 	parameterNames.add("DefaultValue");
@@ -482,7 +481,7 @@ void MPEModulator::handleHiseEvent(const HiseEvent& m)
 
 		if (g == Stroke)
 		{
-			const float targetValue = table->getInterpolatedValue(midiValue * (float)SAMPLE_LOOKUP_TABLE_SIZE, sendNotificationAsync);
+			const float targetValue = table->getInterpolatedValue(midiValue, sendNotificationAsync);
 			unsavedStrokeValue = targetValue;
 		}
 		else
@@ -523,7 +522,7 @@ void MPEModulator::handleHiseEvent(const HiseEvent& m)
 		midiValue = mpeValues.storeAndGetMaxValue(g, c, midiValue);
 	}
 
-	const float targetValue = table->getInterpolatedValue(midiValue * (float)SAMPLE_LOOKUP_TABLE_SIZE, sendNotificationAsync);
+	const float targetValue = table->getInterpolatedValue(midiValue, sendNotificationAsync);
 
 	for (auto s : activeStates)
 	{

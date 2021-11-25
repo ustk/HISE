@@ -60,6 +60,12 @@ public:
 		numSpecialParameters
 	};
 
+    void referenceShared(ExternalData::DataType, int) override
+    {
+        table = getTableUnchecked(0);
+        table->setXTextConverter(Modulation::getDomainAsMidiRange);
+    }
+    
 	ControlModulator(MainController *mc, const String &id, Modulation::Mode m);
 	~ControlModulator();
 
@@ -122,7 +128,7 @@ private:
 
 	Smoother smoother;
 
-	MidiTable* table;
+	SampleLookupTable* table;
 
 	JUCE_DECLARE_WEAK_REFERENCEABLE(ControlModulator);
 };
