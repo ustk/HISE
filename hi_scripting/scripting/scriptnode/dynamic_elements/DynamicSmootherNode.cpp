@@ -172,6 +172,73 @@ void pma_editor::paint(Graphics& g)
 	g.drawText(end, t.translated(70.0f, 80.0f), Justification::centred);
 }
 
+logic_op_editor::logic_op_editor(LogicBase* b, PooledUIUpdater* u) :
+	ScriptnodeExtraComponent<LogicBase>(b, u),
+	dragger(u)
+{
+	setSize(256, 60);
+	addAndMakeVisible(dragger);
+}
+
+void logic_op_editor::paint(Graphics& g)
+{
+	auto b = getLocalBounds();
+	auto l = b.removeFromLeft(getWidth() / 3).toFloat().withSizeKeepingCentre(16.0f, 16.0f);
+	auto r = b.removeFromLeft(getWidth() / 3).toFloat().withSizeKeepingCentre(16.0f, 16.0f);
+	auto m = dragger.getBounds().toFloat(); m.removeFromLeft(m.getWidth() / 2.0f);
+	m = m.withSizeKeepingCentre(16.0f, 16.0f);
+	
+	ScriptnodeComboBoxLookAndFeel::drawScriptnodeDarkBackground(g, l.getUnion(r).expanded(6.0f, 6.0f), true);
+
+	g.setColour(Colours::white.withAlpha(0.9f));
+	g.drawEllipse(l, 2.0f);
+	g.drawEllipse(r, 2.0f);
+	g.drawEllipse(m, 2.0f);
+
+	g.setFont(GLOBAL_MONOSPACE_FONT().withHeight(l.getHeight() - 1.0f));
+
+	String w;
+
+	switch (lastData.logicType)
+	{
+	case multilogic::logic_op::LogicType::AND: w = "AND"; break;
+	case multilogic::logic_op::LogicType::OR: w = "OR"; break;
+	case multilogic::logic_op::LogicType::XOR: w = "XOR"; break;
+	}
+
+	g.drawText(w, l.getUnion(r), Justification::centred);
+
+	if (lastData.leftValue)
+		g.fillEllipse(l.reduced(4.0f));
+
+	if (lastData.rightValue)
+		g.fillEllipse(r.reduced(4.0f));
+
+	if (lastData.getValue() > 0.5)
+		g.fillEllipse(m.reduced(4.0f));
+}
+
+void logic_op_editor::timerCallback()
+{
+	auto thisData = getObject()->getUIData();
+
+	if (!(thisData == lastData))
+	{
+		lastData = thisData;
+		repaint();
+	}
+}
+
+void logic_op_editor::resized()
+{
+	auto b = getLocalBounds();
+
+	b = b.removeFromRight(getWidth() / 3);
+	b = b.withSizeKeepingCentre(28 * 2, 28);
+
+	dragger.setBounds(b);
+}
+
 minmax_editor::minmax_editor(MinMaxBase* b, PooledUIUpdater* u) :
 	ScriptnodeExtraComponent<MinMaxBase>(b, u),
 	dragger(u)
@@ -253,14 +320,14 @@ void minmax_editor::setRange(InvertableParameterRange newRange)
 	{
 		auto n = nc->node;
 
-		RangeHelpers::storeDoubleRange(n->getParameter(1)->data, newRange, n->getUndoManager());
-		RangeHelpers::storeDoubleRange(n->getParameter(2)->data, newRange, n->getUndoManager());
+		RangeHelpers::storeDoubleRange(n->getParameterFromIndex(1)->data, newRange, n->getUndoManager());
+		RangeHelpers::storeDoubleRange(n->getParameterFromIndex(2)->data, newRange, n->getUndoManager());
 
-		n->getParameter(1)->setValueFromUI(newRange.inv ? newRange.rng.end : newRange.rng.start);
-		n->getParameter(2)->setValueFromUI(newRange.inv ? newRange.rng.start : newRange.rng.end);
-		n->getParameter(3)->setValueFromUI(newRange.rng.skew);
-		n->getParameter(4)->setValueFromUI(newRange.rng.interval);
-        n->getParameter(5)->setValueFromUI(newRange.inv ? 1.0 : 0.0);
+		n->getParameterFromIndex(1)->setValueSync(newRange.inv ? newRange.rng.end : newRange.rng.start);
+		n->getParameterFromIndex(2)->setValueSync(newRange.inv ? newRange.rng.start : newRange.rng.end);
+		n->getParameterFromIndex(3)->setValueSync(newRange.rng.skew);
+		n->getParameterFromIndex(4)->setValueSync(newRange.rng.interval);
+        n->getParameterFromIndex(5)->setValueSync(newRange.inv ? 1.0 : 0.0);
 		rebuildPaths();
 	}
 }
@@ -276,8 +343,8 @@ void minmax_editor::rebuildPaths()
     if(lastData.range.rng.getRange().isEmpty())
         return;
     
-	auto maxValue = (float)lastData.range.convertFrom0to1(1.0);
-	auto minValue = (float)lastData.range.convertFrom0to1(0.0);
+	auto maxValue = (float)lastData.range.convertFrom0to1(1.0, false);
+	auto minValue = (float)lastData.range.convertFrom0to1(0.0, false);
 
 	auto vToY = [&](float v)
 	{
@@ -298,7 +365,7 @@ void minmax_editor::rebuildPaths()
 	{
 		float normX = (float)i / (float)getWidth();
 
-		auto v = lastData.range.convertFrom0to1(normX);
+		auto v = lastData.range.convertFrom0to1(normX, false);
 		v = lastData.range.snapToLegalValue(v);
 
 		auto y = vToY((float)v);

@@ -41,9 +41,14 @@ struct DspNetwork::Wrapper
 	API_VOID_METHOD_WRAPPER_1(DspNetwork, processBlock);
 	API_VOID_METHOD_WRAPPER_2(DspNetwork, prepareToPlay);
 	API_METHOD_WRAPPER_2(DspNetwork, create);
+	API_VOID_METHOD_WRAPPER_2(DspNetwork, clear);
 	API_METHOD_WRAPPER_1(DspNetwork, get);
+	API_METHOD_WRAPPER_1(DspNetwork, createTest);
 	API_VOID_METHOD_WRAPPER_1(DspNetwork, setForwardControlsToParameters);
 	API_METHOD_WRAPPER_1(DspNetwork, setParameterDataFromJSON);
+	API_METHOD_WRAPPER_3(DspNetwork, createAndAdd);
+	API_METHOD_WRAPPER_2(DspNetwork, createFromJSON);
+	API_METHOD_WRAPPER_0(DspNetwork, undo);
 	//API_VOID_METHOD_WRAPPER_0(DspNetwork, disconnectAll);
 	//API_VOID_METHOD_WRAPPER_3(DspNetwork, injectAfter);
 };
@@ -122,9 +127,14 @@ DspNetwork::DspNetwork(hise::ProcessorWithScriptingContent* p, ValueTree data_, 
 	ADD_API_METHOD_1(processBlock);
 	ADD_API_METHOD_2(prepareToPlay);
 	ADD_API_METHOD_2(create);
+	ADD_API_METHOD_3(createAndAdd);
 	ADD_API_METHOD_1(get);
 	ADD_API_METHOD_1(setForwardControlsToParameters);
 	ADD_API_METHOD_1(setParameterDataFromJSON);
+	ADD_API_METHOD_1(createTest);
+	ADD_API_METHOD_2(clear);
+	ADD_API_METHOD_2(createFromJSON);
+	ADD_API_METHOD_0(undo);
 	//ADD_API_METHOD_0(disconnectAll);
 	//ADD_API_METHOD_3(injectAfter);
 
@@ -190,14 +200,19 @@ DspNetwork::DspNetwork(hise::ProcessorWithScriptingContent* p, ValueTree data_, 
     });
 
 	checkIfDeprecated();
+
+	runPostInitFunctions();
 }
 
 DspNetwork::~DspNetwork()
 {
+	root = nullptr;
 	selectionUpdater = nullptr;
 	nodes.clear();
     nodeFactories.clear();
 	
+	
+
 	getMainController()->removeTempoListener(&tempoSyncer);
 }
 
@@ -404,6 +419,8 @@ void DspNetwork::registerOwnedFactory(NodeFactory* ownedFactory)
 
 void DspNetwork::reset()
 {
+	SimpleReadWriteLock::ScopedWriteLock sl(getConnectionLock());
+	
 	if (projectNodeHolder.isActive())
 		projectNodeHolder.n.reset();
 	else
@@ -441,9 +458,14 @@ void DspNetwork::process(ProcessDataDyn& data)
 	}
 }
 
+bool DspNetwork::hasTail() const
+{
+	return true;
+}
+
 juce::Identifier DspNetwork::getParameterIdentifier(int parameterIndex)
 {
-	return getRootNode()->getParameter(parameterIndex)->getId();
+	return getRootNode()->getParameterFromIndex(parameterIndex)->getId();
 }
 
 void DspNetwork::setForwardControlsToParameters(bool shouldForward)
@@ -455,6 +477,8 @@ void DspNetwork::setForwardControlsToParameters(bool shouldForward)
 
 void DspNetwork::prepareToPlay(double sampleRate, double blockSize)
 {
+	runPostInitFunctions();
+
 	if (sampleRate > 0.0)
 	{
 		SimpleReadWriteLock::ScopedWriteLock sl(getConnectionLock(), isInitialised());
@@ -474,6 +498,9 @@ void DspNetwork::prepareToPlay(double sampleRate, double blockSize)
 				currentSpecs.voiceIndex = getPolyHandler();
 
 				getRootNode()->prepare(currentSpecs);
+
+				runPostInitFunctions();
+
 				getRootNode()->reset();
 
 				if (projectNodeHolder.isActive())
@@ -544,6 +571,55 @@ var DspNetwork::create(String path, String id)
 	return var(newNode);
 }
 
+juce::var DspNetwork::createAndAdd(String path, String id, var parent)
+{
+	if (id.isEmpty())
+	{
+		StringArray unused;
+		id = getNonExistentId(path.fromFirstOccurrenceOf(".", false, false), unused);
+	}
+
+	auto node = create(path, id);
+
+	if (auto n = dynamic_cast<NodeBase*>(node.getObject()))
+	{
+		n->setParent(parent, -1);
+	}
+
+	return node;
+}
+
+var DspNetwork::createFromJSON(var jsonData, var parent)
+{
+	if (auto obj = jsonData.getDynamicObject())
+	{
+		auto path = obj->getProperty(PropertyIds::FactoryPath).toString();
+		auto id = obj->getProperty(PropertyIds::ID).toString();
+
+		auto node = createAndAdd(path, id, parent);
+
+		if (dynamic_cast<NodeBase*>(node.getObject()) == nullptr)
+			return var();
+
+		if (obj->hasProperty(PropertyIds::Nodes))
+		{
+			auto a = obj->getProperty(PropertyIds::Nodes).getArray();
+
+			for (auto c : *a)
+			{
+				auto ok = createFromJSON(c, node);
+				
+				if (!ok.isObject())
+					return var();
+			}
+		}
+
+		return node;
+	}
+
+	return false;
+}
+
 var DspNetwork::get(var idOrNode) const
 {
 	checkValid();
@@ -569,6 +645,48 @@ var DspNetwork::get(var idOrNode) const
 	
 	return {};
 }
+
+void DspNetwork::clear(bool removeNodesFromSignalChain, bool removeUnusedNodes)
+{
+	if (removeNodesFromSignalChain)
+	{
+		getRootNode()->getValueTree().getChildWithName(PropertyIds::Nodes).removeAllChildren(getUndoManager());
+		getRootNode()->getParameterTree().removeAllChildren(getUndoManager());
+	}
+	
+	if (removeUnusedNodes)
+	{
+		for (int i = 0; i < nodes.size(); i++)
+		{
+			if (!nodes[i]->isActive(true))
+			{
+				MessageManagerLock mm;
+				deleteIfUnused(nodes[i]->getId());
+				i--;
+			}
+		}
+	}
+}
+
+bool DspNetwork::undo()
+{
+	return getUndoManager(true)->undo();
+}
+
+var DspNetwork::createTest(var testData)
+{
+#if USE_BACKEND
+	if (auto obj = testData.getDynamicObject())
+	{
+		obj->setProperty(PropertyIds::NodeId, getId());
+		return new ScriptNetworkTest(this, testData);
+	}
+#endif
+
+	return var();
+}
+
+
 
 bool DspNetwork::deleteIfUnused(String id)
 {
@@ -604,7 +722,7 @@ bool DspNetwork::setParameterDataFromJSON(var jsonData)
 			{
 				if (auto node = getNodeWithId(nId))
 				{
-					if (auto p = node->getParameter(pId))
+					if (auto p = node->getParameterFromName(pId))
 					{
 						p->data.setProperty(PropertyIds::Value, value, getUndoManager());
 						p->isProbed = true;
@@ -626,10 +744,10 @@ juce::Array<Parameter*> DspNetwork::getListOfProbedParameters()
 
 	for (auto node : l)
 	{
-		for (int i = 0; i < node->getNumParameters(); i++)
+		for(auto p: NodeBase::ParameterIterator(*node))
 		{
-			if (node->getParameter(i)->isProbed)
-				list.add(node->getParameter(i));
+			if (p->isProbed)
+				list.add(p);
 		}
 	}
 
@@ -978,6 +1096,15 @@ hise::ScriptParameterHandler* DspNetwork::getCurrentParameterHandler()
 		return &projectNodeHolder;
 	else
 		return &networkParameterHandler;
+}
+
+void DspNetwork::runPostInitFunctions()
+{
+	for (int i = 0; i < postInitFunctions.size(); i++)
+	{
+		if (postInitFunctions[i]())
+			postInitFunctions.remove(i--);
+	}
 }
 
 DspNetwork::Holder::Holder()
@@ -1346,18 +1473,21 @@ void DeprecationChecker::throwIf(DeprecationId id)
 
 	if (!check(id))
 	{
-		Error e;
-		e.error = Error::ErrorCode::DeprecatedNode;
-		e.actual = (int)id;
-
-		auto nodeTree = cppgen::ValueTreeIterator::findParentWithType(v, PropertyIds::Node);
-		auto nId = nodeTree[PropertyIds::ID].toString();
-
-		if (auto node = n->getNodeWithId(nId))
+		try
 		{
-			n->getExceptionHandler().addError(node, e);
+			Error::throwError(Error::ErrorCode::DeprecatedNode, (int)id);
 		}
+		catch (Error& e)
+		{
+			auto nodeTree = cppgen::ValueTreeIterator::findParentWithType(v, PropertyIds::Node);
+			auto nId = nodeTree[PropertyIds::ID].toString();
 
+			if (auto node = n->getNodeWithId(nId))
+			{
+				n->getExceptionHandler().addError(node, e);
+			}
+		}
+		
 		notOk = true;
 	}
 #endif
@@ -1398,9 +1528,17 @@ scriptnode::NodeBase::Ptr DspNetwork::AnonymousNodeCloner::clone(NodeBase::Ptr p
 	return parent.createFromValueTree(parent.isPolyphonic(), p->getValueTree(), false);
 }
 
+DspNetwork::ProjectNodeHolder::~ProjectNodeHolder()
+{
+	if (loaded && dll != nullptr)
+	{
+		dll->deInitOpaqueNode(&n);
+	}
+}
+
 void DspNetwork::ProjectNodeHolder::process(ProcessDataDyn& data)
 {
-	NodeProfiler np(network.getRootNode());
+	NodeProfiler np(network.getRootNode(), data.getNumSamples());
 
 	n.process(data);
 }
@@ -1417,7 +1555,7 @@ void DspNetwork::ProjectNodeHolder::init(dll::ProjectDll::Ptr dllToUse)
 
 		if (dllId == network.getId())
 		{
-			dll->initNode(&n, i, network.isPolyphonic());
+			dll->initOpaqueNode(&n, i, network.isPolyphonic());
 			loaded = true;
 		}
 	}
@@ -1553,5 +1691,8 @@ void ScriptnodeExceptionHandler::validateMidiProcessingContext(NodeBase* b)
 	}
 }
 
+
+
 }
+
 

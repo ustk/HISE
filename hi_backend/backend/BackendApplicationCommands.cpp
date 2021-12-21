@@ -118,6 +118,7 @@ void BackendCommandTarget::getAllCommands(Array<CommandID>& commands)
 		MenuExportFileAsSnippet,
 		MenuExportSampleDataForInstaller,
 		MenuExportCompileFilesInPool,
+		MenuExportCompileNetworksAsDll,
 		MenuFileQuit,
 		MenuEditUndo,
 		MenuEditRedo,
@@ -163,6 +164,8 @@ void BackendCommandTarget::getAllCommands(Array<CommandID>& commands)
 		MenuToolsImportArchivedSamples,
 		MenuToolsCreateRSAKeys,
 		MenuToolsCreateDummyLicenseFile,
+		MenuToolsApplySampleMapProperties,
+		MenuToolsShowDspNetworkDllInfo,
 		MenuViewResetLookAndFeel,
 		MenuViewReset,
         MenuViewFullscreen,
@@ -325,6 +328,10 @@ void BackendCommandTarget::getCommandInfo(CommandID commandID, ApplicationComman
 		break;
 	case MenuExportFileAsSnippet:
 		setCommandTarget(result, "Export as HISE Snippet", true, false, 'X', false);
+		result.categoryName = "Export";
+		break;
+	case MenuExportCompileNetworksAsDll:
+		setCommandTarget(result, "Compile DSP networks as dll", true, false, 'X', false);
 		result.categoryName = "Export";
 		break;
 	case MenuFileCreateRecoveryXml:
@@ -501,6 +508,10 @@ void BackendCommandTarget::getCommandInfo(CommandID commandID, ApplicationComman
 		setCommandTarget(result, "Collect external files into Project folder", GET_PROJECT_HANDLER(bpe->getMainSynthChain()).isActive(), false, 'X', false);
 		result.categoryName = "Tools";
 		break;
+	case MenuToolsShowDspNetworkDllInfo:
+		setCommandTarget(result, "Show DSP Network DLL info", true, false, 'X', false);
+		result.categoryName = "Tools";
+		break;
 	case MenuToolsCheckUnusedImages:
 		setCommandTarget(result, "Check for unreferenced images", GET_PROJECT_HANDLER(bpe->getMainSynthChain()).isActive(), false, 'X', false);
 		result.categoryName = "Tools";
@@ -532,6 +543,10 @@ void BackendCommandTarget::getCommandInfo(CommandID commandID, ApplicationComman
 		break;
 	case MenuToolsRemoveAllSampleMaps:
 		setCommandTarget(result, "Clear all Samplemaps", true, false, 'X', false);
+		result.categoryName = "Tools";
+		break;
+	case MenuToolsApplySampleMapProperties:
+		setCommandTarget(result, "Apply sample map properties to sample files", true, false, 'X', false);
 		result.categoryName = "Tools";
 		break;
 	case MenuToolsUnloadAllAudioFiles:
@@ -716,6 +731,7 @@ bool BackendCommandTarget::perform(const InvocationInfo &info)
 	case MenuToolsCreateUIDataFromDesktop: Actions::createUIDataFromDesktop(bpe); updateCommands(); return true;
 	case MenuToolsCheckDeviceSanity:	Actions::checkDeviceSanity(bpe); return true;
 	case MenuToolsCheckUnusedImages:	Actions::checkUnusedImages(bpe); return true;
+	case MenuToolsShowDspNetworkDllInfo: Actions::showNetworkDllInfo(bpe); return true;
 	case MenuToolsRedirectScriptFolder: Actions::redirectScriptFolder(bpe); updateCommands(); return true;
 	case MenuToolsForcePoolSearch:		Actions::toggleForcePoolSearch(bpe); updateCommands(); return true;
 	case MenuToolsConvertSampleMapToWavetableBanks:	Actions::convertSampleMapToWavetableBanks(bpe); return true;
@@ -730,6 +746,7 @@ bool BackendCommandTarget::perform(const InvocationInfo &info)
 	case MenuToolsImportArchivedSamples: Actions::importArchivedSamples(bpe); return true;
 	case MenuToolsRecordOneSecond:		bpe->owner->getDebugLogger().startRecording(); return true;
     case MenuToolsEnableDebugLogging:	bpe->owner->getDebugLogger().toggleLogging(); updateCommands(); return true;
+	case MenuToolsApplySampleMapProperties: Actions::applySampleMapProperties(bpe); return true;
     case MenuViewFullscreen:            Actions::toggleFullscreen(bpe); updateCommands(); return true;
 	case MenuViewBack:					bpe->mainEditor->getViewUndoManager()->undo(); updateCommands(); return true;
 	case MenuViewReset:				    bpe->resetInterface(); updateCommands(); return true;
@@ -768,6 +785,7 @@ bool BackendCommandTarget::perform(const InvocationInfo &info)
         exporter.exportMainSynthChainAsMidiFx();
         return true;
     }
+	case MenuExportCompileNetworksAsDll: Actions::compileNetworksToDll(bpe); return true;
     case MenuExportFileAsSnippet:       Actions::exportFileAsSnippet(bpe->getBackendProcessor()); return true;
 	case MenuExportFileAsPlayerLibrary: Actions::exportMainSynthChainAsPlayerLibrary(bpe); return true;
 	case MenuExportSampleDataForInstaller: Actions::exportSampleDataForInstaller(bpe); return true;
@@ -943,6 +961,7 @@ PopupMenu BackendCommandTarget::getMenuForIndex(int topLevelMenuIndex, const Str
 		ADD_DESKTOP_ONLY(MenuExportSampleDataForInstaller);
 		ADD_DESKTOP_ONLY(MenuFileSettingsCleanBuildDirectory);
 		ADD_DESKTOP_ONLY(MenuExportCompileFilesInPool);
+		ADD_DESKTOP_ONLY(MenuExportCompileNetworksAsDll);
 		break;
 	}
 	case BackendCommandTarget::ToolsMenu:
@@ -979,6 +998,7 @@ PopupMenu BackendCommandTarget::getMenuForIndex(int topLevelMenuIndex, const Str
 		ADD_DESKTOP_ONLY(MenuToolsGetMissingSampleList);
 		ADD_DESKTOP_ONLY(MenuToolsDeleteMissingSamples);
 		ADD_DESKTOP_ONLY(MenuToolsCheckAllSampleMaps);
+		ADD_DESKTOP_ONLY(MenuToolsApplySampleMapProperties);
 		ADD_DESKTOP_ONLY(MenuToolsImportArchivedSamples);
 		ADD_DESKTOP_ONLY(MenuToolsCollectExternalFiles);
 		ADD_DESKTOP_ONLY(MenuToolsCheckUnusedImages);
@@ -990,6 +1010,7 @@ PopupMenu BackendCommandTarget::getMenuForIndex(int topLevelMenuIndex, const Str
 		ADD_DESKTOP_ONLY(MenuToolsConvertSfzToSampleMaps);
 		ADD_DESKTOP_ONLY(MenuToolsRemoveAllSampleMaps);
 		ADD_DESKTOP_ONLY(MenuToolsUnloadAllAudioFiles);
+		ADD_DESKTOP_ONLY(MenuToolsShowDspNetworkDllInfo);
 		ADD_DESKTOP_ONLY(MenuToolsRecordOneSecond);
 		p.addSeparator();
 		p.addSectionHeader("License Management");
@@ -2054,8 +2075,6 @@ void BackendCommandTarget::Actions::openFileFromXml(BackendRootWindow * bpe, con
 			XmlBackupFunctions::addContentFromSubdirectory(*xml, fileToLoad);
 			String newId = xml->getStringAttribute("ID");
 			
-			
-
 			auto v = ValueTree::fromXml(*xml);
 			XmlBackupFunctions::restoreAllScripts(v, bpe->getMainSynthChain(), newId);
 			bpe->loadNewContainer(v);
@@ -2135,6 +2154,13 @@ void BackendCommandTarget::Actions::loadProject(BackendRootWindow *bpe)
 		
 	}
 #endif
+}
+
+void BackendCommandTarget::Actions::applySampleMapProperties(BackendRootWindow* bpe)
+{
+	auto downloader = new SampleMapPropertySaverWithBackup(bpe);
+
+	downloader->setModalBaseWindowComponent(bpe);
 }
 
 void BackendCommandTarget::Actions::loadFirstXmlAfterProjectSwitch(BackendRootWindow * bpe)
@@ -2472,6 +2498,12 @@ void BackendCommandTarget::Actions::exportMainSynthChainAsPlayerLibrary(BackendR
 	e->setModalBaseWindowComponent(bpe);
 }
 
+void BackendCommandTarget::Actions::compileNetworksToDll(BackendRootWindow* bpe)
+{
+	auto s = new DspNetworkCompileExporter(bpe, bpe->getBackendProcessor());
+	s->setModalBaseWindowComponent(bpe);
+}
+
 void BackendCommandTarget::Actions::cleanBuildDirectory(BackendRootWindow * bpe)
 {
 	if (!GET_PROJECT_HANDLER(bpe->getMainSynthChain()).isActive()) return;
@@ -2787,6 +2819,18 @@ void BackendCommandTarget::Actions::showDocWindow(BackendRootWindow * bpe)
 	bpe->createOrShowDocWindow(l);
 }
 
+
+void BackendCommandTarget::Actions::showNetworkDllInfo(BackendRootWindow * bpe)
+{
+	auto v = bpe->getBackendProcessor()->dllManager->getStatistics();
+
+	String t;
+	
+	t << "DLL Info:  \n> `" << JSON::toString(v, true) << "`";
+
+	PresetHandler::showMessageWindow("DllInfo", t, PresetHandler::IconType::Info);
+}
+
 #undef REPLACE_WILDCARD
 #undef REPLACE_WILDCARD_WITH_STRING
 
@@ -2817,6 +2861,126 @@ bool BackendCommandTarget::Helpers::canCopyDeviceType(BackendRootWindow* bpe)
 
 	return !mp->hasUIDataForDeviceType();
 	
+}
+
+void XmlBackupFunctions::removeEditorStatesFromXml(XmlElement &xml)
+{
+	xml.deleteAllChildElementsWithTagName("EditorStates");
+
+	for (int i = 0; i < xml.getNumChildElements(); i++)
+	{
+		removeEditorStatesFromXml(*xml.getChildElement(i));
+	}
+}
+
+juce::XmlElement* XmlBackupFunctions::getFirstChildElementWithAttribute(XmlElement* parent, const String& attributeName, const String& value)
+{
+	if (parent->getStringAttribute(attributeName) == value)
+		return parent;
+
+	for (int i = 0; i < parent->getNumChildElements(); i++)
+	{
+		auto* e = parent->getChildElement(i);
+
+		if (e->getStringAttribute(attributeName) == value)
+			return e;
+
+		auto c = getFirstChildElementWithAttribute(e, attributeName, value);
+
+		if (c != nullptr)
+			return c;
+	}
+
+	return nullptr;
+}
+
+void XmlBackupFunctions::addContentFromSubdirectory(XmlElement& xml, const File& fileToLoad)
+{
+	String subDirectoryId = fileToLoad.getFileNameWithoutExtension() + "UIData";
+
+	auto folder = fileToLoad.getParentDirectory().getChildFile(subDirectoryId);
+
+	Array<File> contentFiles;
+
+	folder.findChildFiles(contentFiles, File::findFiles, false, "*.xml");
+
+	if (auto uiData = getFirstChildElementWithAttribute(&xml, "Source", subDirectoryId))
+	{
+		for (const auto& f : contentFiles)
+		{
+			if (auto child = XmlDocument::parse(f))
+			{
+				uiData->addChildElement(child.release());
+			}
+		}
+
+		uiData->removeAttribute("Source");
+	}
+}
+
+void XmlBackupFunctions::extractContentData(XmlElement& xml, const String& interfaceId, const File& xmlFile)
+{
+	auto folder = xmlFile.getParentDirectory().getChildFile(xmlFile.getFileNameWithoutExtension() + "UIData");
+
+	if (folder.isDirectory())
+		folder.createDirectory();
+
+	if (auto pXml = getFirstChildElementWithAttribute(&xml, "ID", interfaceId))
+	{
+		if (auto uiData = pXml->getChildByName("UIData"))
+		{
+			for (int i = 0; i < uiData->getNumChildElements(); i++)
+			{
+				auto e = uiData->getChildElement(i);
+				auto name = e->getStringAttribute("DeviceType");
+
+				auto file = folder.getChildFile(xmlFile.getFileNameWithoutExtension() + name + ".xml");
+
+				file.create();
+				file.replaceWithText(e->createDocument(""));
+			}
+
+			uiData->deleteAllChildElements();
+			uiData->setAttribute("Source", folder.getRelativePathFrom(xmlFile.getParentDirectory()));
+		}
+	}
+}
+
+void XmlBackupFunctions::removeAllScripts(XmlElement &xml)
+{
+	const String t = xml.getStringAttribute("Script");
+
+	if (!t.startsWith("{EXTERNAL_SCRIPT}"))
+	{
+		xml.removeAttribute("Script");
+	}
+
+	for (int i = 0; i < xml.getNumChildElements(); i++)
+	{
+		removeAllScripts(*xml.getChildElement(i));
+	}
+}
+
+juce::File XmlBackupFunctions::getScriptDirectoryFor(ModulatorSynthChain *masterChain, const String &chainId /*= String()*/)
+{
+	if (chainId.isEmpty())
+	{
+		return GET_PROJECT_HANDLER(masterChain).getSubDirectory(ProjectHandler::SubDirectories::Scripts).getChildFile("ScriptProcessors/" + getSanitiziedName(masterChain->getId()));
+	}
+	else
+	{
+		return GET_PROJECT_HANDLER(masterChain).getSubDirectory(ProjectHandler::SubDirectories::Scripts).getChildFile("ScriptProcessors/" + getSanitiziedName(chainId));
+	}
+}
+
+juce::File XmlBackupFunctions::getScriptFileFor(ModulatorSynthChain *, File& directory, const String &id)
+{
+	return directory.getChildFile(getSanitiziedName(id) + ".js");
+}
+
+String XmlBackupFunctions::getSanitiziedName(const String &id)
+{
+	return id.removeCharacters(" .()");
 }
 
 } // namespace hise

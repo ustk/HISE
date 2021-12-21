@@ -140,7 +140,7 @@ void dynamic::editor::timerCallback()
 	{
 		if (auto nc = findParentComponentOfClass<NodeComponent>())
 		{
-			mode.initModes(duplilogic::dynamic::getSpreadModes(), nc->node);
+			mode.initModes(duplilogic::dynamic::getSpreadModes(), nc->node.get());
 			initialised = true;
 		}
 	}
@@ -160,7 +160,7 @@ namespace parameter
 
 		if (auto p = cloneTargets[index])
 		{
-			v = p->getRange().convertFrom0to1(v);
+			v = p->getRange().convertFrom0to1(v, true);
 			p->call(v);
 		}
 	}
@@ -171,9 +171,8 @@ namespace parameter
 
 		root->forEach([&, b](NodeBase::Ptr n)
 		{
-			for (int i = 0; i < n->getNumParameters(); i++)
+			for (auto tp: NodeBase::ParameterIterator(*n))
 			{
-				auto tp = n->getParameter(i);
 				if (tp->getDynamicParameter() == b)
 				{
 					p = tp;
@@ -237,9 +236,7 @@ namespace parameter
 		{
 			if (!n->isClone())
 			{
-				Error e;
-				e.error = Error::CloneMismatch;
-				n->getRootNetwork()->getExceptionHandler().addError(n, e, "Can't connect clone source to uncloned node");
+				n->getRootNetwork()->getExceptionHandler().addCustomError(n, Error::CloneMismatch, "Can't connect clone source to uncloned node");
 				setParameter(nullptr, nullptr);
 				return;
 			}
@@ -314,58 +311,25 @@ namespace parameter
 		}
 	}
 
-dynamic_list::MultiOutputConnection::MultiOutputConnection(NodeBase* n, ValueTree switchTarget) :
-	ConnectionBase(n->getScriptProcessor(), switchTarget),
+dynamic_list::MultiOutputSlot::MultiOutputSlot(NodeBase* n, ValueTree switchTarget_) :
+	ConnectionSourceManager(n->getRootNetwork(), getConnectionTree(n, switchTarget_)),
+    switchTarget(switchTarget_),
 	parentNode(n)
 {
 	jassert(switchTarget.getType() == PropertyIds::SwitchTarget);
-	connectionTree = switchTarget.getOrCreateChildWithName(PropertyIds::Connections, n->getUndoManager());
-
-	initRemoveUpdater(n);
-
-	connectionListener.setCallback(connectionTree, valuetree::AsyncMode::Synchronously, BIND_MEMBER_FUNCTION_2(MultiOutputConnection::updateConnections));
-
-	auto ids = RangeHelpers::getRangeIds();
-	ids.add(PropertyIds::Expression);
-
-	connectionPropertyListener.setCallback(connectionTree, ids, valuetree::AsyncMode::Synchronously, BIND_MEMBER_FUNCTION_2(MultiOutputConnection::updateConnectionProperty));
-
-	ok = rebuildConnections(true);
+	
+	initConnectionSourceListeners();
 }
 
-void dynamic_list::MultiOutputConnection::updateConnectionProperty(ValueTree, Identifier)
+juce::ValueTree dynamic_list::MultiOutputSlot::getConnectionTree(NodeBase* n, ValueTree st)
 {
-	ok = rebuildConnections(false);
+	return st.getOrCreateChildWithName(PropertyIds::Connections, n->getUndoManager(true));
 }
 
-bool dynamic_list::MultiOutputConnection::rebuildConnections(bool tryAgainIfFail)
+void dynamic_list::MultiOutputSlot::rebuildCallback()
 {
-	auto dc = createParameterFromConnectionTree(parentNode, connectionTree, true);
+	auto dc = ConnectionBase::createParameterFromConnectionTree(parentNode, getConnectionTree(parentNode, switchTarget), true);
 	p.setParameter(nullptr, dc);
-	return dc != nullptr;
-}
-
-void dynamic_list::MultiOutputConnection::updateConnections(ValueTree v, bool wasAdded)
-{
-	rebuildConnections(true);
-}
-
-bool dynamic_list::MultiOutputConnection::matchesTarget(NodeBase::Parameter* np)
-{
-	if (p.base == nullptr)
-		return false;
-
-	if (np->getDynamicParameter() == p.base)
-		return true;
-		
-	if (auto dc = dynamic_cast<parameter::dynamic_chain<true>*>(p.base.get()))
-	{
-		for (auto d : dc->targets)
-			if (d == np->getDynamicParameter().get())
-				return true;
-	}
-
-	return false;
 }
 
 void dynamic_list::initialise(NodeBase* n)
@@ -374,33 +338,45 @@ void dynamic_list::initialise(NodeBase* n)
 
 	switchTree = n->getValueTree().getOrCreateChildWithName(PropertyIds::SwitchTargets, n->getUndoManager());
 
+	auto modTree = n->getValueTree().getChildWithName(PropertyIds::ModulationTargets);
+
+	if(modTree.isValid())
+	{
+		modTree.getParent().removeChild(modTree, n->getUndoManager(true));
+	}
+
+
 	connectionUpdater.setCallback(switchTree, valuetree::AsyncMode::Synchronously, BIND_MEMBER_FUNCTION_2(dynamic_list::updateConnections));
 
 	numParameters.initialise(n);
 	numParameters.setAdditionalCallback(BIND_MEMBER_FUNCTION_2(dynamic_list::updateParameterAmount));
 
-	if (!rebuildMultiOutputConnections())
+	if (!rebuildMultiOutputSlots())
 	{
 		WeakReference<dynamic_list> safeThis(this);
 
-		n->getRootNetwork()->getScriptProcessor()->getMainController_()->getKillStateHandler().callLater([safeThis]()
+		n->getRootNetwork()->addPostInitFunction([safeThis]()
 		{
 			if (safeThis.get() != nullptr)
-				safeThis.get()->rebuildMultiOutputConnections();
+			{
+				return safeThis.get()->rebuildMultiOutputSlots();
+			}
+
+			return true;
 		});
 	}
 }
 
-bool dynamic_list::rebuildMultiOutputConnections()
+bool dynamic_list::rebuildMultiOutputSlots()
 {
 	targets.clear();
 
-	for (auto c : switchTree)
-		targets.add(new MultiOutputConnection(parentNode, c));
+ 	for (auto c : switchTree)
+		targets.add(new MultiOutputSlot(parentNode, c));
 
 	for (auto t : targets)
 	{
-		if (!t->ok)
+		if (!t->isInitialised())
 			return false;
 	}
 
@@ -423,7 +399,7 @@ void dynamic_list::updateConnections(ValueTree v, bool wasAdded)
 	if (deferUpdate)
 		return;
 
-	rebuildMultiOutputConnections();
+	rebuildMultiOutputSlots();
 }
 
 void dynamic_list::updateParameterAmount(Identifier, var newValue)
@@ -458,7 +434,7 @@ void dynamic_list::updateParameterAmount(Identifier, var newValue)
 		}
 	}
 
-	rebuildMultiOutputConnections();
+	rebuildMultiOutputSlots();
 }
 
 juce::Path ui::Factory::createPath(const String& url) const
@@ -539,7 +515,7 @@ namespace ui
 
 			int y = 0;
 
-			for (auto v : c->connectionTree)
+			for (auto v : c->getConnectionTree(c->parentNode, c->switchTarget))
 			{
 				editors.add(new ConnectionEditor(c->parentNode, v, index, numParameters));
 
@@ -552,31 +528,33 @@ namespace ui
 			setSize(MultiConnectionEditor::ViewportWidth - 16, y);
 		}
 
-		OutputEditor(parameter::dynamic_list::MultiOutputConnection* c_, int index_, int numParameters_) :
+		OutputEditor(parameter::dynamic_list::MultiOutputSlot* c_, int index_, int numParameters_) :
 			c(c_),
 			index(index_),
 			numParameters(numParameters_)
 		{
 			rebuildEditors({}, true);
-			removeListener.setCallback(c->connectionTree, valuetree::AsyncMode::Asynchronously, BIND_MEMBER_FUNCTION_2(OutputEditor::rebuildEditors));
+			auto cTree = c->getConnectionTree(c->parentNode, c->switchTarget);
+
+			removeListener.setCallback(cTree, valuetree::AsyncMode::Asynchronously, BIND_MEMBER_FUNCTION_2(OutputEditor::rebuildEditors));
 		}
 
 		int index;
 		int numParameters;
 
-		parameter::dynamic_list::MultiOutputConnection* c;
+		parameter::dynamic_list::MultiOutputSlot* c;
 		OwnedArray<ConnectionEditor> editors;
 	};
 
 	struct dynamic_list_editor::MultiConnectionEditor::WrappedOutputEditor : public Component
 	{
-		WrappedOutputEditor(parameter::dynamic_list::MultiOutputConnection* c)
+		WrappedOutputEditor(parameter::dynamic_list::MultiOutputSlot* c)
 		{
-			index = c->data.getParent().indexOf(c->data);
+			index = c->switchTarget.getParent().indexOf(c->switchTarget);
 
 			setName("Output " + String(index + 1));
 
-			auto n = new OutputEditor(c, index, c->data.getParent().getNumChildren());
+			auto n = new OutputEditor(c, index, c->switchTarget.getParent().getNumChildren());
 			vp.setViewedComponent(n);
 			addAndMakeVisible(vp);
 
@@ -642,6 +620,9 @@ namespace ui
 
 	void dynamic_list_editor::timerCallback()
 	{
+		if (getObject() == nullptr)
+			return;
+
 		if (dragSources.size() != getObject()->getNumParameters())
 		{
 			dragSources.clear();
@@ -708,7 +689,7 @@ namespace ui
 		index(index_),
 		pdl(parent)
 	{
-		n = dynamic_cast<ModulationSourceNode*>(pdl->parentNode);
+		n = dynamic_cast<WrapperNode*>(pdl->parentNode);
 		p = Factory().createPath("drag");
 
 		setRepaintsOnMouseActivity(true);
@@ -720,7 +701,7 @@ namespace ui
 	{
 		if (auto t = pdl->targets[index])
 		{
-			return t->matchesTarget(p);
+			return t->isConnectedToSource(p);
 		}
 
 		return false;
@@ -732,7 +713,7 @@ namespace ui
 		{
 			if (auto t = pdl->targets[index])
 			{
-				NodeBase::showPopup(this, new MultiConnectionEditor::WrappedOutputEditor(t.get()));
+				NodeBase::showPopup(this, new MultiConnectionEditor::WrappedOutputEditor(t));
 			}
 		}
 	}
@@ -748,7 +729,7 @@ namespace ui
 
 		auto root = pdl->parentNode->getRootNetwork()->getRootNode();
 
-		while (container != nullptr && container->node != root)
+		while (container != nullptr && container->node.get() != root)
 		{
 			container = container->findParentComponentOfClass<ContainerComponent>();
 		}
@@ -762,7 +743,7 @@ namespace ui
 			details->setProperty(PropertyIds::ParameterId, index);
 			details->setProperty(PropertyIds::SwitchTarget, true);
 
-			container->startDragging(var(details), this, ModulationSourceBaseComponent::createDragImageStatic(false));
+			container->startDragging(var(details), this, ScaledImage(ModulationSourceBaseComponent::createDragImageStatic(false)));
 			findParentComponentOfClass<DspNetworkGraph>()->repaint();
 		}
 	}

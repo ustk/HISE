@@ -49,7 +49,7 @@ public:
     CodeDocument();
 
     /** Destructor. */
-    virtual ~CodeDocument();
+    ~CodeDocument();
 
     //==============================================================================
     /** A position in a code document.
@@ -168,6 +168,7 @@ public:
             @see movedBy
         */
         Position movedByLines (int deltaLines) const;
+
 
         /** Returns the character in the document at this position.
             @see getLineText
@@ -325,13 +326,6 @@ public:
     /** Finds the line that contains the given position. */
     void findLineContaining  (const Position& pos, Position& start, Position& end) const noexcept;
 
-	/** Checks whether the line contains a newline character at the end. */
-	bool endsWithNewLine(int lineIndex) const noexcept;
-
-	String getLineWithoutLinebreak(int lineIndex) const noexcept;
-
-	
-
     //==============================================================================
     /** An object that receives callbacks from the CodeDocument when its text changes.
         @see CodeDocument::addListener, CodeDocument::removeListener
@@ -348,7 +342,7 @@ public:
         /** Called by a CodeDocument when text is deleted. */
         virtual void codeDocumentTextDeleted (int startIndex, int endIndex) = 0;
 
-		virtual void lineRangeChanged(Range<int> range, bool wasAdded) 
+		virtual void lineRangeChanged(Range<int> range, bool wasAdded)
 		{
 			ignoreUnused(range, wasAdded);
 		};
@@ -448,15 +442,10 @@ public:
 
 private:
     //==============================================================================
-
-	JUCE_DECLARE_WEAK_REFERENCEABLE(CodeDocument);
-
     struct InsertAction;
     struct DeleteAction;
     friend class Iterator;
     friend class Position;
-
-	bool undoDisabled = false;
 
     OwnedArray<CodeDocumentLine> lines;
     Array<Position*> positionsToMaintain;
@@ -466,11 +455,14 @@ private:
     ListenerList<Listener> listeners;
     String newLineChars { "\r\n" };
 
+	bool undoDisabled = false;
+
     void insert (const String& text, int insertPos, bool undoable);
     void remove (int startPos, int endPos, bool undoable);
     void checkLastLineStatus();
 
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (CodeDocument)
+	JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(CodeDocument);
+	JUCE_DECLARE_WEAK_REFERENCEABLE(CodeDocument);
 };
 
 } // namespace juce

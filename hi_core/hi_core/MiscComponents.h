@@ -279,13 +279,14 @@ struct DrawActions
 		virtual bool wantsCachedImage() const { return false; };
 		virtual bool wantsToDrawOnParent() const { return false; }
 
-		void setCachedImage(Image& img) { cachedImage = img; }
-		void setScaleFactor(float sf) { scaleFactor = sf; }
+		virtual void setCachedImage(Image& actionImage_, Image& mainImage_) { actionImage = actionImage_; mainImage = mainImage_; }
+		virtual void setScaleFactor(float sf) { scaleFactor = sf; }
 
 	protected:
 
-		Image cachedImage;
-
+		Image actionImage;
+		Image mainImage;
+		
 		float scaleFactor = 1.0f;
 
 	private:
@@ -307,18 +308,47 @@ struct DrawActions
 			drawOnParent(drawOnParent_)
 		{};
 
-		bool wantsCachedImage() const override { return postActions.size() > 0; }
+		bool wantsCachedImage() const override 
+		{ 
+			if(postActions.size() > 0)
+				return true;
+
+			for (auto a : internalActions)
+			{
+				if (a->wantsCachedImage())
+					return true;
+			}
+
+			return false;
+		}
 
 		bool wantsToDrawOnParent() const override { return drawOnParent; };
+
+		void setCachedImage(Image& actionImage_, Image& mainImage_) final override
+		{ 
+			ActionBase::setCachedImage(actionImage_, mainImage_);
+
+			// do not propagate the main image
+			for (auto a : internalActions)
+				a->setCachedImage(actionImage_, actionImage_);
+		}
+
+		virtual void setScaleFactor(float sf) final override
+		{ 
+			ActionBase::setScaleFactor(sf);
+
+			for (auto a : internalActions)
+				a->setScaleFactor(sf);
+		}
 
 		void perform(Graphics& g)
 		{
 			for (auto action : internalActions)
 				action->perform(g);
-
+			
 			if (postActions.size() > 0)
 			{
-				PostGraphicsRenderer r(stack, cachedImage, scaleFactor);
+				PostGraphicsRenderer r(stack, actionImage, scaleFactor);
 				int numDataRequired = 0;
 
 				for (auto p : postActions)
@@ -379,7 +409,8 @@ struct DrawActions
 	{
 		struct Iterator
 		{
-			Iterator(Handler* handler)
+			Iterator(Handler* handler_):
+				handler(handler_)
 			{
 				if (handler != nullptr)
 				{
@@ -416,8 +447,11 @@ struct DrawActions
 				return false;
 			}
 
+			void render(Graphics& g, Component* c);
+
 			int index = 0;
 			ReferenceCountedArray<ActionBase> actionsInIterator;
+			Handler* handler;
 		};
 
 		struct Listener
@@ -496,6 +530,8 @@ struct DrawActions
 		float getScaleFactor() const { return scaleFactor; }
 
 		std::function<void(const String& m)> errorLogger;
+
+		bool recursion = false;
 
 	private:
 

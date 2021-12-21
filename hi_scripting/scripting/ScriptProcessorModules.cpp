@@ -188,6 +188,7 @@ void JavascriptMidiProcessor::registerApiClasses()
 	scriptEngine->registerApiClass(engineObject.get());
 	scriptEngine->registerApiClass(new ScriptingApi::Settings(this));
 	scriptEngine->registerApiClass(new ScriptingApi::FileSystem(this));
+
 	scriptEngine->registerApiClass(serverObject = new ScriptingApi::Server(this));
 	scriptEngine->registerApiClass(new ScriptingApi::Console(this));
 	scriptEngine->registerApiClass(new ScriptingApi::Colours());
@@ -464,6 +465,9 @@ void JavascriptPolyphonicEffect::registerApiClasses()
 	scriptEngine->registerApiClass(engineObject);
 	scriptEngine->registerApiClass(new ScriptingApi::Console(this));
 
+	scriptEngine->registerApiClass(new ScriptingApi::Settings(this));
+	scriptEngine->registerApiClass(new ScriptingApi::FileSystem(this));
+
 	scriptEngine->registerNativeObject("Libraries", new DspFactory::LibraryLoader(this));
 	scriptEngine->registerNativeObject("Buffer", new VariantBuffer::Factory(64));
 }
@@ -671,6 +675,9 @@ void JavascriptMasterEffect::registerApiClasses()
 	scriptEngine->registerApiClass(engineObject);
 	scriptEngine->registerApiClass(new ScriptingApi::Console(this));
 
+	scriptEngine->registerApiClass(new ScriptingApi::Settings(this));
+	scriptEngine->registerApiClass(new ScriptingApi::FileSystem(this));
+
 	scriptEngine->registerNativeObject("Libraries", new DspFactory::LibraryLoader(this));
 	scriptEngine->registerNativeObject("Buffer", new VariantBuffer::Factory(64));
 
@@ -683,6 +690,25 @@ void JavascriptMasterEffect::postCompileCallback()
 }
 
 
+
+void JavascriptMasterEffect::voicesKilled()
+{
+	if (auto n = getActiveNetwork())
+	{
+
+		n->reset();
+	}
+}
+
+bool JavascriptMasterEffect::hasTail() const
+{
+	if (auto n = getActiveNetwork())
+	{
+		return n->hasTail();
+	}
+
+	return false;
+}
 
 void JavascriptMasterEffect::prepareToPlay(double sampleRate, int samplesPerBlock)
 {
@@ -774,6 +800,19 @@ void JavascriptMasterEffect::applyEffect(AudioSampleBuffer &b, int startSample, 
 		scriptEngine->executeCallback((int)Callback::processBlock, &lastResult);
 
 		BACKEND_ONLY(if (!lastResult.wasOk()) debugError(this, lastResult.getErrorMessage()));
+	}
+}
+
+void JavascriptMasterEffect::setBypassed(bool shouldBeBypassed, NotificationType notifyChangeHandler) noexcept
+{
+	MasterEffectProcessor::setBypassed(shouldBeBypassed, notifyChangeHandler);
+
+	if (!shouldBeBypassed)
+	{
+		if (auto n = getActiveNetwork())
+		{
+			n->reset();
+		}
 	}
 }
 
@@ -1335,6 +1374,9 @@ void JavascriptEnvelopeModulator::registerApiClasses()
 	scriptEngine->registerApiClass(engineObject.get());
 	scriptEngine->registerApiClass(new ScriptingApi::Console(this));
 	scriptEngine->registerApiClass(new ScriptingApi::ModulatorApi(this));
+	scriptEngine->registerApiClass(new ScriptingApi::Settings(this));
+	scriptEngine->registerApiClass(new ScriptingApi::FileSystem(this));
+
 	scriptEngine->registerApiClass(synthObject);
 
 	scriptEngine->registerNativeObject("Libraries", new DspFactory::LibraryLoader(this));
@@ -1446,6 +1488,9 @@ void JavascriptSynthesiser::registerApiClasses()
 	scriptEngine->registerNativeObject("Content", content.get());
 	scriptEngine->registerApiClass(engineObject);
 	scriptEngine->registerApiClass(new ScriptingApi::Console(this));
+
+	scriptEngine->registerApiClass(new ScriptingApi::Settings(this));
+	scriptEngine->registerApiClass(new ScriptingApi::FileSystem(this));
 
 	scriptEngine->registerNativeObject("Libraries", new DspFactory::LibraryLoader(this));
 	scriptEngine->registerNativeObject("Buffer", new VariantBuffer::Factory(64));

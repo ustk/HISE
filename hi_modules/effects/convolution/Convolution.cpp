@@ -101,15 +101,26 @@ ConvolutionEffectBase::~ConvolutionEffectBase()
 	convolverR = nullptr;
 }
 
-void ConvolutionEffectBase::setImpulse(bool sync)
+void ConvolutionEffectBase::setImpulse(NotificationType sync)
 {
-	if (sync)
+	if (!prepareCalledOnce)
+		sync = dontSendNotification;
+
+	switch (sync)
 	{
-		jassert(!getImpulseBufferBase().getDataLock().writeAccessIsLocked());
+	case dontSendNotification: 
+		break;
+	case sendNotification:
+	case sendNotificationAsync: 
+		triggerAsyncUpdate(); 
+		break;
+	case sendNotificationSync:
+		cancelPendingUpdate();
 		handleAsyncUpdate();
+		break;
+	default:
+		jassertfalse;
 	}
-	else
-		triggerAsyncUpdate();
 }
 
 void ConvolutionEffectBase::enableProcessing(bool shouldBeProcessed)
@@ -135,6 +146,9 @@ void ConvolutionEffectBase::calcPredelay()
 
 void ConvolutionEffectBase::applyExponentialFadeout(AudioSampleBuffer& buffer, int numSamples, float targetValue)
 {
+	if (targetValue == 1.0f)
+		return;
+
 	float* l = buffer.getWritePointer(0);
 	float* r = buffer.getWritePointer(1);
 
@@ -153,6 +167,9 @@ void ConvolutionEffectBase::applyExponentialFadeout(AudioSampleBuffer& buffer, i
 
 void ConvolutionEffectBase::applyHighFrequencyDamping(AudioSampleBuffer& buffer, int numSamples, double cutoffFrequency, double sampleRate)
 {
+	if (cutoffFrequency >= 20000.0)
+		return;
+
 	const double base = cutoffFrequency / 20000.0;
 	const double invBase = 1.0 - base;
 	const double factor = -1.0 * (double)numSamples / 8.0;
@@ -160,13 +177,13 @@ void ConvolutionEffectBase::applyHighFrequencyDamping(AudioSampleBuffer& buffer,
 	SimpleOnePole lp1;
 	lp1.setType(SimpleOnePoleSubType::FilterType::LP);
 	lp1.setFrequency(20000.0);
-	lp1.setSampleRate(sampleRate >= 0.0 ? sampleRate : 44100.0);
+	lp1.setSampleRate(sampleRate > 0.0 ? sampleRate : 44100.0);
 	lp1.setNumChannels(2);
 
 	SimpleOnePole lp2;
 	lp2.setType(SimpleOnePoleSubType::FilterType::LP);
 	lp2.setFrequency(20000.0);
-	lp2.setSampleRate(sampleRate >= 0.0 ? sampleRate : 44100.0);
+	lp2.setSampleRate(sampleRate > 0.0 ? sampleRate : 44100.0);
 	lp2.setNumChannels(2);
 
 	for (int i = 0; i < numSamples; i += 64)
@@ -183,9 +200,30 @@ void ConvolutionEffectBase::applyHighFrequencyDamping(AudioSampleBuffer& buffer,
 
 void ConvolutionEffectBase::calcCutoff()
 {
-	setImpulse(false);
+	setImpulse(sendNotificationAsync);
 }
 
+
+void ConvolutionEffectBase::resetBase()
+{
+	smoothedGainerDry.reset();
+	smoothedGainerWet.reset();
+	wetBuffer.clear();
+	smoothInputBuffer = false;
+	rampFlag = false;
+	
+	if (predelayMs > 0)
+	{
+		leftPredelay.clear();
+		rightPredelay.clear();
+	}
+
+	if (convolverL != nullptr)
+		convolverL->cleanPipeline();
+
+	if (convolverR != nullptr)
+		convolverR->cleanPipeline();
+}
 
 void ConvolutionEffectBase::prepareBase(double sampleRate, int samplesPerBlock)
 {
@@ -202,9 +240,10 @@ void ConvolutionEffectBase::prepareBase(double sampleRate, int samplesPerBlock)
 
 		leftPredelay.prepareToPlay(sampleRate);
 		rightPredelay.prepareToPlay(sampleRate);
-
-		setImpulse(false);
 	}
+
+	prepareCalledOnce = sampleRate > 0.0;
+	setImpulse(sendNotificationSync);
 }
 
 void ConvolutionEffectBase::processBase(ProcessDataDyn& d)
@@ -212,15 +251,21 @@ void ConvolutionEffectBase::processBase(ProcessDataDyn& d)
 	if (auto sp = SimpleReadWriteLock::ScopedTryReadLock(swapLock))
 	{
 		auto channels = d.getRawChannelPointers();
+		int numChannels = d.getNumChannels();
 		auto numSamples = d.getNumSamples();
 		auto l = channels[0];
-		auto r = channels[1];
+		auto r = numChannels > 1 ? channels[1] : nullptr;
+
+		FloatSanitizers::sanitizeArray(l, numSamples);
+
+		if(numChannels > 1)
+			FloatSanitizers::sanitizeArray(r, numSamples);
 
 		isCurrentlyProcessing.store(true);
 
 		if (isReloading || (!processFlag && !rampFlag))
 		{
-			smoothedGainerDry.processBlock(channels, 2, numSamples);
+			smoothedGainerDry.processBlock(channels, numChannels, numSamples);
 
 			isCurrentlyProcessing.store(false);
 			return;
@@ -231,12 +276,12 @@ void ConvolutionEffectBase::processBase(ProcessDataDyn& d)
 		if (availableSamples > 0)
 		{
 			float* convolutedL = wetBuffer.getWritePointer(0);
-			float* convolutedR = wetBuffer.getWritePointer(1);
+			float* convolutedR = numChannels > 1 ? wetBuffer.getWritePointer(1) : nullptr;
 
 			if (smoothInputBuffer)
 			{
 				auto smoothed_input_l = (float*)alloca(sizeof(float)*numSamples);
-				auto smoothed_input_r = (float*)alloca(sizeof(float)*numSamples);
+				auto smoothed_input_r = numChannels > 1 ? (float*)alloca(sizeof(float)*numSamples) : nullptr;
 
 				float s_gain = 0.0f;
 				float s_step = 1.0f / (float)numSamples;
@@ -244,19 +289,23 @@ void ConvolutionEffectBase::processBase(ProcessDataDyn& d)
 				for (int i = 0; i < numSamples; i++)
 				{
 					smoothed_input_l[i] = s_gain * l[i];
-					smoothed_input_r[i] = s_gain * r[i];
+
+					if(numChannels > 1)
+						smoothed_input_r[i] = s_gain * r[i];
 
 					s_gain += s_step;
 				}
 
 				wetBuffer.clear();
 				convolverL->cleanPipeline();
-				convolverR->cleanPipeline();
+
+				if(numChannels > 1)
+					convolverR->cleanPipeline();
 
 				if (convolverL != nullptr)
 					convolverL->process(smoothed_input_l, convolutedL, numSamples);
 
-				if (convolverR != nullptr)
+				if (convolverR != nullptr && numChannels > 1)
 					convolverR->process(smoothed_input_r, convolutedR, numSamples);
 
 				smoothInputBuffer = false;
@@ -266,11 +315,11 @@ void ConvolutionEffectBase::processBase(ProcessDataDyn& d)
 				if (convolverL != nullptr)
 					convolverL->process(l, convolutedL, numSamples);
 
-				if (convolverR != nullptr)
+				if (convolverR != nullptr && numChannels > 1)
 					convolverR->process(r, convolutedR, numSamples);
 			}
 
-			smoothedGainerDry.processBlock(channels, 2, numSamples);
+			smoothedGainerDry.processBlock(channels, numChannels, numSamples);
 
 			if (rampFlag)
 			{
@@ -284,7 +333,9 @@ void ConvolutionEffectBase::processBase(ProcessDataDyn& d)
 
 					const float gainValue = 0.5f * wetGain * (float)(rampUp ? rampValue : (1.0f - rampValue));
 					l[i] += gainValue * convolutedL[i];
-					r[i] += gainValue * convolutedR[i];
+
+					if(numChannels > 1)
+						r[i] += gainValue * convolutedR[i];
 
 					rampIndex++;
 				}
@@ -297,7 +348,7 @@ void ConvolutionEffectBase::processBase(ProcessDataDyn& d)
 				if (predelayMs != 0.0f)
 				{
 					float* outL = wetBuffer.getWritePointer(0);
-					float* outR = wetBuffer.getWritePointer(1);
+					float* outR = numChannels > 1 ? wetBuffer.getWritePointer(1) : nullptr;
 
 					const float* inL = convolutedL;
 					const float* inR = convolutedR;
@@ -305,19 +356,25 @@ void ConvolutionEffectBase::processBase(ProcessDataDyn& d)
 					for (int i = 0; i < availableSamples; i++)
 					{
 						*outL++ = leftPredelay.getDelayedValue(*inL++);
-						*outR++ = rightPredelay.getDelayedValue(*inR++);
+
+						if(numChannels > 1)
+							*outR++ = rightPredelay.getDelayedValue(*inR++);
 					}
 				}
 				else
 				{
 					FloatVectorOperations::copy(wetBuffer.getWritePointer(0), convolutedL, availableSamples);
-					FloatVectorOperations::copy(wetBuffer.getWritePointer(1), convolutedR, availableSamples);
+
+					if(numChannels > 1)
+						FloatVectorOperations::copy(wetBuffer.getWritePointer(1), convolutedR, availableSamples);
 				}
 
-				smoothedGainerWet.processBlock(wetBuffer.getArrayOfWritePointers(), 2, availableSamples);
+				smoothedGainerWet.processBlock(wetBuffer.getArrayOfWritePointers(), numChannels, availableSamples);
 
 				FloatVectorOperations::addWithMultiply(l, wetBuffer.getReadPointer(0), 0.5f, availableSamples);
-				FloatVectorOperations::addWithMultiply(r, wetBuffer.getReadPointer(1), 0.5f, availableSamples);
+
+				if(numChannels > 1)
+					FloatVectorOperations::addWithMultiply(r, wetBuffer.getReadPointer(1), 0.5f, availableSamples);
 			}
 		}
 
@@ -416,9 +473,9 @@ void ConvolutionEffect::setInternalAttribute(int parameterIndex, float newValue)
 						break;
 	case Latency:		latency = (int)newValue;
 		jassert(isPowerOfTwo(latency));
-		setImpulse(false);
+		setImpulse(sendNotificationAsync);
 		break;
-	case ImpulseLength:	setImpulse(false);
+	case ImpulseLength:	setImpulse(sendNotificationAsync);
 		break;
 	case ProcessInput:	processingEnabled = newValue >= 0.5f;
 						enableProcessing(processingEnabled); 
@@ -443,7 +500,7 @@ void ConvolutionEffect::setInternalAttribute(int parameterIndex, float newValue)
 						
 						break;
 	case Damping:		damping = Decibels::decibelsToGain(newValue); 
-						setImpulse(false);
+						setImpulse(sendNotificationAsync);
 						break;
 	case FFTType:		
 	{
@@ -452,7 +509,7 @@ void ConvolutionEffect::setInternalAttribute(int parameterIndex, float newValue)
 		if (newType != audiofft::ImplementationType::numImplementationTypes)
 		{
 			currentType = newType;
-			setImpulse(false);
+			setImpulse(sendNotificationSync);
 		}
 		
 		break;
@@ -556,15 +613,8 @@ void ConvolutionEffect::applyEffect(AudioSampleBuffer &buffer, int startSample, 
 
 void ConvolutionEffect::voicesKilled()
 {
-	{
-		SimpleReadWriteLock::ScopedReadLock sl(swapLock);
-		convolverL->cleanPipeline();
-		convolverR->cleanPipeline();
-	}
-
-	leftPredelay.clear();
-	rightPredelay.clear();
-	}
+	resetBase();
+}
 
 ProcessorEditorBody *ConvolutionEffect::createEditor(ProcessorEditor *parentEditor)
 {

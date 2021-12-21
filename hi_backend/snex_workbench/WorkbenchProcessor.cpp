@@ -246,7 +246,7 @@ bool SnexWorkbenchEditor::perform(const InvocationInfo &info)
 	case ToolsShowKeyboard: bottomComoponent.setVisible(!bottomComoponent.isVisible()); resized(); return true;
 	case ToolsCompileNetworks:
 	{
-		auto window = new DspNetworkCompileExporter(this);
+		auto window = new DspNetworkCompileExporter(this, getProcessor());
 		window->setOpaque(true);
 		window->setModalBaseWindowComponent(this);
 
@@ -704,27 +704,8 @@ void SnexWorkbenchEditor::loadNewNetwork(const File& f)
 	});
 }
 
-DspNetworkCompileExporter::DspNetworkCompileExporter(SnexWorkbenchEditor* e) :
-	DialogWindowWithBackgroundThread("Compile DSP networks"),
-	ControlledObject(e->getProcessor()),
-	CompileExporter(e->getProcessor()->getMainSynthChain()),
-	editor(e)
-{
-	addComboBox("build", { "Debug", "Release" }, "Build Configuration");
-
-	if (auto fh = editor->getNetworkHolderForNewFile(editor->getProcessor(), editor->getSynthMode()))
-	{
-		if (auto n = fh->getActiveOrDebuggedNetwork())
-			n->createAllNodesOnce();
-	}
-
-	addBasicComponents(true);
-}
-
 struct IncludeSorter
 {
-	
-
 	static int compareElements(const File& f1, const File& f2)
 	{
 		using namespace scriptnode;
@@ -758,7 +739,7 @@ struct IncludeSorter
 			};
 
 			auto firstIsReferencedInSecond = ValueTreeIterator::forEach(v1, ValueTreeIterator::ChildrenFirst, f2);
-			
+
 			auto secondIsReferencedInFirst = ValueTreeIterator::forEach(v1, ValueTreeIterator::ChildrenFirst, f2);
 
 			String e;
@@ -786,8 +767,68 @@ struct IncludeSorter
 	};
 };
 
+DspNetworkCompileExporter::DspNetworkCompileExporter(Component* e, BackendProcessor* bp) :
+	DialogWindowWithBackgroundThread("Compile DSP networks"),
+	ControlledObject(bp),
+	CompileExporter(bp->getMainSynthChain()),
+	editor(e)
+{
+	addComboBox("build", { "Debug", "CI", "Release" }, "Build Configuration");
+
+	if (auto n = getNetwork())
+		n->createAllNodesOnce();
+
+	addBasicComponents(true);
+
+	String s;
+	s << "Nodes to compile:\n";
+
+	for (auto f : bp->dllManager->getNetworkFiles(bp, false))
+		s << " - " << f.getFileNameWithoutExtension() << "\n";
+
+	s = s.upToLastOccurrenceOf(", ", false, false);
+
+	addTextBlock(s);
+
+	showStatusMessage("Press OK to compile the nodes into a DLL");
+}
+
+scriptnode::DspNetwork* DspNetworkCompileExporter::getNetwork()
+{
+	if (auto ed = getEditorWorkbench())
+	{
+		if (auto fh = ed->getNetworkHolderForNewFile(ed->getProcessor(), ed->getSynthMode()))
+		{
+			if (auto n = fh->getActiveOrDebuggedNetwork())
+				return n;
+		}
+	}
+
+	Processor::Iterator<JavascriptProcessor> iter(getMainController()->getMainSynthChain());
+
+	while (auto jsp = iter.getNextProcessor())
+	{
+		if (auto n = jsp->getActiveOrDebuggedNetwork())
+			return n;
+	}
+    
+    return nullptr;
+}
+
+
+
 void DspNetworkCompileExporter::run()
 {
+	auto n = getNetwork();
+
+	if (n == nullptr)
+	{
+		ok = (ErrorCodes)(int)DspNetworkErrorCodes::NoNetwork;
+		errorMessage << "You need at least one active network for the export process.  \n";
+		errorMessage << "> This is used to create all nodes once to setup the codegen properties";
+		return;
+	}
+
 	if (!cppgen::CustomNodeProperties::isInitialised())
 	{
 		ok = ErrorCodes::CompileError;
@@ -802,8 +843,12 @@ void DspNetworkCompileExporter::run()
 
 	showStatusMessage("Unload DLL");
 
-	editor->saveCurrentFile();
-	editor->dllManager->unloadDll();
+	if (auto ed = getEditorWorkbench())
+	{
+		ed->saveCurrentFile();
+	}
+
+	getDllManager()->unloadDll();
 
 	showStatusMessage("Create files");
 
@@ -1012,32 +1057,44 @@ void DspNetworkCompileExporter::threadFinished()
 	{
 		globalCommandLineExport = false;
 
+		if (auto ed = getEditorWorkbench())
+		{
 #if JUCE_LINUX
-		PresetHandler::showMessageWindow("Project creation OK", "Please run the makefile, then press OK when the compilation is finished to reload the dynamic library.");
+			PresetHandler::showMessageWindow("Project creation OK", "Please run the makefile, then press OK when the compilation is finished to reload the dynamic library.");
 #else
-		PresetHandler::showMessageWindow("Compilation OK", "Press OK to reload the project dll.");
+PresetHandler::showMessageWindow("Compilation OK", "Press OK to reload the project dll.");
 #endif
 
-		auto loadedOk = editor->dllManager->loadDll(true);
+			auto loadedOk = ed->dllManager->loadDll(true);
 
-		if (loadedOk)
-		{
-			scriptnode::dll::DynamicLibraryHostFactory f(editor->dllManager->projectDll);
-
-			StringArray list;
-			
-			for (int i = 0; i < f.getNumNodes(); i++)
+			if (loadedOk)
 			{
-				list.add(f.getId(i));
+				scriptnode::dll::DynamicLibraryHostFactory f(ed->dllManager->projectDll);
+
+				StringArray list;
+
+				for (int i = 0; i < f.getNumNodes(); i++)
+				{
+					list.add(f.getId(i));
+				}
+
+				String c;
+
+				c << "Included DSP networks:\n  > `";
+				c << list.joinIntoString(", ") << "`";
+
+				PresetHandler::showMessageWindow("Loaded DLL " + ed->dllManager->getBestProjectDll(BackendDllManager::DllType::Current).getFileName(), c);
+				return;
 			}
+		}
+		else
+		{
 
-			String c;
-
-			c << "Included DSP networks:\n  > `";
-			c << list.joinIntoString(", ") << "`";
-
-			PresetHandler::showMessageWindow("Loaded DLL " + editor->dllManager->getBestProjectDll(BackendDllManager::DllType::Latest).getFileName(), c);
-			return;
+#if JUCE_LINUX
+		PresetHandler::showMessageWindow("Project creation OK", "Please run the makefile, then restart HISE when the compilation is finished");
+#else
+		PresetHandler::showMessageWindow("Compilation OK", "Please restart HISE in order to load the new binary");
+#endif
 		}
 	}
 	else 
@@ -1048,6 +1105,8 @@ juce::File DspNetworkCompileExporter::getBuildFolder() const
 {
 	return getFolder(BackendDllManager::FolderSubType::Binaries);
 }
+
+
 
 juce::Array<juce::File> DspNetworkCompileExporter::getIncludedNetworkFiles(const File& networkFile)
 {
@@ -1077,6 +1136,14 @@ juce::Array<juce::File> DspNetworkCompileExporter::getIncludedNetworkFiles(const
 	list.add(networkFile);
 
 	return list;
+}
+
+hise::BackendDllManager* DspNetworkCompileExporter::getDllManager()
+{
+	if (auto ed = getEditorWorkbench())
+		return ed->dllManager.get();
+	else
+		return dynamic_cast<BackendProcessor*>(getMainController())->dllManager.get();
 }
 
 bool DspNetworkCompileExporter::isInterpretedDataFile(const File& f)
@@ -1112,9 +1179,11 @@ void DspNetworkCompileExporter::createProjucerFile()
 	auto dllFolder = getFolder(BackendDllManager::FolderSubType::DllLocation);
 	auto dbgFile = dllFolder.getChildFile("project_debug").withFileExtension(".dll");
 	auto rlsFile = dllFolder.getChildFile("project").withFileExtension(".dll");
+	auto ciFile = dllFolder.getChildFile("project_ci").withFileExtension(".dll");
 
 	auto dbgName = dbgFile.getNonexistentSibling(false).getFileNameWithoutExtension().removeCharacters(" ");
 	auto rlsName = rlsFile.getNonexistentSibling(false).getFileNameWithoutExtension().removeCharacters(" ");
+	auto ciName =  ciFile.getNonexistentSibling(false).getFileNameWithoutExtension().removeCharacters(" ");
 
 #if JUCE_MAC
     REPLACE_WILDCARD_WITH_STRING("%USE_IPP_MAC%", useIpp ? "USE_IPP=1" : String());
@@ -1125,6 +1194,7 @@ void DspNetworkCompileExporter::createProjucerFile()
 
 	REPLACE_WILDCARD_WITH_STRING("%DEBUG_DLL_NAME%", dbgName);
 	REPLACE_WILDCARD_WITH_STRING("%RELEASE_DLL_NAME%", rlsName);
+	REPLACE_WILDCARD_WITH_STRING("%CI_DLL_NAME%", ciName);
 	REPLACE_WILDCARD_WITH_STRING("%NAME%", projectName);
 	REPLACE_WILDCARD_WITH_STRING("%HISE_PATH%", hisePath.getFullPathName());
 	REPLACE_WILDCARD_WITH_STRING("%JUCE_PATH%", jucePath.getFullPathName());
@@ -1141,7 +1211,7 @@ juce::File DspNetworkCompileExporter::getSourceDirectory(bool isDllMainFile) con
 	if (isDllMainFile)
 		return getFolder(BackendDllManager::FolderSubType::ProjucerSourceFolder);
 	else
-		return GET_PROJECT_HANDLER(editor->getProcessor()->getMainSynthChain()).getSubDirectory(FileHandlerBase::AdditionalSourceCode).getChildFile("nodes");
+		return GET_PROJECT_HANDLER(getMainController()->getMainSynthChain()).getSubDirectory(FileHandlerBase::AdditionalSourceCode).getChildFile("nodes");
 }
 
 void DspNetworkCompileExporter::createMainCppFile(bool isDllMainFile)
@@ -1253,6 +1323,14 @@ void DspNetworkCompileExporter::createMainCppFile(bool isDllMainFile)
 		b.addEmptyLine();
 
 		{
+			b << "DLL_EXPORT void deInitOpaqueNode(scriptnode::OpaqueNode* n)";
+			StatementBlock bk(b);
+			b << "n->callDestructor();";
+		}
+
+		b.addEmptyLine();
+
+		{
 			b << "DLL_EXPORT void initOpaqueNode(scriptnode::OpaqueNode* n, int index, bool polyIfPossible)";
 			StatementBlock bk(b);
 			b << "f.initOpaqueNode(n, index, polyIfPossible);";
@@ -1261,8 +1339,6 @@ void DspNetworkCompileExporter::createMainCppFile(bool isDllMainFile)
 		{
 			b << "DLL_EXPORT int getHash(int index)";
 			StatementBlock bk(b);
-
-
 
 			if (includedFiles.size() == 0)
 			{
@@ -1285,7 +1361,7 @@ void DspNetworkCompileExporter::createMainCppFile(bool isDllMainFile)
 
 						String l;
 
-						auto hash = editor->dllManager->getHashForNetworkFile(getMainController(), includedFiles[i].getFileNameWithoutExtension());
+						auto hash = getDllManager()->getHashForNetworkFile(getMainController(), includedFiles[i].getFileNameWithoutExtension());
 
 						if (hash == 0)
 						{
@@ -1308,6 +1384,18 @@ void DspNetworkCompileExporter::createMainCppFile(bool isDllMainFile)
 			b << "DLL_EXPORT int getWrapperType(int index)";
 			StatementBlock bk(b);
 			b << "return f.getWrapperType(index);";
+		}
+
+		{
+			b << "DLL_EXPORT scriptnode::Error getError()";
+			StatementBlock bk(b);
+			b << "return f.getError();";
+		}
+
+		{
+			b << "DLL_EXPORT void clearError()";
+			StatementBlock bk(b);
+			b << "f.clearError();";
 		}
 	}
 	else

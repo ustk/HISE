@@ -157,7 +157,8 @@ struct DspNetworkProcessor : public ProcessorWithScriptingContent,
 	{
 		DebuggableSnexProcessor::workbenchChanged(newWorkbench);
 
-		testData = &rootWb->getTestData();
+		if(rootWb != nullptr)
+			testData = &rootWb->getTestData();
 	}
 
 	SET_PROCESSOR_CONNECTOR_TYPE_ID("ScriptProcessor");
@@ -193,8 +194,8 @@ struct DspNetworkProcessor : public ProcessorWithScriptingContent,
 		if (activeNetwork == nullptr)
 			return;
 
-		if (auto p = activeNetwork->getRootNode()->getParameter(parameterIndex))
-			p->setValue(newValue);
+		if (auto p = activeNetwork->getRootNode()->getParameterFromIndex(parameterIndex))
+			p->setValueAsync(newValue);
 	}
 
 	float getAttribute(int parameterIndex) const override
@@ -202,7 +203,7 @@ struct DspNetworkProcessor : public ProcessorWithScriptingContent,
 		if (activeNetwork == nullptr)
 			return 0.0f;
 
-		if (auto p = activeNetwork->getRootNode()->getParameter(parameterIndex))
+		if (auto p = activeNetwork->getRootNode()->getParameterFromIndex(parameterIndex))
 			return p->getValue();
 
 		return 0.0f;
@@ -731,7 +732,7 @@ struct DspNetworkCompileHandler : public WorkbenchData::CompileHandler,
 
 	void processTestParameterEvent(int parameterIndex, double value) override;
 
-	void prepareTest(PrepareSpecs ps, const Array<WorkbenchData::TestData::ParameterEvent>& ) override;
+	Result prepareTest(PrepareSpecs ps, const Array<WorkbenchData::TestData::ParameterEvent>& ) override;
 
 	void processTest(ProcessDataDyn& data) override;
 

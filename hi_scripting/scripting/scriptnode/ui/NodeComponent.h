@@ -137,7 +137,7 @@ public:
 
 		bool isRootHeader() const
 		{
-			return parent.node->getRootNetwork()->getRootNode() == parent.node;
+			return parent.node->getRootNetwork()->getRootNode() == parent.node.get();
 		}
 
 		void updateColour(Identifier id, var value)
@@ -164,7 +164,7 @@ public:
 		{
 			if (isHoveringOverBypass)
 			{
-				parent.node->addConnectionToBypass(dragSourceDetails.description);
+				parent.node->connectToBypass(dragSourceDetails.description);
 			}
 
 			isHoveringOverBypass = false;
@@ -228,7 +228,7 @@ public:
 	};
 
 	NodeComponent(NodeBase* b);;
-	~NodeComponent();
+	virtual ~NodeComponent();
 
 	void paint(Graphics& g) override;
 	void paintOverChildren(Graphics& g) override;
@@ -283,7 +283,8 @@ public:
 
 	bool wasSelected = false;
 	ValueTree dataReference;
-	NodeBase::Ptr node;
+
+	ReferenceCountedObjectPtr<NodeBase> node;
 	Header header;
 	ScopedPointer<EmbeddedNetworkBar> embeddedNetworkBar;
 

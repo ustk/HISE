@@ -99,7 +99,7 @@ void SnexSource::throwScriptnodeErrorIfCompileFail()
 		auto& eh = parentNode->getRootNetwork()->getExceptionHandler();
 
 		if (wb->getGlobalScope().isDebugModeEnabled())
-			eh.addError(parentNode, { Error::ErrorCode::NodeDebuggerEnabled, 0, 0 });
+			eh.addCustomError(parentNode, Error::NodeDebuggerEnabled, "Debug is enabled");
 		else
 			eh.removeError(parentNode, Error::NodeDebuggerEnabled);
 
@@ -112,14 +112,8 @@ void SnexSource::throwScriptnodeErrorIfCompileFail()
 		else
 		{
 			wb->getLastResult().compileResult = lastResult;
-
 			auto e = lastResult.getErrorMessage();
-
-			auto s = e.fromFirstOccurrenceOf("Line ", false, false);
-			auto l = s.getIntValue() - 1;
-			auto c = s.fromFirstOccurrenceOf("(", false, false).upToFirstOccurrenceOf(")", false, false).getIntValue();
-
-			parentNode->getRootNetwork()->getExceptionHandler().addError(parentNode, { scriptnode::Error::CompileFail, l, c });
+			parentNode->getRootNetwork()->getExceptionHandler().addCustomError(parentNode, scriptnode::Error::CompileFail, e);
 		}
 	}
 }
@@ -199,9 +193,9 @@ void SnexSource::ParameterHandler::updateParameters(ValueTree v, bool wasAdded)
 	}
 	else
 	{
-		for (int i = 0; i < getNode()->getNumParameters(); i++)
+		for(auto sn_: NodeBase::ParameterIterator(*getNode()))
 		{
-			if (auto sn = dynamic_cast<SnexParameter*>(getNode()->getParameter(i)))
+			if (auto sn = dynamic_cast<SnexParameter*>(sn_))
 			{
 				if (sn->data[PropertyIds::ID].toString() == v[PropertyIds::ID].toString())
 				{
@@ -217,7 +211,7 @@ void SnexSource::ParameterHandler::updateParametersForWorkbench(bool shouldAdd)
 {
 	for (int i = 0; i < getNode()->getNumParameters(); i++)
 	{
-		if (auto sn = dynamic_cast<SnexParameter*>(getNode()->getParameter(i)))
+		if (auto sn = dynamic_cast<SnexParameter*>(getNode()->getParameterFromIndex(i)))
 		{
 			removeSnexParameter(sn);
 			i--;
@@ -237,7 +231,7 @@ void SnexSource::ParameterHandler::removeSnexParameter(SnexParameter* p)
 
 	for (int i = 0; i < getNode()->getNumParameters(); i++)
 	{
-		if (getNode()->getParameter(i) == p)
+		if (getNode()->getParameterFromIndex(i) == p)
 		{
 			getNode()->removeParameter(i);
 			break;
@@ -247,7 +241,7 @@ void SnexSource::ParameterHandler::removeSnexParameter(SnexParameter* p)
 
 void SnexSource::ParameterHandler::addNewParameter(parameter::data p)
 {
-	if (auto existing = getNode()->getParameter(p.info.getId()))
+	if (auto existing = getNode()->getParameterFromName(p.info.getId()))
 		return;
 
 	auto newTree = p.createValueTree();

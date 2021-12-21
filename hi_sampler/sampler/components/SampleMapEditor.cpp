@@ -740,7 +740,7 @@ SampleMapEditor::SampleMapEditor (ModulatorSampler *s, SamplerBody *b):
 			m.soloGroup(*displayedGroup);
 	});
 
-	setFocusContainer(true);
+	setFocusContainerType(FocusContainerType::keyboardFocusContainer);
 
 
     //[/Constructor]
@@ -1385,9 +1385,9 @@ void SampleMapEditor::updateWarningButton()
 		resized();
 }
 
-juce::KeyboardFocusTraverser* SampleMapEditor::createFocusTraverser()
+std::unique_ptr<juce::ComponentTraverser> SampleMapEditor::createKeyboardFocusTraverser()
 {
-	return new SampleEditHandler::SubEditorTraverser(this);
+	return std::make_unique<SampleEditHandler::SubEditorTraverser>(this);
 }
 
 void SampleMapEditor::comboBoxChanged(ComboBox* b)

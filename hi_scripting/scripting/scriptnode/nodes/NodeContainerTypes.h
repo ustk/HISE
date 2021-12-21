@@ -408,15 +408,52 @@ template <int OversampleFactor> class OversampleNode : public SerialNode
 {
 public:
 
-	SCRIPTNODE_FACTORY(OversampleNode, "oversample" + String(OversampleFactor) + "x");
+    enum Parameters
+    {
+        OversamplingFactor
+    };
+    
+    static String getOversampleName()
+    {
+        String x;
+        x << "oversample";
+        
+        if(OversampleFactor != -1)
+        {
+            x << String(OversampleFactor) << "x";
+        }
+        
+        return x;
+    }
+    
+	SCRIPTNODE_FACTORY(OversampleNode, getOversampleName());
 
 	OversampleNode(DspNetwork* network, ValueTree d);
 
+    DEFINE_PARAMETERS
+    {
+        DEF_PARAMETER(OversamplingFactor, OversampleNode);
+    }
+
+    PARAMETER_MEMBER_FUNCTION;
+
+    void setOversamplingFactor(double newFactor)
+    {
+        obj.setOversamplingFactor(jlimit(0, 16, (int)newFactor));
+    }
+    
+    virtual bool hasFixedParameters() const { return OversampleFactor == -1; }
+    
 	double getSampleRateForChildNodes() const override;
 
 	int getBlockSizeForChildNodes() const override;
 
-	void updateBypassState(Identifier, var );
+	void updateBypassState(Identifier, var)
+	{
+		
+	}
+
+	void setBypassed(bool shouldBeBypassed) override;
 
 	String getNodeDescription() const override { return "Processes the child nodes with a higher samplerate"; }
 
@@ -427,10 +464,9 @@ public:
 	void processFrame(FrameType& data) noexcept final override { jassertfalse; }
 
 	wrap::oversample<OversampleFactor, SerialNode::DynamicSerialProcessor> obj;
-
-	valuetree::PropertyListener bypassListener;
-	PolyHandler* lastVoiceIndex = nullptr;
 };
+
+
 
 template <int B> class FixedBlockNode : public SerialNode
 {
@@ -457,25 +493,11 @@ public:
 		return isBypassed() ? originalBlockSize : FixedBlockSize;
 	}
 
-	void updateBypassState(Identifier, var)
-	{
-		if (originalBlockSize == 0)
-			return;
-
-		PrepareSpecs ps;
-		ps.blockSize = originalBlockSize;
-		ps.sampleRate = originalSampleRate;
-		ps.numChannels = getCurrentChannelAmount();
-		ps.voiceIndex = lastVoiceIndex;
-
-		prepare(ps);
-	}
+	void setBypassed(bool shouldBeBypassed) override;
 
 	wrap::fix_block<FixedBlockSize, DynamicSerialProcessor> obj;
-
-	valuetree::PropertyListener bypassListener;
-	PolyHandler* lastVoiceIndex = nullptr;
 };
+
 
 
 class FixedBlockXNode : public SerialNode
@@ -503,6 +525,7 @@ public:
 			{
 				SimpleReadWriteLock::ScopedWriteLock sl(parent->getRootNetwork()->getConnectionLock());
 				parent->prepare(originalSpecs);
+				parent->getRootNetwork()->runPostInitFunctions();
 			}
 			else
 				blockSize = 64;
@@ -550,29 +573,16 @@ public:
 	void reset() final override;
 	void handleHiseEvent(HiseEvent& e) final override;
 
+	Component* createLeftTabComponent() const override;
+
 	int getBlockSizeForChildNodes() const override
 	{
 		return isBypassed() ? originalBlockSize : obj.fbClass.blockSize;
 	}
 
-	void updateBypassState(Identifier, var) 
-	{
-		if (originalBlockSize == 0)
-			return;
-
-		PrepareSpecs ps;
-		ps.blockSize = originalBlockSize;
-		ps.sampleRate = originalSampleRate;
-		ps.numChannels = getCurrentChannelAmount();
-		ps.voiceIndex = lastVoiceIndex;
-
-		prepare(ps);
-	}
+	void setBypassed(bool shouldBeBypassed) override;
 
 	wrap::fix_blockx<DynamicSerialProcessor, DynamicBlockProperty> obj;
-
-	valuetree::PropertyListener bypassListener;
-	PolyHandler* lastVoiceIndex = nullptr;
 };
 
 
@@ -675,6 +685,8 @@ public:
 
 	String getNodeDescription() const override { return "Enables per sample processing for the child nodes."; }
 
+	void setBypassed(bool shouldBeBypassed) override;
+
 	void prepare(PrepareSpecs ps) final override;
 	void reset() final override;
 	void process(ProcessDataDyn& data) final override;
@@ -682,7 +694,6 @@ public:
 	int getBlockSizeForChildNodes() const override;;
 	void handleHiseEvent(HiseEvent& e) override;
 
-	valuetree::PropertyListener bypassListener;
 	wrap::frame_x<SerialNode::DynamicSerialProcessor> obj;
 	AudioSampleBuffer leftoverBuffer;
 };
@@ -725,13 +736,17 @@ public:
 
 	void process(ProcessDataDyn& data) final override
 	{
-		NodeProfiler np(this);
+		
 
 		if (isBypassed())
+		{
+			NodeProfiler np(this, data.getNumSamples());
 			obj.getObject().process(data.as<FixProcessType>());
+		}
+			
 		else
 		{
-			
+			NodeProfiler np(this, 1);
 			float* channels[NumChannels];
 			int numChannels = jmin(NumChannels, data.getNumChannels());
 			memcpy(channels, data.getRawDataPointers(), numChannels * sizeof(float*));
@@ -763,9 +778,21 @@ public:
 		obj.processFrame(s);
 	}
 
-	void updateBypassState(Identifier, var)
+	void setBypassed(bool shouldBeBypassed) override
 	{
-		prepare(originalSampleRate, originalBlockSize);
+		SerialNode::setBypassed(shouldBeBypassed);
+
+		if (originalBlockSize == 0)
+			return;
+
+		PrepareSpecs ps;
+		ps.blockSize = originalBlockSize;
+		ps.sampleRate = originalSampleRate;
+		ps.numChannels = getCurrentChannelAmount();
+		ps.voiceIndex = lastVoiceIndex;
+
+		prepare(ps);
+		getRootNetwork()->runPostInitFunctions();
 	}
 
 	int getBlockSizeForChildNodes() const override
@@ -777,8 +804,6 @@ public:
 	{
 		obj.handleHiseEvent(e);
 	}
-
-	valuetree::PropertyListener bypassListener;
 
 	wrap::frame<NumChannels, SerialNode::DynamicSerialProcessor> obj;
 

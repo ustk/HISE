@@ -266,6 +266,8 @@ public:
     /** Returns the determinant of the transform. */
     float getDeterminant() const noexcept;
 
+    //==============================================================================
+   #ifndef DOXYGEN
     /** This method has been deprecated.
 
         You can calculate the scale factor using:
@@ -281,10 +283,9 @@ public:
     */
     float getScaleFactor() const noexcept;
 
-    /* A ready-to-use identity transform - now deprecated.
-       @deprecated If you need an identity transform, just use AffineTransform() or {}.
-    */
-    JUCE_DEPRECATED_STATIC (static const AffineTransform identity;)
+    [[deprecated ("If you need an identity transform, just use AffineTransform() or {}.")]]
+    static const AffineTransform identity;
+   #endif
 
     //==============================================================================
     /* The transform matrix is:

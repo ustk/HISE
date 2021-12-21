@@ -217,6 +217,8 @@ struct WorkbenchData : public ReferenceCountedObject,
 		friend class WorkbenchData;
 
 		WorkbenchData::WeakPtr parent;
+
+		JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SubItemBase);
 	};
 
 	struct CompileResult: public ApiProviderBase
@@ -383,7 +385,7 @@ struct WorkbenchData : public ReferenceCountedObject,
 		/** Override this function and call the parameter method. */
 		virtual void processTestParameterEvent(int parameterIndex, double value) = 0;
 
-		virtual void prepareTest(PrepareSpecs ps, const Array<ParameterEvent>& initialParameters) = 0;
+		virtual Result prepareTest(PrepareSpecs ps, const Array<ParameterEvent>& initialParameters) = 0;
 
 		virtual void processTest(ProcessDataDyn& data) = 0;
 
@@ -487,7 +489,7 @@ struct WorkbenchData : public ReferenceCountedObject,
 
 		var toJSON() const;
 
-		bool fromJSON(const var& jsonData);
+		bool fromJSON(const var& jsonData, NotificationType runTest=sendNotificationSync);
 
 		bool shouldRunTest() const
 		{
@@ -575,7 +577,7 @@ struct WorkbenchData : public ReferenceCountedObject,
 		
 		void processInChunks(const std::function<void()>& f);
 
-		void processTestData(WorkbenchData::Ptr data);
+		Result processTestData(WorkbenchData::Ptr data);
 
 		void clear(NotificationType notify = dontSendNotification)
 		{
@@ -597,6 +599,7 @@ struct WorkbenchData : public ReferenceCountedObject,
 
 		AudioSampleBuffer testSourceData;
 		AudioSampleBuffer testOutputData;
+		AudioSampleBuffer testReferenceData;
 		
 		File currentTestFile;
 		File testInputFile;
@@ -956,6 +959,7 @@ struct WorkbenchData : public ReferenceCountedObject,
 	private:
 
 		JUCE_DECLARE_WEAK_REFERENCEABLE(CodeProvider);
+		JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(CodeProvider);
 	};
 
 	struct DefaultCodeProvider: public CodeProvider

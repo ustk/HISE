@@ -52,7 +52,7 @@ public:
 		return true;
 	}
 
-    virtual void linkTo(ExternalData::DataType type, ProcessorWithExternalData& src, int srcIndex, int dstIndex)
+    void linkTo(ExternalData::DataType type, ExternalDataHolder& src, int srcIndex, int dstIndex) override
     {
 		Random r;
 		Colour c((uint32)r.nextInt());
@@ -60,10 +60,18 @@ public:
 		SharedReference d1(type, srcIndex, c);
 		SharedReference d2(type, dstIndex, c);
 
-		src.sharedReferences.addIfNotAlreadyThere(d1);
-		sharedReferences.addIfNotAlreadyThere(d2);
+        if(auto ped = dynamic_cast<ProcessorWithExternalData*>(&src))
+        {
+            ped->sharedReferences.addIfNotAlreadyThere(d1);
+            sharedReferences.addIfNotAlreadyThere(d2);
 
-        referenceShared(type, dstIndex);
+            referenceShared(type, dstIndex);
+        }
+        else
+        {
+            jassertfalse;
+        }
+        
     }
     
 	FilterDataObject* getFilterData(int index) override
@@ -184,7 +192,7 @@ public:
 		return t == dataType ? ownedObjects.size() : 0;
 	}
 	
-    void linkTo(ExternalData::DataType type, ProcessorWithExternalData& src, int srcIndex, int dstIndex) override
+    void linkTo(ExternalData::DataType type, ExternalDataHolder& src, int srcIndex, int dstIndex) override
     {
 		jassert(type == dataType);
         
@@ -286,45 +294,45 @@ public:
 
 	SampleLookupTable* getTableUnchecked(int index = 0)
 	{
-		return static_cast<SampleLookupTable*>(*(tables.getRawDataPointer() + index));
+		return static_cast<SampleLookupTable*>(*(tables.begin() + index));
 	}
 
 	const SampleLookupTable* getTableUnchecked(int index = 0) const
 	{
-		return static_cast<SampleLookupTable*>(*(tables.getRawDataPointer() + index));
+		return static_cast<SampleLookupTable*>(*(tables.begin() + index));
 	}
 
 	SliderPackData* getSliderPackDataUnchecked(int index = 0)
 	{
-		return *(sliderPacks.getRawDataPointer() + index);
+		return *(sliderPacks.begin() + index);
 	}
 
 	const SliderPackData* getSliderPackDataUnchecked(int index = 0) const
 	{
-		return *(sliderPacks.getRawDataPointer() + index);
+		return *(sliderPacks.begin() + index);
 	}
 
 	MultiChannelAudioBuffer* getAudioFileUnchecked(int index = 0)
 	{
-		return *(audioFiles.getRawDataPointer() + index);
+		return *(audioFiles.begin() + index);
 	}
 
 	const MultiChannelAudioBuffer* getAudioFileUnchecked(int index = 0) const
 	{
-		return *(audioFiles.getRawDataPointer() + index);
+		return *(audioFiles.begin() + index);
 	}
 
 	SimpleRingBuffer* getDisplayBufferUnchecked(int index = 0)
 	{
-		return *(displayBuffers.getRawDataPointer() + index);
+		return *(displayBuffers.begin() + index);
 	}
 
 	const SimpleRingBuffer* getDisplayBufferUnchecked(int index = 0) const
 	{
-		return *(displayBuffers.getRawDataPointer() + index);
+		return *(displayBuffers.begin() + index);
 	}
     
-    void linkTo(ExternalData::DataType type, ProcessorWithExternalData& src, int srcIndex, int dstIndex) override
+    void linkTo(ExternalData::DataType type, ExternalDataHolder& src, int srcIndex, int dstIndex) override
     {
         if(isPositiveAndBelow(dstIndex, getNumDataObjects(type)))
         {
@@ -473,7 +481,7 @@ public:
 		}
 	}
 
-    void linkTo(ExternalData::DataType type, ProcessorWithExternalData& src, int srcIndex, int dstIndex) override
+    void linkTo(ExternalData::DataType type, ExternalDataHolder& src, int srcIndex, int dstIndex) override
     {
         if(isPositiveAndBelow(dstIndex, getNumDataObjects(type)))
         {

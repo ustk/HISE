@@ -406,7 +406,7 @@ juce::var ui::WorkbenchData::TestData::toJSON() const
 	return var(obj.get());
 }
 
-bool ui::WorkbenchData::TestData::fromJSON(const var& jsonData)
+bool ui::WorkbenchData::TestData::fromJSON(const var& jsonData, NotificationType runTests)
 {
 	if (auto obj = jsonData.getDynamicObject())
 	{
@@ -473,9 +473,12 @@ bool ui::WorkbenchData::TestData::fromJSON(const var& jsonData)
 					parameterEvents.add(ParameterEvent(pe));
 			}
 
-			sendMessageToListeners(true);
-			rebuildTestSignal(sendNotification);
-
+			if (runTests != dontSendNotification)
+			{
+				sendMessageToListeners(true);
+				rebuildTestSignal(sendNotification);
+			}
+			
 			return true;
 		}
 	}
@@ -624,7 +627,7 @@ void ui::WorkbenchData::TestData::processInChunks(const std::function<void()>& f
 
 }
 
-void ui::WorkbenchData::TestData::processTestData(WorkbenchData::Ptr data)
+Result ui::WorkbenchData::TestData::processTestData(WorkbenchData::Ptr data)
 {
 	auto tester = customTester.get();
 
@@ -643,7 +646,10 @@ void ui::WorkbenchData::TestData::processTestData(WorkbenchData::Ptr data)
 
 	
 
-	tester->prepareTest(ps, parameterEvents);
+	auto r = tester->prepareTest(ps, parameterEvents);
+    
+    if(!r.wasOk())
+        return r;
 
 	testOutputData.makeCopyOf(testSourceData);
 
@@ -686,7 +692,7 @@ void ui::WorkbenchData::TestData::processTestData(WorkbenchData::Ptr data)
 					numThisTime -= numBeforeParam;
 				}
 
-				if (thisParameterIndex != -1)
+				if (thisParameterIndex != -1 & p.timeStamp != 0)
 					tester->processTestParameterEvent(p.parameterIndex, p.valueToUse);
 
 				auto numBeforeEvent = e.getTimeStamp() - samplePos;
@@ -730,6 +736,8 @@ void ui::WorkbenchData::TestData::processTestData(WorkbenchData::Ptr data)
 	auto calculatedSeconds = (double)testOutputData.getNumSamples() / ps.sampleRate;
 
 	cpuUsage = delta / calculatedSeconds;
+    
+    return Result::ok();
 }
 
 int ui::WorkbenchData::CompileResult::getNumDebugObjects() const

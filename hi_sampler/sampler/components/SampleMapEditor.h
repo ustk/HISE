@@ -267,12 +267,8 @@ public:
 
 					if (!dir.isDirectory()) continue;
 
-					DirectoryIterator iter(dir, true, "*.wav;*.aif;*.mp3;*.aiff;", File::TypesOfFileToFind::findFiles);
-
-					while (iter.next())
-					{
-						filesInFolder.add(iter.getFile().getFullPathName());
-					}
+					for(auto f: RangedDirectoryIterator(dir, true, "*.wav;*.aif;*.mp3;*.aiff;", File::TypesOfFileToFind::findFiles))
+                        filesInFolder.add(f.getFile().getFullPathName());
 				}
 			}
 		}
@@ -318,7 +314,7 @@ public:
 
 	void updateWarningButton();
 
-	KeyboardFocusTraverser* createFocusTraverser() override;
+	std::unique_ptr<ComponentTraverser> createKeyboardFocusTraverser() override;
 
 	void itemDropped(const SourceDetails &dragSourceDetails) override
 	{

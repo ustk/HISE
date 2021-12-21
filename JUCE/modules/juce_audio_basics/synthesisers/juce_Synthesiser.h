@@ -349,8 +349,6 @@ public:
     /** Returns one of the sounds. */
     SynthesiserSound* getSound (int index) const noexcept       { return sounds[index].get(); }
 
-	SynthesiserSound::Ptr getSoundRefCounted(int index) const noexcept { return sounds[index]; }
-
     /** Adds a new sound to the synthesiser.
 
         The object passed in is reference counted, so will be deleted when the
@@ -632,14 +630,6 @@ private:
 
     template <typename floatType>
     void processNextBlock (AudioBuffer<floatType>&, const MidiBuffer&, int startSample, int numSamples);
-
-   #if JUCE_CATCH_DEPRECATED_CODE_MISUSE
-    // Note the new parameters for these methods.
-    virtual int findFreeVoice (const bool) const { return 0; }
-    virtual int noteOff (int, int, int) { return 0; }
-    virtual int findFreeVoice (SynthesiserSound*, const bool) { return 0; }
-    virtual int findVoiceToSteal (SynthesiserSound*) const { return 0; }
-   #endif
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (Synthesiser)
 };

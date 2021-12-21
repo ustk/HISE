@@ -53,6 +53,8 @@ template <class P, typename... Ts> using oversample8x = wrap::oversample<8,   co
 template <class P, typename... Ts> using oversample16x = wrap::oversample<16, container::chain<P, Ts...>, init::oversample>;
 template <class P, typename... Ts> using modchain = wrap::control_rate<chain<P, Ts...>>;
 
+template <class P, typename... Ts> using oversample = wrap::oversample<-1,   container::chain<P, Ts...>, init::oversample>;
+
 }
 #endif
 
@@ -869,12 +871,15 @@ public:
 	void setGate(double v)
 	{
 		auto shouldBeOn = (int)(v > 0.5);
-		v = (double)shouldBeOn;
 
 		for (auto& d : voiceData)
 		{
+			auto shouldReset = shouldBeOn && !d.enabled;
+
+			if (shouldReset)
+				d.uptime = 0.0;
+
 			d.enabled = shouldBeOn;
-			d.uptime *= v;
 		}
 	}
 

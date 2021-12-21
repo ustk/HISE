@@ -191,12 +191,12 @@ struct granulator: public data::base
 		AudioDataType grainData;
 	};
 
-
-
 	// Reset the processing pipeline here
 	void reset()
 	{
-
+		voiceCounter = 0;
+		voices.clear();
+		activeEvents.clear();
 	}
 
 	bool isXYZ() const
@@ -216,7 +216,7 @@ struct granulator: public data::base
 			auto delta = ((Math.randomDouble() - 0.5) * (double)timeBetweenGrains * 0.3);
 			timeOfLastGrainStart = uptime + delta;
 
-			double thisPitch = pitchRatio * 44100.0 / sampleRate;
+			double thisPitch = pitchRatio * sourceSampleRate / sampleRate;
 			auto thisGain = 1.0f;
 
 			StereoSample nextSample;
@@ -308,24 +308,52 @@ struct granulator: public data::base
 
 	void handleHiseEvent(HiseEvent& e)
 	{
+		if (e.isController())
+		{
+			if (e.getControllerNumber() == 64)
+			{
+				pedal = e.getControllerValue() > 64;
+
+				if (!pedal)
+				{
+					for (auto& dl : delayedNoteOffs)
+						handleHiseEvent(dl);
+
+					delayedNoteOffs.clear();
+				}
+			}
+		}
+
+		if (e.isAllNotesOff())
+		{
+			for (auto v : voices)
+				v.clear();
+
+			voiceCounter = 0;
+			delayedNoteOffs.clear();
+		}
+
 		if (e.isNoteOn())
 		{
 			voices[voiceCounter] = e;
 			voiceCounter = Math.min(voices.size()-1, voiceCounter + 1);
 		}
-		else
+		else if (e.isNoteOff())
 		{
 			for (auto& v : voices)
 			{
 				if (v.getEventId() == e.getEventId())
 				{
-					voiceCounter = Math.max(0, voiceCounter - 1);
-
-					v = voices[voiceCounter];
-
-					voices[voiceCounter].clear();
-
-					break;
+					if (pedal)
+					{
+						delayedNoteOffs.insert(e);
+					}
+					else
+					{
+						voiceCounter = Math.max(0, voiceCounter - 1);
+						v = voices[voiceCounter];
+						voices[voiceCounter].clear();
+					}
 				}
 			}
 		}
@@ -339,7 +367,7 @@ struct granulator: public data::base
 	void updateGrainLength()
 	{
 		grainLengthSamples = grainLength * 0.001 * sampleRate;
-		timeBetweenGrains = (int)(grainLengthSamples * pitchRatio * (1.0 - density)) / 2;
+		timeBetweenGrains = (int)(grainLengthSamples * (1.0 / pitchRatio) * (1.0 - density)) / 2;
 
 		timeBetweenGrains = jmax(400, timeBetweenGrains);
 
@@ -354,7 +382,8 @@ struct granulator: public data::base
 
 		ed = d;
 
-
+		if (d.sampleRate != 0.0)
+			sourceSampleRate = d.sampleRate;
 
 		//d.referBlockTo(audioData[0], 0);
 		//d.referBlockTo(audioData[1], 1);
@@ -489,14 +518,20 @@ struct granulator: public data::base
 	double sampleFrequency = 440.0;
 	double pitchRatio = 1.0;
 	double sampleRate = 44100.0;
+	double sourceSampleRate = 44100.0;
 
 	double density = 1.0;
 	double detune = 0.0;
 	float spread = 0.0f;
 
+	bool pedal = false;
+
 	span<HiseEvent, 8> voices;
 	int voiceCounter = 0;
 	dyn<HiseEvent> activeEvents;
+
+	UnorderedStack<HiseEvent, 8> delayedNoteOffs;
+
 	int eventIndex = 0;
 
 	float maxGainInGrain = 1.0f;
@@ -821,8 +856,8 @@ struct xy_editor : public ScriptnodeExtraComponent<control::xy<parameter::dynami
 		auto xValue = (pos.getX() - a.getX()) / a.getWidth();
 		auto yValue = 1.0f - (pos.getY() - a.getY()) / a.getHeight();
 
-		findParentComponentOfClass<NodeComponent>()->node->getParameter(0)->setValueFromUI(xValue);
-		findParentComponentOfClass<NodeComponent>()->node->getParameter(1)->setValueFromUI(yValue);
+		findParentComponentOfClass<NodeComponent>()->node->getParameterFromIndex(0)->setValueSync(xValue);
+		findParentComponentOfClass<NodeComponent>()->node->getParameterFromIndex(1)->setValueSync(yValue);
 	}
 
 	void timerCallback() override
@@ -957,12 +992,134 @@ using gonio_display = data::ui::pimpl::editorT<data::dynamic::displaybuffer,
 	ui::simple_gon_display,
 	false>;
 
+struct SpecNode: public NodeBase
+{
+	SET_HISE_NODE_ID("specs");
+
+	struct Comp : public NodeComponent,
+				  public PooledUIUpdater::SimpleTimer
+	{
+		Comp(SpecNode* b) :
+			NodeComponent(b),
+			SimpleTimer(b->getRootNetwork()->getScriptProcessor()->getMainController_()->getGlobalUIUpdater())
+		{
+			start();
+		};
+
+		void timerCallback() override
+		{
+
+		}
+
+		void paint(Graphics& g) override
+		{
+			NodeComponent::paint(g);
+			
+			Colour w1 = Colours::white.withAlpha(0.6f);
+			Colour w2 = Colours::white.withAlpha(0.9f);
+
+			Font f1 = GLOBAL_BOLD_FONT();
+			Font f2 = GLOBAL_MONOSPACE_FONT();
+
+			auto specs = dynamic_cast<SpecNode*>(node.get())->lastSpecs;
+
+			AttributedString as;
+			as.append("Channel Amount: ", f1, w1);
+			as.append(String(roundToInt(specs.numChannels)) + "\n", f2, w2);
+			as.append("Samplerate: ", f1, w1);
+			as.append(String(roundToInt(specs.sampleRate)) + " | ", f2, w2);
+			as.append("Block Size: ", f1, w1);
+			as.append(String(roundToInt(specs.blockSize)) + "\n", f2, w2);
+			as.append("MIDI: ", f1, w1);
+			as.append(String(dynamic_cast<SpecNode*>(node.get())->processMidi ? "true | " : "false |"), f2, w2);
+			as.append("Polyphony: ", f1, w1);
+
+			auto polyEnabled = specs.voiceIndex != nullptr && specs.voiceIndex->isEnabled();
+
+			as.append(polyEnabled ? "true\n" : "false\n", f2, w2);
+
+			if (polyEnabled)
+			{
+				if (auto vr = specs.voiceIndex->getVoiceResetter())
+				{
+					as.append("NumActiveVoices: ", f1, w1);
+					as.append(String(vr->getNumActiveVoices()) + "\n", f2, w2);
+				}
+			}
+
+			auto b = getLocalBounds();
+			b.removeFromTop(header.getHeight());
+			b = b.reduced(UIValues::NodeMargin);
+
+			ScriptnodeComboBoxLookAndFeel::drawScriptnodeDarkBackground(g, b.toFloat(), false);
+
+			as.draw(g, b.toFloat().reduced(UIValues::NodeMargin));
+		}
+	};
+
+	SpecNode(DspNetwork* n, ValueTree v) :
+		NodeBase(n, v, 0)
+	{};
+
+	static NodeBase* createNode(DspNetwork* n, ValueTree v)
+	{
+		return new SpecNode(n, v);
+	}
+
+	void process(ProcessDataDyn& data) override
+	{
+		lastMs = Time::getMillisecondCounter();
+	}
+
+	void reset() override
+	{
+
+	};
+
+	void processFrame(FrameType& data) override
+	{
+		lastMs = Time::getMillisecondCounter();
+	}
+
+	void prepare(PrepareSpecs ps) override
+	{
+		lastSpecs = ps;
+
+		try
+		{
+			ScriptnodeExceptionHandler::validateMidiProcessingContext(this);
+			processMidi = true;
+		}
+		catch (scriptnode::Error& e)
+		{
+			processMidi = false;
+		}
+	}
+
+	NodeComponent* createComponent() override
+	{
+		return new Comp(this);
+	}
+
+	Rectangle<int> getPositionInCanvas(Point<int> topLeft) const override
+	{
+		return { topLeft.getX(), topLeft.getY(), 256, 130 };
+	}
+
+	uint32 lastMs;
+	PrepareSpecs lastSpecs;
+	bool processMidi = false;
+};
+
 Factory::Factory(DspNetwork* network) :
 	NodeFactory(network)
 {
 	registerNode<wrap::data<fft, data::dynamic::displaybuffer>, fft_display>();
 	registerNode<wrap::data<oscilloscope, data::dynamic::displaybuffer>, osc_display>();
 	registerNode<wrap::data<goniometer, data::dynamic::displaybuffer>, gonio_display>();
+
+	registerPolyNodeRaw<SpecNode, SpecNode>();
+
 }
 
 }
@@ -1025,7 +1182,12 @@ namespace fx
 			for (int i = 0; i < 100; i++)
 				x[i] = hmath::sin(float_Pi * 2.0f * (float)i / 100.0f);
 
-			auto delta = (int)(getNode()->getParameter(0)->getValue() / JUCE_LIVE_CONSTANT_OFF(10.0f));
+			auto n = getNode();
+
+			if (n == nullptr)
+				return;
+
+			auto delta = (int)(getNode()->getParameterFromIndex(0)->getValue() / JUCE_LIVE_CONSTANT_OFF(10.0f));
 			int counter = 0;
 			float v = 0.0;
 
@@ -1198,9 +1360,13 @@ namespace control
 
 		registerPolyNoProcessNode<control::bipolar<1, parameter::dynamic_base_holder>, control::bipolar<NUM_POLYPHONIC_VOICES, parameter::dynamic_base_holder>, bipolar_editor>();
 
+
+
 		registerPolyNoProcessNode<control::pma<1, parameter::dynamic_base_holder>, control::pma<NUM_POLYPHONIC_VOICES, parameter::dynamic_base_holder>, pma_editor>();
 
 		registerPolyNoProcessNode<control::minmax<1, parameter::dynamic_base_holder>, control::minmax<NUM_POLYPHONIC_VOICES, parameter::dynamic_base_holder>, minmax_editor>();
+
+		registerPolyNoProcessNode<control::logic_op<1, parameter::dynamic_base_holder>, control::logic_op<NUM_POLYPHONIC_VOICES, parameter::dynamic_base_holder>, logic_op_editor>();
 
 		registerNoProcessNode<control::sliderbank_editor::NodeType, control::sliderbank_editor, false>();
 		registerNoProcessNode<dynamic_cable_pack, data::ui::sliderpack_editor>();

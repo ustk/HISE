@@ -120,7 +120,6 @@ DECLARE_ID(AudioFile);
 DECLARE_ID(CodeLibrary);
 DECLARE_ID(ClassId);
 DECLARE_ID(AllowSubBlocks);
-DECLARE_ID(Enabled);
 DECLARE_ID(Mode);
 DECLARE_ID(BlockSize);
 DECLARE_ID(IsPolyphonic);
@@ -210,34 +209,7 @@ enum EditType
 
 }
 
-struct Error
-{
-	enum ErrorCode
-	{
-		OK,
-		NoMatchingParent,
-		ChannelMismatch,
-		BlockSizeMismatch,
-		IllegalFrameCall,
-		IllegalBlockSize,
-		SampleRateMismatch,
-		InitialisationError,
-		TooManyChildNodes,
-		CompileFail,
-		NodeDebuggerEnabled,
-		RingBufferMultipleWriters,
-		DeprecatedNode,
-		IllegalPolyphony,
-		IllegalBypassConnection,
-		CloneMismatch,
-		IllegalMod,
-		numErrorCodes
-	};
 
-	ErrorCode error = ErrorCode::OK;
-	int expected = 0;
-	int actual = 0;
-};
 
 #undef DECLARE_ID
 
