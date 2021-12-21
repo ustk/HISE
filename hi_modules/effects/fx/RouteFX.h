@@ -165,12 +165,17 @@ struct SendContainer : public ModulatorSynth
 
 	void prepareToPlay(double sampleRate, int samplesPerBlock) override
 	{
-		ModulatorSynth::prepareToPlay(sampleRate, samplesPerBlock);
-        internalBuffer.setSize(getMatrix().getNumSourceChannels(), samplesPerBlock);
+		if (samplesPerBlock > 0)
+		{
+			ModulatorSynth::prepareToPlay(sampleRate, samplesPerBlock);
+			internalBuffer.setSize(getMatrix().getNumSourceChannels(), samplesPerBlock);
+		}
 	}
 
 	void renderNextBlockWithModulators(AudioSampleBuffer& outputAudio, const HiseEventBuffer& inputMidi) override
 	{
+		processHiseEventBuffer(inputMidi, outputAudio.getNumSamples());
+
 		effectChain->renderMasterEffects(internalBuffer);
 		
         

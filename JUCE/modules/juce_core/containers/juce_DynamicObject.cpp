@@ -80,6 +80,11 @@ void DynamicObject::clear()
     properties.clear();
 }
 
+void DynamicObject::swapProperties(NamedValueSet&& other)
+{
+	std::swap(properties, other);
+}
+
 void DynamicObject::cloneAllProperties()
 {
     for (int i = properties.size(); --i >= 0;)
@@ -127,11 +132,6 @@ void DynamicObject::writeAsJSON (OutputStream& out, const int indentLevel, const
         JSONFormatter::writeSpaces (out, indentLevel);
 
     out << '}';
-}
-
-void DynamicObject::swapProperties(NamedValueSet&& newProperties)
-{
-	std::swap(properties, newProperties);
 }
 
 } // namespace juce

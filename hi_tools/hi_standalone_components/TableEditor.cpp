@@ -47,8 +47,6 @@ TableEditor::TableEditor(UndoManager* undoManager_, Table *tableToBeEdited):
 
 	setSpecialLookAndFeel(&defaultLaf, false);
 
-	setEnablePaintProfiling("TableEditor");
-
     // MUST BE SET!
 	jassert(editedTable != nullptr);
 
@@ -338,13 +336,18 @@ void TableEditor::resized()
 	}
 }
 
+
+
 void TableEditor::graphHasChanged(int point)
 {
-	if (currently_dragged_point == nullptr)
-	{
-		createDragPoints();
-		refreshGraph();
-	}
+	SafeAsyncCall::call<TableEditor>(*this, [](TableEditor& t) 
+	{	
+		if (t.currently_dragged_point == nullptr)
+		{
+			t.createDragPoints();
+			t.refreshGraph();
+		}
+	});
 }
 
 void TableEditor::setDomain(DomainType newDomainType, Range<int> newRange)

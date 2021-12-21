@@ -48,6 +48,53 @@
 namespace hise {
 using namespace juce;
 
+/** This class will safely call the given function on the message thread as long as the object that was passed in is still alive.
+
+	You can pass in any lambda with a reference parameter to a class object and it will be guaranteed to be executed only if the object wasn't deleted.
+
+	Obviously the class you want to use here needs to be JUCE_DECLARE_WEAK_REFERENCEABLE.
+*/
+class SafeAsyncCall
+{
+	template <typename T> struct SafeAsyncCaller
+	{
+		using Func = std::function<void(T&)>;
+
+		void operator()()
+		{
+			if (obj_.get() != nullptr)
+				f_(*obj_.get());
+		}
+
+		SafeAsyncCaller(T* o, const Func& f2_) :
+			obj_(o),
+			f_(f2_)
+		{};
+
+	private:
+
+		WeakReference<T> obj_;
+		Func f_;
+	};
+
+public:
+
+	template <typename T> static void call(T& object, std::function<void(T&)> f)
+	{
+		MessageManager::callAsync(SafeAsyncCaller<T>(&object, f));
+	}
+
+	static void resized(Component* c)
+	{
+		call<Component>(*c, [](Component& c) { c.resized(); });
+	}
+
+	static void repaint(Component* c)
+	{
+		call<Component>(*c, [](Component& c) { c.repaint(); });
+	}
+};
+
 
 struct audio_spin_mutex 
 {
@@ -330,9 +377,9 @@ private:
 			for (int i = 0; i < runningClients.size(); ++i)
 			{
 				juce::Component* comp = runningClients.getReference(i);
-
+				
 				juce::Rectangle<int> r = (parent.getLocalArea(comp, comp->getLocalBounds()).toFloat() * displayScale).getSmallestIntegerContainer();
-				glViewport((GLint)r.getX(),
+				juce::gl::glViewport((GLint)r.getX(),
 					(GLint)parentBounds.getHeight() - (GLint)r.getBottom(),
 					(GLsizei)r.getWidth(), (GLsizei)r.getHeight());
 				juce::OpenGLHelpers::clear(backgroundColour);
@@ -804,7 +851,11 @@ public:
 		JUCE_DECLARE_WEAK_REFERENCEABLE(EventListener);
 	};
 
-	virtual ~ComplexDataUIUpdaterBase() {};
+	virtual ~ComplexDataUIUpdaterBase() 
+	{
+		ScopedLock sl(updateLock);
+		listeners.clear();
+	};
 
 	void addEventListener(EventListener* l)
 	{
@@ -908,12 +959,19 @@ private:
 
 			if (forceUpdate || (isMoreImportantChange && valueHasChanged))
 			{
+				ScopedLock sl(updateLock);
+
 				lastChange = jmax(t, lastChange);
 
 				for (auto l : listeners)
 				{
 					if (l.get() != nullptr)
+					{
 						l->onComplexDataEvent(t, v);
+
+						if (lastChange != EventType::DisplayIndex)
+							l->onComplexDataEvent(ComplexDataUIUpdaterBase::EventType::DisplayIndex, lastDisplayValue);
+					}
 				}
 			}
 
@@ -2099,7 +2157,10 @@ struct ScrollbarFader : public Timer,
         for(auto sb: scrollbars)
         {
             if(sb != nullptr)
+            {
                 sb->removeListener(this);
+                sb->setLookAndFeel(nullptr);
+            }
         }
     }
     
@@ -2253,7 +2314,7 @@ public:
 
 	static int getTempoInSamples(double hostTempoBpm, double sampleRate, float tempoFactor);
 
-	static const StringArray& getTempoNames() { return tempoNames; };
+	static StringArray getTempoNames();;
 
 	/** Returns the time for the specified tempo in milliseconds. */
 	static float getTempoInMilliSeconds(double hostTempoBpm, Tempo t);;
@@ -2281,7 +2342,9 @@ public:
 
 private:
 
-	static StringArray tempoNames;
+	using TempoString = char[6];
+
+	static TempoString tempoNames[numTempos];
 	static float tempoFactors[numTempos];
 
 };

@@ -45,7 +45,8 @@ BackendRootWindow::BackendRootWindow(AudioProcessor *ownerProcessor, var editorS
 
 	if (GET_HISE_SETTING(owner->getMainSynthChain(), HiseSettings::Other::GlassEffect))
 	{
-		screenshotter = new PeriodicScreenshotter(floatingRoot);
+		if(!CompileExporter::isExportingFromCommandLine())
+			screenshotter = new PeriodicScreenshotter(floatingRoot);
 	}
 
 	bool loadedCorrectly = true;
@@ -748,6 +749,11 @@ void PeriodicScreenshotter::run()
 {
 	while (!threadShouldExit())
 	{
+        if(MessageManager::getInstanceWithoutCreating() == nullptr)
+        {
+            return;
+        }
+        
 		Image newImage;
 		{
 			MessageManagerLock mm;

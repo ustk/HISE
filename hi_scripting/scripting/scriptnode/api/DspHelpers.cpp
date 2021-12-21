@@ -72,11 +72,7 @@ void DspHelpers::increaseBuffer(snex::Types::heap<float>& b, const PrepareSpecs&
 void DspHelpers::setErrorIfFrameProcessing(const PrepareSpecs& ps)
 {
 	if (ps.blockSize == 1)
-	{
-		Error e;
-		e.error = Error::IllegalFrameCall;
-		throw e;
-	}
+		Error::throwError(Error::IllegalFrameCall);
 }
 
 void DspHelpers::setErrorIfNotOriginalSamplerate(const PrepareSpecs& ps, NodeBase* n)
@@ -85,16 +81,12 @@ void DspHelpers::setErrorIfNotOriginalSamplerate(const PrepareSpecs& ps, NodeBas
 
 	if (ps.sampleRate != original)
 	{
-		Error e;
-		e.error = Error::SampleRateMismatch;
-		e.expected = (int)original;
-		e.actual = (int)ps.sampleRate;
-		throw e;
+		Error::throwError(Error::SampleRateMismatch, (int)original, (int)ps.sampleRate);
 	}
 }
 
 
-
+#if 0
 scriptnode::DspHelpers::ParameterCallback DspHelpers::getFunctionFrom0To1ForRange(InvertableParameterRange range, const ParameterCallback& originalFunction)
 {
 	if (RangeHelpers::isIdentity(range))
@@ -116,6 +108,7 @@ scriptnode::DspHelpers::ParameterCallback DspHelpers::getFunctionFrom0To1ForRang
 		originalFunction(v);
 	};
 }
+#endif
 
 void DspHelpers::validate(PrepareSpecs sp, PrepareSpecs rp)
 {
@@ -128,42 +121,17 @@ void DspHelpers::validate(PrepareSpecs sp, PrepareSpecs rp)
 		return;
 
 	if (sp.numChannels != rp.numChannels)
-	{
-		Error e;
-		e.error = Error::ChannelMismatch;
-		e.actual = rp.numChannels;
-		e.expected = sp.numChannels;
-
-		throw e;
-	}
-
+		Error::throwError(Error::ChannelMismatch, sp.numChannels, rp.numChannels);
 	if (sp.sampleRate != rp.sampleRate)
-	{
-		Error e;
-		e.error = Error::SampleRateMismatch;
-		e.actual = (int)rp.sampleRate;
-		e.expected = (int)sp.sampleRate;
-		throw e;
-	}
-
+		Error::throwError(Error::SampleRateMismatch, sp.sampleRate, rp.sampleRate);
 	if (sp.blockSize != rp.blockSize)
-	{
-		Error e;
-		e.error = Error::BlockSizeMismatch;
-		e.actual = rp.blockSize;
-		e.expected = sp.blockSize;
-		throw e;
-	}
+		Error::throwError(Error::BlockSizeMismatch, sp.blockSize, rp.blockSize);
 }
 
 void DspHelpers::throwIfFrame(PrepareSpecs ps)
 {
 	if (ps.blockSize == 1)
-	{
-		Error e;
-		e.error = Error::IllegalFrameCall;
-		throw e;
-	}
+		Error::throwError(Error::IllegalFrameCall);
 }
 
 }

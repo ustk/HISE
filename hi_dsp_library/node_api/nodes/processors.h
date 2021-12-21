@@ -528,41 +528,61 @@ struct oversample_base
 		oversamplingFactor(factor)
 	{};
 
+    virtual ~oversample_base() {};
+    
+    void rebuildOversampler()
+    {
+        if(originalBlockSize == 0)
+            return;
+        
+        ScopedPointer<Oversampler> newOverSampler;
+        
+        newOverSampler = new Oversampler(numChannels, (int)std::log2(oversamplingFactor), Oversampler::FilterType::filterHalfBandPolyphaseIIR, false);
+
+        if (originalBlockSize > 0)
+            newOverSampler->initProcessing(originalBlockSize);
+
+        {
+            hise::SimpleReadWriteLock::ScopedReadLock sl(lock);
+            oversampler.swapWith(newOverSampler);
+        }
+    }
+    
 	void prepare(PrepareSpecs ps)
 	{
-		ScopedPointer<Oversampler> newOverSampler;
-
-        if(ps.voiceIndex != nullptr && ps.voiceIndex->isEnabled())
-        {
-            scriptnode::Error e;
-            e.error = Error::IllegalPolyphony;
-            throw e;
-        }
+		if (ps.voiceIndex != nullptr && ps.voiceIndex->isEnabled())
+		{
+			scriptnode::Error::throwError(Error::IllegalPolyphony);
+			return;
+		}
+            
         
-		auto originalBlockSize = ps.blockSize;
-
+        originalBlockSize = ps.blockSize;
+        numChannels = ps.numChannels;
+        
 		ps.sampleRate *= (double)oversamplingFactor;
 		ps.blockSize *= oversamplingFactor;
 
 		if (prepareFunc)
 			prepareFunc(pObj, &ps);
 		
-		newOverSampler = new Oversampler(ps.numChannels, (int)std::log2(oversamplingFactor), Oversampler::FilterType::filterHalfBandPolyphaseIIR, false);
-
-		if (originalBlockSize > 0)
-			newOverSampler->initProcessing(originalBlockSize);
-
-		{
-			hise::SimpleReadWriteLock::ScopedReadLock sl(lock);
-			oversampler.swapWith(newOverSampler);
-		}
+        rebuildOversampler();
 	}
 
+    
+    void setOversamplingFactor(int factor)
+    {
+        oversamplingFactor = factor;
+        rebuildOversampler();
+    }
+    
 protected:
 
 	hise::SimpleReadWriteLock lock;
 
-	const int oversamplingFactor = 0;
+    int oversamplingFactor = 0;
+    int originalBlockSize = 0;
+    int numChannels = 0;
 	
 	void* pObj = nullptr;
 	prototypes::prepare prepareFunc;
@@ -571,22 +591,26 @@ protected:
 };
 
 
-
-
-
 template <int OversamplingFactor, class T, class InitFunctionClass=scriptnode_initialisers::oversample> class oversample: public oversample_base
 {
 public:
 
-	SN_OPAQUE_WRAPPER(oversample, T);
+	SN_SELF_AWARE_WRAPPER(oversample, T);
 
 	oversample():
 		oversample_base(OversamplingFactor)
 	{
-		this->prepareFunc = prototypes::static_wrappers<T>::prepare;
+        
+        this->prepareFunc = prototypes::static_wrappers<T>::prepare;
 		this->pObj = &obj;
 	}
 
+    template <int P> static void setParameter(void* t, double newValue)
+    {
+        if constexpr(P == 0)
+            static_cast<oversample*>(t)->setOversamplingFactor((int)newValue);
+    }
+    
 	forcedinline void reset() noexcept 
 	{
 		hise::SimpleReadWriteLock::ScopedTryReadLock sl(this->lock);
@@ -1088,6 +1112,13 @@ template <class ParameterClass, class T> struct mod
 		static_cast<mod*>(o)->template setParameter<P>(v);
 	}
 
+    void createParameters(ParameterDataList& data)
+    {
+        if constexpr (prototypes::check::createParameters<T>::value)
+            obj.createParameters(data);
+        
+    }
+    
 	void setExternalData(const ExternalData& d, int index)
 	{
 		if constexpr (prototypes::check::setExternalData<T>::value)
@@ -1119,9 +1150,7 @@ template <typename T> struct illegal_poly: public scriptnode::data::base
 
 	void prepare(PrepareSpecs ps)
 	{
-		scriptnode::Error e;
-		e.error = Error::IllegalPolyphony;
-		throw e;
+		Error::throwError(Error::IllegalPolyphony);
 	}
 
     void setExternalData(const ExternalData& d, int index) override
@@ -1216,6 +1245,11 @@ template <class T> struct node : public scriptnode::data::base
 
 	void prepare(PrepareSpecs ps)
 	{
+		if (ps.numChannels != NumChannels)
+		{
+			Error::throwError(Error::ChannelMismatch, NumChannels, ps.numChannels);
+		}
+
 		obj.prepare(ps);
 	}
 

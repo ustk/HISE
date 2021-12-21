@@ -109,9 +109,6 @@ void ModulatorSamplerSound::loadSampleFromValueTree(const ValueTree& sampleData,
 		{
 			int multimicIndex = isMultiMicSound ? sampleData.getParent().indexOf(sampleData) : 0;
 
-			if (sampleData.hasProperty("MonolithSplitIndex"))
-				multimicIndex = (int)sampleData.getProperty("MonolithSplitIndex");
-
 			soundArray.add(new StreamingSamplerSound(hmaf, multimicIndex, getId()));
 		}
 		else
@@ -640,7 +637,12 @@ void ModulatorSamplerSound::selectSoundsBasedOnRegex(const String &regexWildcard
 	}
 
 #if USE_BACKEND
-	sampler->getSampleEditHandler()->setMainSelectionToLast();
+
+	SafeAsyncCall::call<ModulatorSampler>(*sampler, [](ModulatorSampler& s)
+	{
+		s.getSampleEditHandler()->setMainSelectionToLast();
+	});
+
 #endif
 }
 
@@ -967,7 +969,7 @@ HlacMonolithInfo::Ptr ModulatorSamplerSoundPool::loadMonolithicData(const ValueT
 
 	clearUnreferencedMonoliths();
 	
-	loadedMonoliths.add(new MonolithInfoToUse(monolithicFiles));
+	loadedMonoliths.add(new HlacMonolithInfo(monolithicFiles));
 
 	auto hmaf = loadedMonoliths.getLast();
 
@@ -1753,9 +1755,14 @@ void ModulatorSamplerSound::EnvelopeTable::onComplexDataEvent(ComplexDataUIUpdat
 {
 	if (t != ComplexDataUIUpdaterBase::EventType::DisplayIndex)
 	{
-		auto propId = type == Type::GainMode ? SampleIds::GainTable : SampleIds::PitchTable;
+		Identifier propId;
+
+		if (type == Type::GainMode) propId = SampleIds::GainTable;
+		if (type == Type::PitchMode) propId = SampleIds::PitchTable;
+		if (type == Type::PanMode) propId = SampleIds::LowPassTable;
+
 		parent.setSampleProperty(propId, table.exportData());
-		startTimer(JUCE_LIVE_CONSTANT(200));
+		startTimer(JUCE_LIVE_CONSTANT_OFF(200));
 	}
 }
 

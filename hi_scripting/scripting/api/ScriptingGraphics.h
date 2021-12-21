@@ -97,17 +97,17 @@ namespace ScriptingObjects
 
 		enum class BlendMode
 		{
-			_GL_ZERO = GL_ZERO, //< (0, 0, 0, 0)
-			_GL_ONE = GL_ONE, //< (1, 1, 1, 1)
-			_GL_SRC_COLOR = GL_SRC_COLOR, //< (Rs / kR, Gs / kG, Bs / kB, As / kA)
-			_GL_ONE_MINUS_SRC_COLOR = GL_ONE_MINUS_SRC_COLOR, //< (1, 1, 1, 1) - (Rs / kR, Gs / kG, Bs / kB, As / kA)
-			_GL_DST_COLOR = GL_DST_COLOR, //< (Rd / kR, Gd / kG, Bd / kB, Ad / kA)
-			_GL_ONE_MINUS_DST_COLOR = GL_ONE_MINUS_DST_COLOR,  //< (1, 1, 1, 1) - (Rd / kR, Gd / kG, Bd / kB, Ad / kA)
-			_GL_SRC_ALPHA = GL_SRC_ALPHA, //< (As / kA, As / kA, As / kA, As / kA)
-			_GL_ONE_MINUS_SRC_ALPHA = GL_ONE_MINUS_SRC_ALPHA, //< (1, 1, 1, 1) - (As / kA, As / kA, As / kA, As / kA)
-			_GL_DST_ALPHA = GL_DST_ALPHA, //< (Ad / kA, Ad / kA, Ad / kA, Ad / kA)
-			_GL_ONE_MINUS_DST_ALPHA = GL_ONE_MINUS_DST_ALPHA, //< (1, 1, 1, 1) - (Ad / kA, Ad / kA, Ad / kA, Ad / kA)
-			_GL_SRC_ALPHA_SATURATE = GL_SRC_ALPHA_SATURATE,
+			_GL_ZERO = juce::gl::GL_ZERO, //< (0, 0, 0, 0)
+			_GL_ONE = juce::gl::GL_ONE, //< (1, 1, 1, 1)
+			_GL_SRC_COLOR = juce::gl::GL_SRC_COLOR, //< (Rs / kR, Gs / kG, Bs / kB, As / kA)
+			_GL_ONE_MINUS_SRC_COLOR = juce::gl::GL_ONE_MINUS_SRC_COLOR, //< (1, 1, 1, 1) - (Rs / kR, Gs / kG, Bs / kB, As / kA)
+			_GL_DST_COLOR = juce::gl::GL_DST_COLOR, //< (Rd / kR, Gd / kG, Bd / kB, Ad / kA)
+			_GL_ONE_MINUS_DST_COLOR = juce::gl::GL_ONE_MINUS_DST_COLOR,  //< (1, 1, 1, 1) - (Rd / kR, Gd / kG, Bd / kB, Ad / kA)
+			_GL_SRC_ALPHA = juce::gl::GL_SRC_ALPHA, //< (As / kA, As / kA, As / kA, As / kA)
+			_GL_ONE_MINUS_SRC_ALPHA = juce::gl::GL_ONE_MINUS_SRC_ALPHA, //< (1, 1, 1, 1) - (As / kA, As / kA, As / kA, As / kA)
+			_GL_DST_ALPHA = juce::gl::GL_DST_ALPHA, //< (Ad / kA, Ad / kA, Ad / kA, Ad / kA)
+			_GL_ONE_MINUS_DST_ALPHA = juce::gl::GL_ONE_MINUS_DST_ALPHA, //< (1, 1, 1, 1) - (Ad / kA, Ad / kA, Ad / kA, Ad / kA)
+			_GL_SRC_ALPHA_SATURATE = juce::gl::GL_SRC_ALPHA_SATURATE,
 			numBlendModes = 11 // needs to be set manually...
 		};
 
@@ -592,6 +592,8 @@ namespace ScriptingObjects
 
 			static bool addParentFloatingTile(Component& c, DynamicObject* obj);
 
+			static void setColourOrBlack(DynamicObject* obj, const Identifier& id, Component& c, int colourId);
+
 			JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(Laf);
 		};
 
@@ -616,7 +618,7 @@ namespace ScriptingObjects
 
 		// ========================================================================================
 
-		bool callWithGraphics(Graphics& g_, const Identifier& functionname, var argsObject);
+		bool callWithGraphics(Graphics& g_, const Identifier& functionname, var argsObject, Component* c);
 
 		var callDefinedFunction(const Identifier& name, var* args, int numArgs);
 

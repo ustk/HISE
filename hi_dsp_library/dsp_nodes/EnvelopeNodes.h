@@ -95,8 +95,36 @@ template <typename ParameterType> struct envelope_base: public control::pimpl::p
 		numKeys = 0;
 	}
 
+	void sendGateOffAtReset()
+	{
+		this->getParameter().template call<1>(0.0);
+		this->getParameter().template call<0>(0.0);
+	}
+
 	bool handleKeyEvent(HiseEvent& e, bool& newValue)
 	{
+		if (e.isAllNotesOff())
+		{
+			numSustainedKeys = 0;
+			numKeys = 0;
+			newValue = false;
+			return true;
+		}
+
+		if (e.isControllerOfType(64))
+		{
+			auto wasPedal = pedal;
+			pedal = e.getControllerValue() > 64;
+
+			if (!pedal && wasPedal)
+			{
+				numKeys = jmax(0, numKeys - numSustainedKeys);
+				numSustainedKeys = 0;
+				newValue = false;
+				return numKeys == 0;
+			}
+		}
+
 		if (e.isNoteOn())
 		{
 			numKeys++;
@@ -105,9 +133,17 @@ template <typename ParameterType> struct envelope_base: public control::pimpl::p
 		}
 		if (e.isNoteOff())
 		{
-			newValue = false;
-			numKeys = jmax(0, numKeys - 1);
-			return numKeys == 0;
+			if (pedal)
+			{
+				numSustainedKeys++;
+				return false;
+			}
+			else
+			{
+				newValue = false;
+				numKeys = jmax(0, numKeys - 1);
+				return numKeys == 0;
+			}
 		}
 
 		return false;
@@ -115,7 +151,10 @@ template <typename ParameterType> struct envelope_base: public control::pimpl::p
 
 private:
 
+	
+	bool pedal = false;
 	int numKeys = 0;
+	int numSustainedKeys = 0;
 
 	JUCE_DECLARE_WEAK_REFERENCEABLE(envelope_base);
 };
@@ -335,18 +374,38 @@ protected:
 		EnvelopeFollower::AttackRelease env;
 		float targetValue = 0.0f;
 		float lastValue = 0.0f;
+		double linearRampValue = 0.0f;
 		bool active = false;
 		bool smoothing = false;
+		double upRampDelta = 0.0f;
+		double downRampDelta = 0.0f;
+		float curve = 0.0f;
+		
+		float tick();
 
-		float tick()
+		void setAttack(double attackMs)
 		{
-			if (!smoothing)
-				return targetValue;
+			env.setAttackDouble(attackMs);
+			recalculateLinearAttackTime();
+		}
 
-			lastValue = env.calculateValue(targetValue);
-			smoothing = std::abs(targetValue - lastValue) > 0.0001;
-			active = smoothing || targetValue == 1.0;
-			return lastValue;
+		void setRelease(double releaseMs)
+		{
+			env.setReleaseDouble(releaseMs);
+			recalculateLinearAttackTime();
+		}
+
+		void setSampleRate(double sr)
+		{
+			env.setSampleRate(sr);
+			recalculateLinearAttackTime();
+		}
+
+		void recalculateLinearAttackTime();
+
+		void setAttackCurve(double newCurve)
+		{
+			curve = newCurve;
 		}
 
 		void setGate(bool on)
@@ -366,12 +425,14 @@ protected:
 			smoothing = false;
 			env.reset();
 			targetValue = 0.0f;
+			lastValue = targetValue;
+			linearRampValue = 0.0f;
 		}
 	};
 
 private:
 
-	double uiValues[2];
+	double uiValues[3];
 
 	JUCE_DECLARE_WEAK_REFERENCEABLE(simple_ar_base);
 };
@@ -389,7 +450,8 @@ template <int NV, typename ParameterType> struct simple_ar: public pimpl::envelo
 	{
 		Attack,
 		Release,
-		Gate
+		Gate,
+		AttackCurve
 	};
 
 	DEFINE_PARAMETERS
@@ -397,6 +459,7 @@ template <int NV, typename ParameterType> struct simple_ar: public pimpl::envelo
 		DEF_PARAMETER(Attack, simple_ar);
 		DEF_PARAMETER(Release, simple_ar);
 		DEF_PARAMETER(Gate, simple_ar);
+		DEF_PARAMETER(AttackCurve, simple_ar);
 	}
 	PARAMETER_MEMBER_FUNCTION;
 
@@ -413,7 +476,7 @@ template <int NV, typename ParameterType> struct simple_ar: public pimpl::envelo
 		setDisplayValue(0, ms);
 
 		for (auto& s : states)
-			s.env.setAttackDouble(ms);
+			s.setAttack(ms);
 	}
 
 	void setRelease(double ms)
@@ -421,7 +484,16 @@ template <int NV, typename ParameterType> struct simple_ar: public pimpl::envelo
 		setDisplayValue(1, ms);
 
 		for (auto& s : states)
-			s.env.setReleaseDouble(ms);
+			s.setRelease(ms);
+	}
+
+	void setAttackCurve(double curve)
+	{
+		curve = jlimit(0.0, 1.0, curve);
+		setDisplayValue(2, curve);
+
+		for (auto& s : states)
+			s.setAttackCurve(curve);
 	}
 
 	void prepare(PrepareSpecs ps)
@@ -429,7 +501,7 @@ template <int NV, typename ParameterType> struct simple_ar: public pimpl::envelo
 		states.prepare(ps);
 
 		for (auto& s : states)
-			s.env.setSampleRate(ps.sampleRate);
+			s.setSampleRate(ps.sampleRate);
 
 		reset();
 	}
@@ -439,9 +511,9 @@ template <int NV, typename ParameterType> struct simple_ar: public pimpl::envelo
 		this->resetNoteCounter();
 
 		for (auto& s : states)
-		{
 			s.reset();
-		}
+
+		this->sendGateOffAtReset();
 	}
 
 	void handleHiseEvent(HiseEvent& e)
@@ -504,7 +576,7 @@ template <int NV, typename ParameterType> struct simple_ar: public pimpl::envelo
 
 	void setGate(double v)
 	{
-		setDisplayValue(2, v);
+		setDisplayValue(3, v);
 
 		auto a = v > 0.5;
 
@@ -543,6 +615,13 @@ template <int NV, typename ParameterType> struct simple_ar: public pimpl::envelo
 		{
 			DEFINE_PARAMETERDATA(simple_ar, Gate);
 			p.setRange({ 0.0, 1.0, 1.0 });
+			p.setDefaultValue(0.0);
+			data.add(std::move(p));
+		}
+
+		{
+			DEFINE_PARAMETERDATA(simple_ar, AttackCurve);
+			p.setRange({ 0.0, 1.0 });
 			p.setDefaultValue(0.0);
 			data.add(std::move(p));
 		}
@@ -606,6 +685,8 @@ template <int NV, typename ParameterType> struct ahdsr : public pimpl::envelope_
 
 		for (state_base& s : states)
 			s.current_state = pimpl::ahdsr_base::state_base::IDLE;
+
+		this->sendGateOffAtReset();
 	}
 
 	void handleHiseEvent(HiseEvent& e)

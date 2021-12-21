@@ -43,7 +43,6 @@ class JUCE_API  MidiKeyboardState
 public:
     //==============================================================================
     MidiKeyboardState();
-    ~MidiKeyboardState();
 
     //==============================================================================
     /** Resets the state of the object.
@@ -191,8 +190,6 @@ private:
 
     void noteOnInternal  (int midiChannel, int midiNoteNumber, float velocity);
     void noteOffInternal (int midiChannel, int midiNoteNumber, float velocity);
-
-	void sendMessageInternal(const MidiMessage& m);
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MidiKeyboardState)
 };

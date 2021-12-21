@@ -897,7 +897,6 @@ HiseAudioThumbnail::HiseAudioThumbnail() :
 
 	setLookAndFeel(&defaultLaf);
 
-	setEnablePaintProfiling("AudioThumbnail");
 	setColour(AudioDisplayComponent::ColourIds::bgColour, JUCE_LIVE_CONSTANT_OFF(Colours::transparentBlack));
 	setColour(AudioDisplayComponent::ColourIds::fillColour, JUCE_LIVE_CONSTANT_OFF(Colour(0xffcccccc)));
 	setColour(AudioDisplayComponent::ColourIds::outlineColour, JUCE_LIVE_CONSTANT_OFF(Colour(0xa2181818)));
@@ -908,6 +907,7 @@ HiseAudioThumbnail::HiseAudioThumbnail() :
 
 HiseAudioThumbnail::~HiseAudioThumbnail()
 {
+    setLookAndFeel(nullptr);
 	loadingThread.stopThread(400);
 }
 
@@ -1514,7 +1514,12 @@ bool MultiChannelAudioBufferDisplay::isAudioFile(const String &s)
 	afm.registerFormat(new hlac::HiseLosslessAudioFormat(), false);
 #endif
 
-	return File(s).existsAsFile() && afm.findFormatForFileExtension(File(s).getFileExtension()) != nullptr;
+	if (File::isAbsolutePath(s))
+	{
+		return File(s).existsAsFile() && afm.findFormatForFileExtension(File(s).getFileExtension()) != nullptr;
+	}
+
+	return false;	
 }
 
 

@@ -318,6 +318,8 @@ public:
 
 		addButton("Cancel", 0, KeyPress(KeyPress::escapeKey));
 
+        getButton("Cancel")->addListener(this);
+        
 		rebuildLines();
 
 		getTextEditor("searchTerm")->grabKeyboardFocusAsync();
@@ -984,12 +986,14 @@ bool JavascriptProcessor::performPopupMenuAction(int menuId, Component* c)
 
 			File newFile = scriptDirectory.getChildFile(newFileName + ".js");
 
+			newFile.getParentDirectory().createDirectory();
+
 			if (!newFile.existsAsFile() || PresetHandler::showYesNoWindow("Overwrite existing file", "Do you want to overwrite the file " + newFile.getFullPathName() + "?"))
 			{
 				newFile.replaceWithText(text);
 			}
 
-			String insertStatement = "include(\"" + newFile.getFileName() + "\");" + NewLine();
+			String insertStatement = "include(\"" + newFile.getRelativePathFrom(scriptDirectory).replaceCharacter('\\', '/') + "\");" + NewLine();
 			CommonEditorFunctions::insertTextAtCaret(c, insertStatement);
 		}
 

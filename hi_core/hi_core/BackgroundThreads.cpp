@@ -140,9 +140,13 @@ void DialogWindowWithBackgroundThread::addBasicComponents(bool addOKButton)
 	addProgressBarComponent(logData.progress);
 	
 	if (addOKButton)
+	{
 		addButton("OK", 1, KeyPress(KeyPress::returnKey));
+		getButton("OK")->addListener(this);
+	}
 	
 	addButton("Cancel", 0, KeyPress(KeyPress::escapeKey));
+	getButton("Cancel")->addListener(this);
 
 	for (int i = 0; i < getNumChildComponents(); i++)
 		HiseColourScheme::setDefaultColours(*getChildComponent(i), true);
@@ -613,30 +617,38 @@ Array<File> SampleDataExporter::collectMonoliths()
 	Array<File> sampleMonoliths;
 	auto expName = getExpansionName();
 
+	FileHandlerBase* handler = &getMainController()->getCurrentFileHandler();
+
 	if (expName.isNotEmpty())
 	{
-		StringArray validIds;
-
 		if (auto e = getMainController()->getExpansionHandler().getExpansionFromName(expName))
+			handler = e;
+	}
+
+	auto& smPool = handler->pool->getSampleMapPool();
+	auto sampleDirectory = handler->getSubDirectory(FileHandlerBase::Samples);
+
+	for (int i = 0; i < smPool.getNumLoadedFiles(); i++)
+	{
+		auto entry = smPool.loadFromReference(smPool.getReference(i), PoolHelpers::DontCreateNewEntry);
+
+		MonolithFileReference mref(entry->data);
+		mref.setFileNotFoundBehaviour(MonolithFileReference::FileNotFoundBehaviour::DoNothing);
+		mref.addSampleDirectory(sampleDirectory);
+
+		try
 		{
-			auto& smPool = e->pool->getSampleMapPool();
-			
-			auto f = e->getSubDirectory(FileHandlerBase::Samples);
-			//f.findChildFiles(sampleMonoliths, File::findFiles, false, "*.ch*");
-
-			for (auto& id : smPool.getIdList())
+			for (auto f : mref.getAllFiles())
 			{
-				auto hlacFileName = id.fromLastOccurrenceOf("}", false, false).replaceCharacter('/', '_');
-
-				f.findChildFiles(sampleMonoliths, File::findFiles, false, hlacFileName + ".*");
-
+				if(f.existsAsFile())
+					sampleMonoliths.addIfNotAlreadyThere(f);
 			}
 		}
-	}
-	else
-	{
-		File sampleDirectory = GET_PROJECT_HANDLER(getMainController()->getMainSynthChain()).getSubDirectory(ProjectHandler::SubDirectories::Samples);
-		sampleDirectory.findChildFiles(sampleMonoliths, File::findFiles, false, "*.ch*");
+		catch (Result& r)
+		{
+			criticalErrorOccured(r.getErrorMessage());
+			return {};
+		}
 	}
 
 	sampleMonoliths.sort();

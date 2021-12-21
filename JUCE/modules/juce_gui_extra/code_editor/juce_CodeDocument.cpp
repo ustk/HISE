@@ -750,16 +750,12 @@ void CodeDocument::undo()
 		newTransaction();
 		undoManager.undo();
 	}
-    
 }
 
 void CodeDocument::redo()
 {
-	if (!undoDisabled)
-	{
+	if(!undoDisabled)
 		undoManager.redo();
-	}
-    
 }
 
 void CodeDocument::clearUndoHistory()
@@ -883,30 +879,6 @@ void CodeDocument::findLineContaining  (const Position& pos, Position& s, Positi
     e.setLineAndIndex (pos.getLineNumber() + 1, 0);
 }
 
-bool CodeDocument::endsWithNewLine(int lineIndex) const noexcept
-{
-	if (isPositiveAndBelow(lineIndex, lines.size()))
-	{
-		return lines[lineIndex]->endsWithLineBreak();
-	}
-
-	return false;
-}
-
-String CodeDocument::getLineWithoutLinebreak(int lineIndex) const noexcept
-{
-	if (isPositiveAndBelow(lineIndex, lines.size()))
-	{
-		auto l = lines[lineIndex];
-
-		auto start = l->line.getCharPointer();
-		auto end = start + l->lineLengthWithoutNewLines;
-		return String(start, end);
-	}
-
-	return {};
-}
-
 void CodeDocument::checkLastLineStatus()
 {
     while (lines.size() > 0
@@ -971,7 +943,7 @@ void CodeDocument::insert (const String& text, const int insertPos, const bool u
 {
     if (text.isNotEmpty())
     {
-        if (undoable && !undoDisabled)
+        if (undoable)
         {
             undoManager.perform (new InsertAction (*this, text, insertPos));
         }
@@ -1076,7 +1048,7 @@ void CodeDocument::remove (const int startPos, const int endPos, const bool undo
     if (endPos <= startPos)
         return;
 
-    if (undoable && !undoDisabled)
+    if (undoable)
     {
         undoManager.perform (new DeleteAction (*this, startPos, endPos));
     }

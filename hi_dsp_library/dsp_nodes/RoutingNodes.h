@@ -340,9 +340,7 @@ template <typename CableType> struct receive: public base
 		null.prepare(ps);
 
 		if (isConnected())
-		{
 			source->validate(currentSpecs);
-		}
 	}
 
 	template <typename ProcessDataType> void process(ProcessDataType& data)
@@ -355,8 +353,12 @@ template <typename CableType> struct receive: public base
 
 				int i = 0;
 
+				
+
 				for (auto& ch : data)
 				{
+					jassert(isPositiveAndBelow(numToReadThisTime-1, source->channels[i].size()));
+					
 					auto src = source->channels[i++].begin() + source->readIndex;
 
 					if (source->addToSignal())
@@ -372,7 +374,7 @@ template <typename CableType> struct receive: public base
 
 	template <typename FrameDataType> void processFrame(FrameDataType& data)
 	{
-		if (CableType::allowFrame())
+		if constexpr (CableType::allowFrame())
 		{
 			jassert(data.size() <= source->frameData.size());
 

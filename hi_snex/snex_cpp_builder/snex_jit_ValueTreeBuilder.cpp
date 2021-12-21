@@ -406,6 +406,7 @@ Node::Ptr ValueTreeBuilder::parseNode(const ValueTree& n)
 
 Node::Ptr ValueTreeBuilder::parseRoutingNode(Node::Ptr u)
 {
+    jassert(u->nodeTree.isValid());
 	auto np = getNodePath(u->nodeTree);
 
 	if (np.getIdentifier() == Identifier("matrix"))
@@ -469,6 +470,8 @@ Node::Ptr ValueTreeBuilder::parseRoutingNode(Node::Ptr u)
 
 Node::Ptr ValueTreeBuilder::parseOptionalSnexNode(Node::Ptr u)
 {
+    jassert(u->nodeTree.isValid());
+    
 	auto p = getNodePath(u->nodeTree).toString();
 
 	if (CustomNodeProperties::nodeHasProperty(u->nodeTree, PropertyIds::IsOptionalSnexNode))
@@ -517,6 +520,8 @@ Node::Ptr ValueTreeBuilder::parseOptionalSnexNode(Node::Ptr u)
 
 Node::Ptr ValueTreeBuilder::parseExpressionNode(Node::Ptr u)
 {
+    jassert(u->nodeTree.isValid());
+    
 	bool isMathNode = getNodePath(u->nodeTree).getParent() == NamespacedIdentifier("math");
 	ExpressionNodeBuilder nb(*this, u, isMathNode);
 
@@ -532,6 +537,8 @@ Node::Ptr ValueTreeBuilder::parseSnexNode(Node::Ptr u)
 
 Node::Ptr ValueTreeBuilder::parseContainer(Node::Ptr u)
 {
+    jassert(u->nodeTree.isValid());
+    
 	if (FactoryIds::isClone(getNodePath(u->nodeTree)))
 	{
 		return parseCloneContainer(u);
@@ -557,7 +564,12 @@ Node::Ptr ValueTreeBuilder::parseContainer(Node::Ptr u)
         ScopedChannelSetter sns(*this, numToUse);
         
 		for (auto c : u->nodeTree.getChildWithName(PropertyIds::Nodes))
-			pooledTypeDefinitions.add(parseNode(c));
+        {
+            auto childNode = parseNode(c);
+            
+            jassert(childNode->nodeTree.isValid());
+			pooledTypeDefinitions.add(childNode);
+        }
 
 		parseContainerParameters(u);
 		parseContainerChildren(u);
@@ -598,6 +610,7 @@ Node::Ptr ValueTreeBuilder::parseContainer(Node::Ptr u)
 			u = wrapNode(u, NamespacedIdentifier::fromString("wrap::oversample"), os);
 		}
 
+        jassert(u->nodeTree.isValid());
 		jassert(!u->isFlushed());
 
 		addNodeComment(u);
@@ -797,6 +810,8 @@ Node::Ptr ValueTreeBuilder::parseRootContainer(Node::Ptr container)
 
 Node::Ptr ValueTreeBuilder::parseComplexDataNode(Node::Ptr u, bool flushNode)
 {
+    jassert(u->nodeTree.isValid());
+    
 	if (ValueTreeIterator::isComplexDataNode(u->nodeTree))
 	{
 		ComplexDataBuilder c(*this, u);
@@ -896,8 +911,14 @@ PooledParameter::Ptr ValueTreeBuilder::parseParameter(const ValueTree& p, Connec
 
 	auto mustCreateChain = !RangeHelpers::isIdentity(inputRange) || numConnections > 1;
 
-	if (numConnections == 1 && RangeHelpers::isEqual(inputRange, RangeHelpers::getDoubleRange(cTree.getChild(0))))
-		mustCreateChain = false;
+	
+
+	if (numConnections == 1)
+	{
+		auto pTree = ValueTreeIterator::getTargetParameterTree(cTree.getChild(0));
+		if(RangeHelpers::isEqual(inputRange, RangeHelpers::getDoubleRange(pTree)))
+			mustCreateChain = false;
+	}
 
 	if (!mustCreateChain)
 	{
@@ -915,7 +936,9 @@ PooledParameter::Ptr ValueTreeBuilder::parseParameter(const ValueTree& p, Connec
 
 		for (auto c : cTree)
 		{
-			auto cRange = RangeHelpers::getDoubleRange(c);
+            auto targetTree = ValueTreeIterator::getTargetParameterTree(c);
+            
+			auto cRange = RangeHelpers::getDoubleRange(targetTree);
 
 			if(!useUnnormalisedModulation)
 				unEqualRange |= !RangeHelpers::isEqual(inputRange, cRange);
@@ -974,6 +997,8 @@ Node::Ptr ValueTreeBuilder::wrapNode(Node::Ptr u, const NamespacedIdentifier& wr
 
 	Node::Ptr wn = new Node(*this, u->scopedId.id, wrapId);
 
+    wn->nodeTree = u->nodeTree;
+    
 	if (u->getLength() > 30)
 	{
 		StringHelpers::addSuffix(u->scopedId, "_");
@@ -1002,9 +1027,11 @@ Connection ValueTreeBuilder::getConnection(const ValueTree& c)
 
 	Connection rc;
 
-	rc.targetRange = RangeHelpers::getDoubleRange(c);
+	auto targetTree = ValueTreeIterator::getTargetParameterTree(c);
+
+	rc.targetRange = RangeHelpers::getDoubleRange(targetTree);
 	
-	if (c.getType() == PropertyIds::ModulationTarget)
+	if (c.getParent().getType() == PropertyIds::ModulationTargets)
 		rc.cableType = Connection::CableType::Modulation;
 	else
 		rc.cableType = Connection::CableType::Parameter;
@@ -1053,6 +1080,8 @@ Connection ValueTreeBuilder::getConnection(const ValueTree& c)
 
 Node::Ptr ValueTreeBuilder::parseMod(Node::Ptr u)
 {
+    jassert(u->nodeTree.isValid());
+    
 	auto modTree = u->nodeTree.getChildWithName(PropertyIds::ModulationTargets);
 
 	auto multiModTree = u->nodeTree.getChildWithName(PropertyIds::SwitchTargets);
@@ -1582,6 +1611,42 @@ snex::NamespacedIdentifier ValueTreeIterator::getNodeFactoryPath(const ValueTree
 	}
 
 	return NamespacedIdentifier::fromString(s);
+}
+
+juce::ValueTree ValueTreeIterator::getTargetParameterTree(const ValueTree& connectionTree)
+{
+	jassert(connectionTree.getType() == PropertyIds::Connection ||
+		    connectionTree.getType() == PropertyIds::ModulationTarget);
+
+	auto nodeId = connectionTree[PropertyIds::NodeId].toString();
+	auto pId = connectionTree[PropertyIds::ParameterId].toString();
+
+	jassert(!nodeId.isEmpty());
+	jassert(!pId.isEmpty());
+
+	ValueTree ptr;
+
+	forEach(getRoot(connectionTree), Forward, [&](ValueTree& v)
+	{
+		if (v.getType() == PropertyIds::Parameter)
+		{
+			if (v[PropertyIds::ID].toString() == pId)
+			{
+				auto nodeTree = v.getParent().getParent();
+				jassert(nodeTree.getType() == PropertyIds::Node);
+
+				if (nodeTree[PropertyIds::ID].toString() == nodeId)
+				{
+					ptr = v;
+					return true;
+				}
+			}
+		}
+
+		return false;
+	});
+
+	return ptr;
 }
 
 bool ValueTreeIterator::hasChildNodeWithProperty(const ValueTree& nodeTree, Identifier propId)
