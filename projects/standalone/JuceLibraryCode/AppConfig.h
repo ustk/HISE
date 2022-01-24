@@ -194,6 +194,10 @@
  //#define READ_ONLY_FACTORY_PRESETS 0
 #endif
 
+#ifndef    CONFIRM_PRESET_OVERWRITE
+ #define   CONFIRM_PRESET_OVERWRITE 0
+#endif
+
 #ifndef    ENABLE_CONSOLE_OUTPUT
  //#define ENABLE_CONSOLE_OUTPUT 1
 #endif
@@ -436,6 +440,10 @@
 
 #ifndef    JUCE_FORCE_DEBUG
  //#define JUCE_FORCE_DEBUG 0
+#endif
+
+#ifndef    JUCE_ENABLE_AUDIO_GUARD
+ //#define JUCE_ENABLE_AUDIO_GUARD 0
 #endif
 
 #ifndef    JUCE_LOG_ASSERTIONS
