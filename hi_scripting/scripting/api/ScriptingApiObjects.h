@@ -85,6 +85,8 @@ public:
 
 	static Array<Identifier> getGlobalApiClasses();
 
+	static PathStrokeType createPathStrokeType(var strokeType);
+
 #if USE_BACKEND
 
 	static String getValueType(const var &v);
@@ -1364,6 +1366,9 @@ namespace ScriptingObjects
         
         /** Returns the ID of the attribute with the given index. */
         String getAttributeId(int index);
+				
+				/** Returns the index of the attribute with the given ID. */
+				int getAttributeIndex(String id);
         
 		/** Returns the number of attributes. */
 		int getNumAttributes() const;
@@ -1483,6 +1488,9 @@ namespace ScriptingObjects
         
         /** Returns the ID of the attribute with the given index. */
         String getAttributeId(int index);
+				
+				/** Returns the index of the attribute with the given ID. */
+				int getAttributeIndex(String id);
         
 		/** Returns the number of attributes. */
 		int getNumAttributes() const;
@@ -1684,6 +1692,9 @@ namespace ScriptingObjects
 
         /** Returns the attribute with the given index. */
         String getAttributeId(int index);
+				
+				/** Returns the index of the attribute with the given ID. */
+				int getAttributeIndex(String id);
 
 		/** Returns the number of attributes. */
 		int getNumAttributes() const;
@@ -1784,6 +1795,9 @@ namespace ScriptingObjects
         /** Returns the ID of the attribute with the given index. */
 		String getAttributeId(int index);
 		
+		/** Returns the index of the attribute with the given ID. */
+		int getAttributeIndex(String id);
+		
 		/** Bypasses the MidiProcessor. */
 		void setBypassed(bool shouldBeBypassed);
 		
@@ -1844,6 +1858,9 @@ namespace ScriptingObjects
 
         /** Returns the attribute with the given index. */
         String getAttributeId(int index);
+				
+				/** Returns the index of the attribute with the given ID. */
+				int getAttributeIndex(String id);
         
 		/** Returns the number of attributes. */
 		int getNumAttributes() const;

@@ -1577,6 +1577,10 @@ public:
 		return xyzPool.get();
 	}
 
+#if USE_COPY_PROTECTION || USE_BACKEND
+	virtual juce::OnlineUnlockStatus* getLicenseUnlocker() = 0;
+#endif
+
 #if HISE_INCLUDE_RLOTTIE
 	RLottieManager::Ptr getRLottieManager();
 #endif
@@ -1831,6 +1835,9 @@ private:
 	int scrollY;
 	BigInteger shownComponents;
 
+    // Make sure that this is alive all the time...
+    snex::cppgen::CustomNodeProperties data;
+    
 	ScopedPointer<ControlledObject> defaultPresetHandler;
 
 	void handleSuspendedNoteOffs();

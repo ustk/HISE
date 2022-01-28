@@ -664,6 +664,7 @@ struct ScriptExpansionReference::Wrapper
 	API_METHOD_WRAPPER_0(ScriptExpansionReference, getAudioFileList);
 	API_METHOD_WRAPPER_0(ScriptExpansionReference, getMidiFileList);
 	API_METHOD_WRAPPER_0(ScriptExpansionReference, getDataFileList);
+	API_METHOD_WRAPPER_0(ScriptExpansionReference, getUserPresetList);
 	API_METHOD_WRAPPER_0(ScriptExpansionReference, getProperties);
 	API_METHOD_WRAPPER_1(ScriptExpansionReference, loadDataFile);
 	API_METHOD_WRAPPER_2(ScriptExpansionReference, writeDataFile);
@@ -686,6 +687,7 @@ ScriptExpansionReference::ScriptExpansionReference(ProcessorWithScriptingContent
 	ADD_API_METHOD_0(getAudioFileList);
 	ADD_API_METHOD_0(getMidiFileList);
 	ADD_API_METHOD_0(getDataFileList);
+	ADD_API_METHOD_0(getUserPresetList);
 	ADD_API_METHOD_0(getProperties);
 	ADD_API_METHOD_1(loadDataFile);
 	ADD_API_METHOD_2(writeDataFile);
@@ -807,6 +809,32 @@ var ScriptExpansionReference::getDataFileList() const
 			list.add(ref.getReferenceString());
 
 		return list;
+	}
+
+	reportScriptError("Expansion was deleted");
+	RETURN_IF_NO_THROW({});
+}
+
+var ScriptExpansionReference::getUserPresetList() const
+{
+	if (objectExists())
+	{
+ 		File userPresetRoot = exp->getSubDirectory(FileHandlerBase::UserPresets);
+		
+		Array<File> presets;
+		userPresetRoot.findChildFiles(presets, File::findFiles, true, "*.preset");
+		
+		Array<var> list;
+
+		for (auto& pr : presets)
+		{
+			auto name = pr.getRelativePathFrom(userPresetRoot).upToFirstOccurrenceOf(".preset", false, true);
+			name = name.replaceCharacter('\\', '/');
+
+			list.add(var(name));
+		}
+
+		return var(list);
 	}
 
 	reportScriptError("Expansion was deleted");
@@ -1977,6 +2005,187 @@ void ExpansionEncodingWindow::threadFinished()
 	else
 		PresetHandler::showMessageWindow("Expansion encoding failed", encodeResult.getErrorMessage(), PresetHandler::IconType::Error);
 #endif
+}
+
+String ScriptUnlocker::getProductID()
+{
+	String s;
+
+#if USE_BACKEND
+	s << GET_HISE_SETTING(getMainController()->getMainSynthChain(), HiseSettings::Project::Name).toString();
+	s << " ";
+	s << GET_HISE_SETTING(getMainController()->getMainSynthChain(), HiseSettings::Project::Version).toString();
+#else
+	s << String(FrontendHandler::getProjectName());
+	s << " "; 
+	s << FrontendHandler::getVersionString();
+#endif
+	
+	return s;
+}
+
+bool ScriptUnlocker::doesProductIDMatch(const String& returnedIDFromServer)
+{
+	if (currentObject != nullptr && currentObject->pcheck)
+	{
+		var args(returnedIDFromServer);
+		var rv(false);
+
+		auto s = currentObject->pcheck.callSync(&args, 1, &rv);
+
+		if (s.wasOk())
+			return rv;
+	}
+
+	return getProductID() == returnedIDFromServer;
+}
+
+#if USE_BACKEND
+juce::RSAKey ScriptUnlocker::getPublicKey()
+{
+	return juce::RSAKey(getMainController()->getSampleManager().getProjectHandler().getPublicKey());
+}
+#elif !USE_COPY_PROTECTION
+juce::RSAKey ScriptUnlocker::getPublicKey()
+{
+    return RSAKey();
+}
+#endif
+
+void ScriptUnlocker::saveState(const String&)
+{
+	jassertfalse;
+}
+
+String ScriptUnlocker::getState()
+{
+	return "";
+}
+
+String ScriptUnlocker::getWebsiteName()
+{
+#if USE_BACKEND
+	jassertfalse;
+	return "";
+#else
+	return FrontendHandler::getCompanyWebsiteName();
+#endif
+}
+
+juce::URL ScriptUnlocker::getServerAuthenticationURL()
+{
+	jassertfalse;
+	return {};
+}
+
+String ScriptUnlocker::readReplyFromWebserver(const String& email, const String& password)
+{
+	jassertfalse;
+	return {};
+}
+
+juce::var ScriptUnlocker::loadKeyFile()
+{
+	if (isUnlocked())
+		return var(1);
+
+	auto keyFile = getLicenseKeyFile();
+
+	if (keyFile.existsAsFile())
+	{
+		String keyData = keyFile.loadFileAsString();
+
+		if (this->applyKeyFile(keyData))
+		{
+#if USE_FRONTEND
+			dynamic_cast<FrontendProcessor*>(getMainController())->loadSamplesAfterRegistration(true);
+#endif
+
+			return var(1);
+		}
+	}
+
+	return var(0);
+}
+
+juce::File ScriptUnlocker::getLicenseKeyFile()
+{
+#if USE_BACKEND
+
+	auto c = GET_HISE_SETTING(getMainController()->getMainSynthChain(), HiseSettings::User::Company).toString();
+	auto p = GET_HISE_SETTING(getMainController()->getMainSynthChain(), HiseSettings::Project::Name).toString();
+
+	return ProjectHandler::getAppDataRoot().getChildFile(c).getChildFile(p).getChildFile(p).withFileExtension(FrontendHandler::getLicenseKeyExtension());
+#else
+	return FrontendHandler::getLicenseKey();
+#endif
+	
+}
+
+struct ScriptUnlocker::RefObject::Wrapper
+{
+	API_METHOD_WRAPPER_0(RefObject, isUnlocked);
+	API_METHOD_WRAPPER_0(RefObject, loadKeyFile);
+	API_VOID_METHOD_WRAPPER_1(RefObject, setProductCheckFunction);
+	API_VOID_METHOD_WRAPPER_1(RefObject, writeKeyFile);
+	API_METHOD_WRAPPER_0(RefObject, getUserEmail);
+};
+
+ScriptUnlocker::RefObject::RefObject(ProcessorWithScriptingContent* p) :
+	ConstScriptingObject(p, 0),
+#if USE_BACKEND || USE_COPY_PROTECTION
+	unlocker(dynamic_cast<ScriptUnlocker*>(p->getMainController_()->getLicenseUnlocker())),
+#endif
+	pcheck(p, var(), 1)
+{
+	unlocker->load();
+	unlocker->currentObject = this;
+
+	ADD_API_METHOD_0(isUnlocked);
+	ADD_API_METHOD_0(loadKeyFile);
+	ADD_API_METHOD_1(setProductCheckFunction);
+	ADD_API_METHOD_1(writeKeyFile);
+	ADD_API_METHOD_0(getUserEmail);
+}
+
+ScriptUnlocker::RefObject::~RefObject()
+{
+	if (unlocker != nullptr && unlocker->currentObject == this)
+		unlocker->currentObject = nullptr;
+}
+
+juce::var ScriptUnlocker::RefObject::isUnlocked() const
+{
+	return unlocker != nullptr ? unlocker->isUnlocked() : var(0);
+}
+
+void ScriptUnlocker::RefObject::setProductCheckFunction(var f)
+{
+	pcheck = WeakCallbackHolder(getScriptProcessor(), f, 1);
+	pcheck.incRefCount();
+	pcheck.setThisObject(this);
+}
+
+juce::var ScriptUnlocker::RefObject::loadKeyFile()
+{
+	return unlocker->loadKeyFile();
+}
+
+juce::var ScriptUnlocker::RefObject::writeKeyFile(const String& keyData)
+{
+	unlocker->getLicenseKeyFile().getParentDirectory().createDirectory();
+
+	auto ok = unlocker->getLicenseKeyFile().replaceWithText(keyData);
+
+	if (ok)
+		return loadKeyFile();
+	
+	return {};
+}
+
+String ScriptUnlocker::RefObject::getUserEmail() const
+{
+	return unlocker->getUserEmail();
 }
 
 } // namespace hise

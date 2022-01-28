@@ -318,6 +318,9 @@ public:
         /** Creates a fix object factory using the data layout. */
         var createFixObjectFactory(var layoutDescription);
         
+		/** Creates a reference to the script license manager. */
+		var createLicenseUnlocker();
+
 		/** Sends an allNotesOff message at the next buffer. */
 		void allNotesOff();
 
@@ -348,8 +351,14 @@ public:
 		/** Returns the millisecond value for the supplied tempo (HINT: Use "TempoSync" mode from Slider!) */
 		double getMilliSecondsForTempo(int tempoIndex) const;;
 
-    /** launches the given URL in the system's web browser. */
-    void openWebsite(String url);
+		/** launches the given URL in the system's web browser. */
+		void openWebsite(String url);
+
+		/** Copies the given text to the clipboard. */
+		void copyToClipboard(String textToCopy);
+
+		/** Returns the clipboard content. */
+		String getClipboardContent();
 
 		/** Creates a list of all available expansions. */
 		var getExpansionList();
@@ -651,6 +660,9 @@ public:
 		/** Returns enabled state of midi channel (0 = All channels). */
 		bool isMidiChannelEnabled(int index);
 
+		/** Returns an array of the form [width, height]. */
+		var getUserDesktopSize();
+
 		// ============================================================================================================
 
 	private:
@@ -799,6 +811,9 @@ public:
         
         /** Returns the ID of the attribute with the given index. */
 		String getAttributeId(int index);
+
+		/** Returns the index of the attribute with the given ID. */
+		int getAttributeIndex(String id);
 
         /** Sets a attribute to the given value. */
         void setAttribute(int index, var newValue);
@@ -1463,6 +1478,9 @@ public:
 
 		/** Returns a unique machine ID that can be used to identify the computer. */
 		String getSystemId();
+
+		/** Returns the number of free bytes on the volume of a given folder. */
+		int64 getBytesFreeOnVolume(var folder);
 
 		// ========================================================= End of API calls
 

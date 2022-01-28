@@ -430,15 +430,15 @@ namespace control
 	{
 		enum class SpecialControllers
 		{
-			ModWheel = 1 - 1,
-			BreathControl = 2 - 1,
-			Volume = 7 - 1,
-			Expression = 11 - 1,
-			Sustain = 64 - 1,
-			Aftertouch = 128 - 1,
-			Pitchbend = 129 - 1,
-			Stroke = 130 - 1,
-			Release = 131 - 1
+			ModWheel = 1,
+			BreathControl = 2,
+			Volume = 7,
+			Expression = 11,
+			Sustain = 64,
+			Aftertouch = 128,
+			Pitchbend = 129,
+			Stroke = 130,
+			Release = 131
 		};
 
 		static bool isMPEProperty(int zeroBasedNumber)
@@ -470,8 +470,8 @@ namespace control
 		{
 			StringArray sa;
 
-			for (int i = 0; i < 131; i++)
-				sa.add(String("CC " + String(i + 1)));
+			for (int i = 0; i < 132; i++)
+				sa.add(String("CC " + String(i)));
 
 			sa.set((int)SpecialControllers::ModWheel, "Modwheel");
 			sa.set((int)SpecialControllers::BreathControl, "Breath Control");
@@ -518,6 +518,7 @@ namespace control
 				DEFINE_PARAMETERDATA(midi_cc, CCNumber);
 				auto sa = MidiCCHelpers::createMidiCCNames();
 				p.setParameterValueNames(sa);
+                p.setDefaultValue(1.0);
 				data.add(std::move(p));
 			}
 
@@ -594,7 +595,7 @@ namespace control
 
 		bool isInPolyphonicContext = false;
 		bool enableMpe = false;
-		int midiNumber = 0;
+		int midiNumber = 1;
 		HiseEvent::Type expectedType = HiseEvent::Type::Controller;
 
 		JUCE_DECLARE_WEAK_REFERENCEABLE(midi_cc);
@@ -1379,8 +1380,18 @@ namespace control
 	template <int NV, typename ParameterType> using minmax = multi_parameter<NV, ParameterType, multilogic::minmax>;
 	template <int NV, typename ParameterType> using logic_op = multi_parameter<NV, ParameterType, multilogic::logic_op>;
 
-	template <typename SmootherClass> struct smoothed_parameter: public control::pimpl::templated_mode
+	struct smoothed_parameter_base: public mothernode
 	{
+		virtual ~smoothed_parameter_base() {};
+		virtual smoothers::base* getSmootherObject() = 0;
+	};
+
+	template <int NV, typename SmootherClass> struct smoothed_parameter: public control::pimpl::templated_mode,
+                                                                         public polyphonic_base,
+																		 public smoothed_parameter_base
+	{
+		static constexpr int NumVoices = NV;
+
 		enum Parameters
 		{
 			Value,
@@ -1389,8 +1400,13 @@ namespace control
 		};
 
 		smoothed_parameter():
-			templated_mode(getStaticId(), "smoothers")
+          polyphonic_base(getStaticId(), false),
+          templated_mode(getStaticId(), "smoothers")
 		{
+            cppgen::CustomNodeProperties::setPropertyForObject(*this, PropertyIds::TemplateArgumentIsPolyphonic);
+            
+			static_assert(std::is_base_of<smoothers::base, SmootherClass>(), "Not a smoother class");
+			static_assert(SmootherClass::NumVoices == NumVoices, "Voice amount mismatch");
 		}
 
 		SET_HISE_NODE_ID("smoothed_parameter");
@@ -1415,7 +1431,7 @@ namespace control
 
 		static constexpr bool isNormalisedModulation() { return true; };
 
-		bool isPolyphonic() const { return false; };
+		static constexpr bool isPolyphonic() { return NumVoices > 1; };
 
 		template <typename ProcessDataType> void process(ProcessDataType& d)
 		{
@@ -1435,7 +1451,11 @@ namespace control
 		void reset()
 		{
 			value.reset();
-			modValue.setModValueIfChanged(value.get());
+
+			// Force the change flag to true in order to trigger the modulation for polyphonic
+			// contexts at voice start
+			modValue.setModValue(value.get());
+			//modValue.setModValueIfChanged(value.get());
 		}
 
 		void prepare(PrepareSpecs ps)
@@ -1478,6 +1498,8 @@ namespace control
 		{
 			value.setSmoothingTime(newSmoothingTime);
 		}
+
+		smoothers::base* getSmootherObject() override { return &value; }
 
 		SmootherClass value;
 

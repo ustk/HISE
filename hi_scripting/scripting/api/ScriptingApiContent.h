@@ -583,6 +583,9 @@ public:
 		/** Call this method in order to give away the focus for this component. */
 		void loseFocus();
 
+		/** Attaches the local look and feel to this component. */
+		void setLocalLookAndFeel(var lafObject);
+
 		// End of API Methods ============================================================================================
 
 		bool handleKeyPress(const KeyPress& k);
@@ -681,6 +684,9 @@ public:
 			}
 		}
 
+		/** Returns a local look and feel if it was registered before. */
+		LookAndFeel* createLocalLookAndFeel();
+
 		static Array<Identifier> numberPropertyIds;
 		static bool numbersInitialised;
 
@@ -747,6 +753,8 @@ public:
 #endif
 
 	private:
+
+		var localLookAndFeel;
 
 		WeakCallbackHolder keyboardCallback;
 
@@ -1674,6 +1682,9 @@ public:
 		/** Loads a image which can be drawn with the paint function later on. */
 		void loadImage(String imageName, String prettyName);
 
+		/** Unload all images from the panel. */
+		void unloadAllImages();
+
 		/** If `allowedDragging` is enabled, it will define the boundaries where the panel can be dragged. */
 		void setDraggingBounds(var area);
 
@@ -2121,7 +2132,7 @@ public:
 	ScriptSliderPack *addSliderPack(Identifier sliderPackName, int x, int y);
 
 	/** Adds a viewport. */
-	ScriptedViewport* addScriptedViewport(Identifier viewportName, int x, int y);
+	ScriptedViewport* addViewport(Identifier viewportName, int x, int y);
 
 	/** Adds a floating layout component. */
 	ScriptFloatingTile* addFloatingTile(Identifier floatingTileName, int x, int y);
@@ -2191,6 +2202,9 @@ public:
 
 	/** Set this to true to render all script panels with double resolution for retina or rescaling. */
 	void setUseHighResolutionForPanels(bool shouldUseDoubleResolution);
+
+	/** Creates a look and feel that you can attach manually to certain components. */
+	var createLocalLookAndFeel();
 
 	// ================================================================================================================
 

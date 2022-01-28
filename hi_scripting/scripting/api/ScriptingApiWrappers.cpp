@@ -65,7 +65,7 @@ struct ScriptingApi::Content::Wrapper
 	static var addComboBox(const var::NativeFunctionArgs& args);
 	static var addTable(const var::NativeFunctionArgs& args);
 	static var addImage(const var::NativeFunctionArgs& args);
-	static var addScriptedViewport(const var::NativeFunctionArgs& args);
+	static var addViewport(const var::NativeFunctionArgs& args);
 	static var addPanel(const var::NativeFunctionArgs& args);
 	static var addAudioWaveform(const var::NativeFunctionArgs& args);
 	static var addSliderPack(const var::NativeFunctionArgs& args);
@@ -102,6 +102,8 @@ struct ScriptingApi::Content::Wrapper
 	static var getCurrentTooltip(const var::NativeFunctionArgs& args);
 
 	static var createScreenshot(const var::NativeFunctionArgs& args);
+
+	static var createLocalLookAndFeel(const var::NativeFunctionArgs& args);
 
 	static var addVisualGuide(const var::NativeFunctionArgs& args);
 
@@ -231,18 +233,18 @@ var ScriptingApi::Content::Wrapper::addImage (const var::NativeFunctionArgs& arg
 };
 
 
-var ScriptingApi::Content::Wrapper::addScriptedViewport(const var::NativeFunctionArgs& args)
+var ScriptingApi::Content::Wrapper::addViewport(const var::NativeFunctionArgs& args)
 {
 	if (ScriptingApi::Content* thisObject = GET_OBJECT(Content))
 	{
 		if (args.numArguments == 1)
 		{
-			return thisObject->addScriptedViewport(Identifier(args.arguments[0]), 0, 0);
+			return thisObject->addViewport(Identifier(args.arguments[0]), 0, 0);
 		}
 
-		CHECK_ARGUMENTS("addScriptedViewport()", 3);
+		CHECK_ARGUMENTS("addViewport()", 3);
 
-		return thisObject->addScriptedViewport(Identifier(args.arguments[0]), args.arguments[1], args.arguments[2]);
+		return thisObject->addViewport(Identifier(args.arguments[0]), args.arguments[1], args.arguments[2]);
 	}
 
 	return var();
@@ -973,6 +975,17 @@ var ScriptingApi::Content::Wrapper::getCurrentTooltip(const var::NativeFunctionA
 	{
 		CHECK_ARGUMENTS("getCurrentTooltip()", 0);
 		return thisObject->getCurrentTooltip();
+	}
+
+	return var();
+}
+
+juce::var ScriptingApi::Content::Wrapper::createLocalLookAndFeel(const var::NativeFunctionArgs& args)
+{
+	if (auto thisObject = GET_OBJECT(Content))
+	{
+		CHECK_ARGUMENTS("createLocalLookAndFeel()", 0);
+		return thisObject->createLocalLookAndFeel();
 	}
 
 	return var();

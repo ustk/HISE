@@ -238,6 +238,9 @@ synthChain(new ModulatorSynthChain(this, "Master Chain", NUM_POLYPHONIC_VOICES))
 keyFileCorrectlyLoaded(true),
 currentlyLoadedProgram(0),
 unlockCounter(0),
+#if USE_SCRIPT_COPY_PROTECTION
+unlocker(this),
+#endif
 updater(*this)
 {
 	ignoreUnused(synthData);
@@ -380,6 +383,11 @@ void FrontendProcessor::createPreset(const ValueTree& synthData)
 
 	synthChain->restoreFromValueTree(synthData);
 
+    Processor::Iterator<GlobalModulator> gi(synthChain, false);
+    
+    while(auto m = gi.getNextProcessor())
+        m->connectIfPending();
+    
 	setSkipCompileAtPresetLoad(false);
 
 	{

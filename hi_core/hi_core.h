@@ -71,7 +71,7 @@ END_JUCE_MODULE_DECLARATION
 #include "../JUCE/modules/juce_product_unlocking/juce_product_unlocking.h"
 #include "../JUCE/modules/juce_dsp/juce_dsp.h"
 #include "../hi_zstd/hi_zstd.h"
-#include "../hi_tools/hi_tools.h"
+#include "../hi_dsp_library/hi_dsp_library.h"
 #include "../hi_rlottie/hi_rlottie.h"
 
 #include <complex>
@@ -121,6 +121,20 @@ If true, then the copy protection will be used
 */
 #ifndef USE_COPY_PROTECTION
 #define USE_COPY_PROTECTION 0
+#endif
+
+/** Config: USE_SCRIPT_COPY_PROTECTION
+
+	Uses the scripted layer to the JUCE unlock class for copy protection
+*/
+#ifndef USE_SCRIPT_COPY_PROTECTION
+#define USE_SCRIPT_COPY_PROTECTION 0
+#endif
+
+// Ensure that USE_COPY_PROTECTION is true when the USE_SCRIPT_COPY_PROTECTION macro is being used
+#if USE_SCRIPT_COPY_PROTECTION && !USE_COPY_PROTECTION
+#undef USE_COPY_PROTECTION
+#define USE_COPY_PROTECTION 1
 #endif
 
 /** Config: USE_IPP

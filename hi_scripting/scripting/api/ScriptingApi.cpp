@@ -916,9 +916,13 @@ struct ScriptingApi::Engine::Wrapper
 	API_METHOD_WRAPPER_0(Engine, getLatencySamples);
 	API_METHOD_WRAPPER_2(Engine, getDspNetworkReference);
 	API_METHOD_WRAPPER_1(Engine, getSystemTime);
+	API_METHOD_WRAPPER_0(Engine, createLicenseUnlocker);
 	API_METHOD_WRAPPER_1(Engine, loadAudioFileIntoBufferArray);
-	API_VOID_METHOD_WRAPPER_1(Engine, copyTextToClipboard);
+	API_METHOD_WRAPPER_0(Engine, getClipboardContent);
+	API_VOID_METHOD_WRAPPER_1(Engine, copyToClipboard);
 };
+
+
 
 ScriptingApi::Engine::Engine(ProcessorWithScriptingContent *p) :
 ScriptingObject(p),
@@ -1032,7 +1036,9 @@ parentMidiProcessor(dynamic_cast<ScriptBaseMidiProcessor*>(p))
 	ADD_API_METHOD_3(showYesNoWindow);
 	ADD_API_METHOD_3(showMessageBox);
 	ADD_API_METHOD_1(getSystemTime);
-	ADD_API_METHOD_1(copyTextToClipboard);
+	ADD_API_METHOD_0(createLicenseUnlocker);
+	ADD_API_METHOD_0(getClipboardContent);
+	ADD_API_METHOD_1(copyToClipboard);
 }
 
 
@@ -1461,7 +1467,7 @@ var ScriptingApi::Engine::createGlobalScriptLookAndFeel()
 		return var(sc);
 	else
 	{
-		auto slaf = new ScriptingObjects::ScriptedLookAndFeel(getScriptProcessor());
+		auto slaf = new ScriptingObjects::ScriptedLookAndFeel(getScriptProcessor(), true);
 		return var(slaf);
 	}
 }
@@ -1469,6 +1475,11 @@ var ScriptingApi::Engine::createGlobalScriptLookAndFeel()
 var ScriptingApi::Engine::createFixObjectFactory(var layoutData)
 {
     return var(new fixobj::Factory(getScriptProcessor(), layoutData));
+}
+
+juce::var ScriptingApi::Engine::createLicenseUnlocker()
+{
+	return var(new ScriptUnlocker::RefObject(getScriptProcessor()));
 }
 
 var ScriptingApi::Engine::createFFT()
@@ -1613,6 +1624,16 @@ void ScriptingApi::Engine::openWebsite(String url)
     }
 }
 
+void ScriptingApi::Engine::copyToClipboard(String textToCopy)
+{
+	SystemClipboard::copyTextToClipboard(textToCopy);
+}
+
+String ScriptingApi::Engine::getClipboardContent()
+{
+	return SystemClipboard::getTextFromClipboard();
+}
+
 var ScriptingApi::Engine::getExpansionList()
 {
 	auto h = createExpansionHandler();
@@ -1690,6 +1711,7 @@ struct ScriptingApi::Settings::Wrapper
 	API_METHOD_WRAPPER_1(Settings, isMidiInputEnabled);
 	API_VOID_METHOD_WRAPPER_2(Settings, toggleMidiChannel);
 	API_METHOD_WRAPPER_1(Settings, isMidiChannelEnabled);
+	API_METHOD_WRAPPER_0(Settings, getUserDesktopSize);
 };
 
 ScriptingApi::Settings::Settings(ProcessorWithScriptingContent* s) :
@@ -1731,6 +1753,19 @@ ScriptingApi::Settings::Settings(ProcessorWithScriptingContent* s) :
 	ADD_API_METHOD_1(isMidiInputEnabled);
 	ADD_API_METHOD_2(toggleMidiChannel);
 	ADD_API_METHOD_1(isMidiChannelEnabled);
+	ADD_API_METHOD_0(getUserDesktopSize);
+}
+
+var ScriptingApi::Settings::getUserDesktopSize()
+{
+	auto area = Desktop::getInstance().getDisplays().getMainDisplay().userArea;
+
+	Array<var> desktopSize;
+
+	desktopSize.add(area.getWidth());
+	desktopSize.add(area.getHeight());
+
+	return desktopSize;
 }
 
 double ScriptingApi::Settings::getZoomLevel() const
@@ -2180,7 +2215,7 @@ var ScriptingApi::Engine::loadAudioFileIntoBufferArray(String audioFileReference
 {
 	PoolReference ref(getScriptProcessor()->getMainController_(), audioFileReference, FileHandlerBase::AudioFiles);
 
-	auto pool = getScriptProcessor()->getMainController_()->getActiveFileHandler()->pool.get();
+	auto pool = getScriptProcessor()->getMainController_()->getCurrentFileHandler().pool.get();
 
 	if (auto e = getScriptProcessor()->getMainController_()->getExpansionHandler().getExpansionForWildcardReference(ref.getReferenceString()))
 	{
@@ -2507,6 +2542,7 @@ struct ScriptingApi::Sampler::Wrapper
     API_METHOD_WRAPPER_0(Sampler, getNumAttributes);
     API_METHOD_WRAPPER_1(Sampler, getAttribute);
     API_METHOD_WRAPPER_1(Sampler, getAttributeId);
+		API_METHOD_WRAPPER_1(Sampler, getAttributeIndex);
 	API_VOID_METHOD_WRAPPER_1(Sampler, setUseStaticMatrix);
     API_METHOD_WRAPPER_1(Sampler, loadSampleForAnalysis);
 	API_METHOD_WRAPPER_1(Sampler, loadSfzFile);
@@ -2556,6 +2592,7 @@ sampler(sampler_)
 	ADD_API_METHOD_0(getNumAttributes);
     ADD_API_METHOD_1(getAttribute);
     ADD_API_METHOD_1(getAttributeId);
+		ADD_API_METHOD_1(getAttributeIndex);
     ADD_API_METHOD_2(setAttribute);
 	ADD_API_METHOD_1(isNoteNumberMapped);
     ADD_API_METHOD_1(loadSampleForAnalysis);
@@ -3653,6 +3690,16 @@ String ScriptingApi::Sampler::getAttributeId(int parameterIndex)
         return s->getIdentifierForParameterIndex(parameterIndex).toString();    
     
     return String();
+}
+
+int ScriptingApi::Sampler::getAttributeIndex(String parameterId)
+{
+    ModulatorSampler *s = static_cast<ModulatorSampler*>(sampler.get());
+
+    if (checkValidObject())
+        return s->getParameterIndexForIdentifier(parameterId);
+
+    return -1;
 }
 
 void ScriptingApi::Sampler::setAttribute(int index, var newValue)
@@ -5609,6 +5656,7 @@ struct ScriptingApi::FileSystem::Wrapper
 	API_METHOD_WRAPPER_1(FileSystem, fromAbsolutePath);
 	API_VOID_METHOD_WRAPPER_4(FileSystem, browse);
 	API_VOID_METHOD_WRAPPER_2(FileSystem, browseForDirectory);
+	API_METHOD_WRAPPER_1(FileSystem, getBytesFreeOnVolume);
 };
 
 ScriptingApi::FileSystem::FileSystem(ProcessorWithScriptingContent* pwsc):
@@ -5633,6 +5681,7 @@ ScriptingApi::FileSystem::FileSystem(ProcessorWithScriptingContent* pwsc):
 	ADD_API_METHOD_4(browse);
 	ADD_API_METHOD_2(browseForDirectory);
 	ADD_API_METHOD_1(fromAbsolutePath);
+	ADD_API_METHOD_1(getBytesFreeOnVolume);
 }
 
 ScriptingApi::FileSystem::~FileSystem()
@@ -5707,6 +5756,20 @@ String ScriptingApi::FileSystem::getSystemId()
 	return OnlineUnlockStatus::MachineIDUtilities::getLocalMachineIDs()[0];
 }
 
+int64 ScriptingApi::FileSystem::getBytesFreeOnVolume(var folder)
+{
+	File f;
+
+	if (folder.isInt())
+		f = getFile((SpecialLocations)(int)folder);
+	else if (auto sf = dynamic_cast<ScriptingObjects::ScriptFile*>(folder.getObject()))
+		f = sf->f;
+
+	auto numBytes = f.getBytesFreeOnVolume();
+
+	return numBytes;
+}
+
 void ScriptingApi::FileSystem::browseInternally(File f, bool forSaving, bool isDirectory, String wildcard, var callback)
 {
 	auto p_ = p;
@@ -5753,7 +5816,7 @@ juce::File ScriptingApi::FileSystem::getFile(SpecialLocations l)
 
 	switch (l)
 	{
-	case Samples:	f = getMainController()->getActiveFileHandler()->getSubDirectory(FileHandlerBase::Samples);
+	case Samples:	f = getMainController()->getCurrentFileHandler().getSubDirectory(FileHandlerBase::Samples);
 		break;
 	case Expansions: return getMainController()->getExpansionHandler().getExpansionFolder();
 #if USE_BACKEND
