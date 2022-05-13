@@ -118,8 +118,12 @@
  #define   USE_COPY_PROTECTION 0
 #endif
 
+#ifndef    USE_SCRIPT_COPY_PROTECTION
+ //#define USE_SCRIPT_COPY_PROTECTION 0
+#endif
+
 #ifndef    USE_IPP
- #define   USE_IPP 1
+ #define   USE_IPP 0
 #endif
 
 #ifndef    USE_VDSP_FFT
@@ -135,7 +139,7 @@
 #endif
 
 #ifndef    FORCE_INPUT_CHANNELS
- #define   FORCE_INPUT_CHANNELS 1
+ //#define FORCE_INPUT_CHANNELS 1
 #endif
 
 #ifndef    HISE_MIDIFX_PLUGIN
@@ -170,6 +174,10 @@
  #define   ENABLE_PLOTTER 1
 #endif
 
+#ifndef    HISE_NUM_MACROS
+ //#define HISE_NUM_MACROS 1
+#endif
+
 #ifndef    ENABLE_SCRIPTING_SAFE_CHECKS
  #define   ENABLE_SCRIPTING_SAFE_CHECKS 1
 #endif
@@ -192,6 +200,10 @@
 
 #ifndef    READ_ONLY_FACTORY_PRESETS
  //#define READ_ONLY_FACTORY_PRESETS 0
+#endif
+
+#ifndef    CONFIRM_PRESET_OVERWRITE
+ //#define CONFIRM_PRESET_OVERWRITE 1
 #endif
 
 #ifndef    ENABLE_CONSOLE_OUTPUT
@@ -436,6 +448,10 @@
 
 #ifndef    JUCE_FORCE_DEBUG
  //#define JUCE_FORCE_DEBUG 0
+#endif
+
+#ifndef    JUCE_ENABLE_AUDIO_GUARD
+ //#define JUCE_ENABLE_AUDIO_GUARD 0
 #endif
 
 #ifndef    JUCE_LOG_ASSERTIONS
