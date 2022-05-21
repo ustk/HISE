@@ -51,13 +51,13 @@
                externalLibraries="faust">
       <CONFIGURATIONS>
         <CONFIGURATION name="Debug" osxCompatibility="10.7 SDK" osxArchitecture="64BitIntel"
-                       isDebug="1" optimisation="1" targetName="HISE Debug" linkTimeOptimisation="0"
+                       isDebug="1" optimisation="1" targetName="HISE Mono Audio Inputs Debug" linkTimeOptimisation="0"
                        cppLanguageStandard="c++11" cppLibType="libc++" enablePluginBinaryCopyStep="1"
                        macOSDeploymentTarget="10.9" libraryPath="../../../../tools/faust/fakelib"/>
         <CONFIGURATION name="Release" osxCompatibility="10.9 SDK" osxArchitecture="64BitIntel"
-                       isDebug="0" optimisation="3" targetName="HISE" linkTimeOptimisation="1"
-                       cppLanguageStandard="c++11" cppLibType="libc++" enablePluginBinaryCopyStep="1"
-                       macOSDeploymentTarget="10.9" libraryPath="../../../../tools/faust/fakelib"/>
+                       isDebug="0" optimisation="3" targetName="HISE Mono Audio Inputs"
+                       linkTimeOptimisation="1" cppLanguageStandard="c++11" cppLibType="libc++"
+                       enablePluginBinaryCopyStep="1" macOSDeploymentTarget="10.9"/>
         <CONFIGURATION name="CI" osxCompatibility="10.9 SDK" osxArchitecture="64BitIntel"
                        isDebug="0" optimisation="4" targetName="HISE" linkTimeOptimisation="0"
                        cppLanguageStandard="c++11" cppLibType="libc++" enablePluginBinaryCopyStep="1"

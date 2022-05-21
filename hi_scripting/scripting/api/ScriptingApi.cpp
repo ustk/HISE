@@ -2579,9 +2579,9 @@ var ScriptingApi::Settings::getAvailableInputChannels()
 	
 	if (currentDevice != nullptr) 
 	{
-		StringArray inputPairs = HiseSettings::ConversionHelpers::getInputChannelPairs(currentDevice);
+		StringArray inputs = currentDevice->getInputChannelNames();
 
-		for (auto x : inputPairs)
+		for (auto x : inputs)
 			result.add(x);
 	}
 
@@ -2603,7 +2603,7 @@ int ScriptingApi::Settings::getCurrentInputChannel()
 	AudioIODevice* currentDevice = driver->deviceManager->getCurrentAudioDevice();
 	
 	if (currentDevice != nullptr)
-		return (currentDevice->getActiveInputChannels().getHighestBit() - 1) / 2;
+		return (currentDevice->getActiveInputChannels().getHighestBit());
 	
 	return 0;
 }

@@ -320,8 +320,8 @@ void CustomSettingsWindow::rebuildMenus(bool rebuildDeviceTypes, bool rebuildDev
 				bufferSelector->addItem(String(bufferSizes[i]) + String(" Samples"), i + 1);
 			}
 
-            inputSelector->addItemList(HiseSettings::ConversionHelpers::getInputChannelPairs(currentDevice), 1);
-            const int thisInputName = (currentDevice->getActiveInputChannels().getHighestBit() - 1) / 2;
+            inputSelector->addItemList(currentDevice->getInputChannelNames(), 1);
+            const int thisInputName = (currentDevice->getActiveInputChannels().getHighestBit());
             inputSelector->setSelectedItemIndex(thisInputName, dontSendNotification);
 
             outputSelector->addItemList(HiseSettings::ConversionHelpers::getOutputChannelPairs(currentDevice), 1);
@@ -362,7 +362,7 @@ void CustomSettingsWindow::rebuildMenus(bool rebuildDeviceTypes, bool rebuildDev
 			PresetHandler::showMessageWindow("Audio Driver Initialisation Error", message, PresetHandler::IconType::Error);
 #endif
             
-            driver->deviceManager->initialiseWithDefaultDevices(2, 2);
+            driver->deviceManager->initialiseWithDefaultDevices(1, 2);
             
             if(!loopProtection)
             {
@@ -465,8 +465,7 @@ void CustomSettingsWindow::flipInputEnablement(AudioDeviceManager* manager, cons
 	BigInteger& original = config.inputChannels;
 
 	original.clear();
-	original.setBit(row * 2, 1);
-	original.setBit(row * 2 + 1, 1);
+	original.setBit(row, 1);
 
 	config.useDefaultInputChannels = false;
 
