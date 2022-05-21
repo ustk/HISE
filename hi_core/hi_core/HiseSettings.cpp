@@ -774,7 +774,7 @@ juce::StringArray HiseSettings::Data::getOptionsFor(const Identifier& id)
 		else if (id == Audio::Input)
 		{
 			const auto currentDevice = manager->getCurrentAudioDevice();
-			return ConversionHelpers::getInputChannelPairs(currentDevice);
+			return currentDevice->getInputChannelNames();
 		}
 		else if (id == Audio::Output)
 		{
@@ -1083,7 +1083,7 @@ void HiseSettings::Data::settingWasChanged(const Identifier& id, const var& newV
 		{
 			auto driver = dynamic_cast<AudioProcessorDriver*>(mc);
 			auto device = driver->deviceManager->getCurrentAudioDevice();
-			auto list = ConversionHelpers::getInputChannelPairs(device);
+			auto list = device->getInputChannelNames();
 			auto inputIndex = list.indexOf(newValue.toString());
 
 			if (inputIndex != -1)
@@ -1094,8 +1094,7 @@ void HiseSettings::Data::settingWasChanged(const Identifier& id, const var& newV
 				auto& original = config.inputChannels;
 
 				original.clear();
-				original.setBit(inputIndex * 2, 1);
-				original.setBit(inputIndex * 2 + 1, 1);
+				original.setBit(inputIndex, 1);
 
 				config.useDefaultInputChannels = false;
 
@@ -1294,8 +1293,8 @@ juce::String HiseSettings::ConversionHelpers::getCurrentInputName(AudioIODevice*
 {
 	if(currentDevice != nullptr)
 	{
-		auto list = getInputChannelPairs(currentDevice);
-		const int thisInputName = (currentDevice->getActiveInputChannels().getHighestBit() - 1) / 2;
+		auto list = currentDevice->getInputChannelNames();
+		const int thisInputName = (currentDevice->getActiveInputChannels().getHighestBit());
 
 		return list[thisInputName];
 	}

@@ -53,9 +53,9 @@
                        cppLanguageStandard="c++11" cppLibType="libc++" enablePluginBinaryCopyStep="1"
                        macOSDeploymentTarget="10.9"/>
         <CONFIGURATION name="Release" osxCompatibility="10.9 SDK" osxArchitecture="64BitIntel"
-                       isDebug="0" optimisation="3" targetName="HISE Audio Inputs" linkTimeOptimisation="1"
-                       cppLanguageStandard="c++11" cppLibType="libc++" enablePluginBinaryCopyStep="1"
-                       macOSDeploymentTarget="10.9"/>
+                       isDebug="0" optimisation="3" targetName="HISE Mono Audio Inputs"
+                       linkTimeOptimisation="1" cppLanguageStandard="c++11" cppLibType="libc++"
+                       enablePluginBinaryCopyStep="1" macOSDeploymentTarget="10.9"/>
         <CONFIGURATION name="CI" osxCompatibility="10.9 SDK" osxArchitecture="64BitIntel"
                        isDebug="0" optimisation="4" targetName="HISE" linkTimeOptimisation="0"
                        cppLanguageStandard="c++11" cppLibType="libc++" enablePluginBinaryCopyStep="1"
