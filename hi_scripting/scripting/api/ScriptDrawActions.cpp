@@ -73,17 +73,32 @@ struct ScriptedPostDrawActions
 		int blurAmount;
 	};
 
-	struct addNoise : public DrawActions::PostActionBase
+	struct addNoise : public DrawActions::ActionBase
 	{
-		addNoise(float v) : noise(v) {};
+		addNoise(DrawActions::NoiseMapManager* manager, float v, Rectangle<int> area_, bool monochrom_=false, float scale_=1.0f) : 
+			m(manager),
+			noise(v), 
+			area(area_), 
+			scale(scale_), 
+			monochrom(monochrom_) 
+		{};
 
-		bool needsStackData() const override { return false; }
-		void perform(PostGraphicsRenderer& r) override
+		void perform(Graphics& g) override
 		{
-			r.addNoise(noise);
+			m->drawNoiseMap(g, area, noise, monochrom, scale);
 		}
 
-		float noise;
+		bool wantsCachedImage() const override { return false; };
+		bool wantsToDrawOnParent() const override { return false; }
+
+		DrawActions::NoiseMapManager* m;
+
+		const float noise;
+		const float scale;
+
+		
+		const Rectangle<int> area;
+		const bool monochrom;
 	};
 
 	struct applyHSL : public DrawActions::PostActionBase
@@ -276,18 +291,54 @@ namespace ScriptedDrawActions
 	{
 		fillRoundedRect(Rectangle<float> area_, float cornerSize_) :
 			area(area_), cornerSize(cornerSize_) {};
-		void perform(Graphics& g) { g.fillRoundedRectangle(area, cornerSize); };
+		void perform(Graphics& g) 
+		{ 
+			if(allRounded)
+				g.fillRoundedRectangle(area, cornerSize); 
+			else if (!rounded[0] && !rounded[1] && !rounded[2] && !rounded[3])
+				g.fillRect(area);
+			else
+			{
+				Path p;
+				p.addRoundedRectangle(area.getX(), area.getY(), area.getWidth(), area.getHeight(), 
+									  cornerSize, cornerSize, 
+									  rounded[0], rounded[1], rounded[2], rounded[3]);
+
+				g.fillPath(p);
+			}
+		};
 		Rectangle<float> area;
 		float cornerSize;
+
+		bool allRounded = true;
+		bool rounded[4] = { true, true, true, true };
 	};
 
 	struct drawRoundedRectangle : public DrawActions::ActionBase
 	{
 		drawRoundedRectangle(Rectangle<float> area_, float borderSize_, float cornerSize_) :
 			area(area_), borderSize(borderSize_), cornerSize(cornerSize_) {};
-		void perform(Graphics& g) { g.drawRoundedRectangle(area, cornerSize, borderSize); };
+		void perform(Graphics& g) 
+		{ 
+			if(allRounded)
+				g.drawRoundedRectangle(area, cornerSize, borderSize); 
+			else if (!rounded[0] && !rounded[1] && !rounded[2] && !rounded[3])
+				g.drawRect(area, borderSize);
+			else
+			{
+				Path p;
+				p.addRoundedRectangle(area.getX(), area.getY(), area.getWidth(), area.getHeight(),
+					cornerSize, cornerSize,
+					rounded[0], rounded[1], rounded[2], rounded[3]);
+
+				g.strokePath(p, PathStrokeType(borderSize));
+			}
+		};
 		Rectangle<float> area;
 		float cornerSize, borderSize;
+
+		bool allRounded = true;
+		bool rounded[4] = { true, true, true, true };
 	};
 
 	struct drawImageWithin : public DrawActions::ActionBase
@@ -484,6 +535,29 @@ namespace ScriptedDrawActions
 		int radius;
 	};
 
+    struct drawSVG: public DrawActions::ActionBase
+    {
+        drawSVG(var svgObject, Rectangle<float> bounds_, float opacity_):
+           svg(svgObject),
+           bounds(bounds_),
+          opacity(opacity_)
+        {
+            
+        };
+        
+        void perform(Graphics& g) override
+        {
+            if(auto obj = dynamic_cast<ScriptingObjects::SVGObject*>(svg.getObject()))
+            {
+                obj->draw(g, bounds, opacity);
+            }
+        }
+        
+        const float opacity;
+        const Rectangle<float> bounds;
+        var svg;
+    };
+
 	struct addShader : public DrawActions::ActionBase
 	{
 		addShader(DrawActions::Handler* h, ScriptingObjects::ScriptShader* o, Rectangle<int> b) :
@@ -526,19 +600,26 @@ namespace ScriptedDrawActions
 					{
 						int safeCount = 0;
 
-						while (glGetError() != GL_NO_ERROR)
-						{
-							safeCount++;
+                        if(OpenGLContext::getCurrentContext() != nullptr)
+                        {
+                            while (glGetError() != GL_NO_ERROR)
+                            {
+                                safeCount++;
 
-							if (safeCount > 10000)
-								break;
-						};
+                                if (safeCount > 10000)
+                                    break;
+                            };
+                            
+                            auto s = StringArray::fromLines(obj->getErrorMessage(true));
+                            s.removeEmptyStrings();
 
-						auto s = StringArray::fromLines(obj->getErrorMessage(true));
-						s.removeEmptyStrings();
-
-						for (auto l : s)
-							handler->logError(l);
+                            for (auto l : s)
+                                handler->logError(l);
+                        }
+                        else
+                        {
+                            handler->logError("Open GL is not enabled");
+                        }
 					}
 #endif
 				}

@@ -40,7 +40,7 @@ struct CascadedEnvelopeLowPass
 
 	CascadedEnvelopeLowPass(bool isPoly);
 
-	using FilterType = scriptnode::filters::one_pole_poly;
+	using FilterType = scriptnode::filters::one_pole<NUM_POLYPHONIC_VOICES>;
 
 	FilterType** begin()
 	{
@@ -81,7 +81,7 @@ struct CascadedEnvelopeLowPass
 private:
 
 	int order = 1;
-	OwnedArray<scriptnode::filters::one_pole_poly> filters;
+	OwnedArray<scriptnode::filters::one_pole<NUM_POLYPHONIC_VOICES>> filters;
 };
 
 typedef ReferenceCountedArray<StreamingSamplerSound> StreamingSamplerSoundArray;
@@ -111,6 +111,11 @@ struct MappingData
 // ====================================================================================================================
 
 #define DECLARE_ID(x) const juce::Identifier x(#x);
+
+namespace SamplerKeyPresses
+{
+	DECLARE_ID(toggle_sample_preview);
+}
 
 namespace SampleIds
 {
@@ -156,8 +161,6 @@ struct Helpers
 		case Modulation::Mode::PanMode:   return SampleIds::LowPassTable;
         default:                          return {};
 		}
-			
-		return {};
 	}
 	static Modulation::Mode getEnvelopeType(const Identifier& id)
 	{

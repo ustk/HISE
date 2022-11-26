@@ -775,13 +775,53 @@ DspNetworkCompileExporter::DspNetworkCompileExporter(Component* e, BackendProces
 {
 	addComboBox("build", { "Debug", "CI", "Release" }, "Build Configuration");
 
+#if !JUCE_DEBUG
+    getComboBoxComponent("build")->setText("Release", dontSendNotification);
+#endif
+    
+	if (getNetwork() == nullptr)
+	{
+		if (PresetHandler::showYesNoWindow("No DSP Network detected", "You need an active DspNetwork for the compilation process.  \n> Press OK to create a Script FX with an empty embedded Network"))
+		{
+			raw::Builder builder(bp);
+			MainController::ScopedBadBabysitter sb(bp);
+
+			auto jmp = builder.create<JavascriptMasterEffect>(bp->getMainSynthChain(), raw::IDs::Chains::FX);
+			jmp->getOrCreate("internal_dsp");
+		}
+	}
+
 	if (auto n = getNetwork())
 		n->createAllNodesOnce();
+
+	auto customProperties = bp->dllManager->getSubFolder(getMainController(), BackendDllManager::FolderSubType::ThirdParty).getChildFile("node_properties.json");
+
+	if (customProperties.existsAsFile())
+	{
+		auto obj = JSON::parse(customProperties);
+		
+		if (auto o = obj.getDynamicObject())
+		{
+			for (auto& nv : o->getProperties())
+			{
+				if (auto ar = nv.value.getArray())
+				{
+					for (const auto& prop : *ar)
+					{
+						cppgen::CustomNodeProperties::addNodeIdManually(nv.name, prop.toString());
+					}
+				}
+			}
+		}
+	}
 
 	addBasicComponents(true);
 
 	String s;
 	s << "Nodes to compile:\n";
+
+	for (auto f : bp->dllManager->getThirdPartyFiles(bp, false))
+		s << " - " << f.getFileNameWithoutExtension() << " [external C++]\n";
 
 	for (auto f : bp->dllManager->getNetworkFiles(bp, false))
 		s << " - " << f.getFileNameWithoutExtension() << "\n";
@@ -791,6 +831,105 @@ DspNetworkCompileExporter::DspNetworkCompileExporter(Component* e, BackendProces
 	addTextBlock(s);
 
 	showStatusMessage("Press OK to compile the nodes into a DLL");
+}
+
+void DspNetworkCompileExporter::writeDebugFileAndShowSolution()
+{
+    auto& settings = dynamic_cast<GlobalSettingManager*>(getMainController())->getSettingsObject();
+    auto hisePath = settings.getSetting(HiseSettings::Compiler::HisePath).toString();
+    auto solutionFolder = BackendDllManager::getSubFolder(getMainController(), BackendDllManager::FolderSubType::Binaries).getChildFile("Builds");
+    auto projectName = settings.getSetting(HiseSettings::Project::Name).toString();
+    auto debugExecutable = File(hisePath).getChildFile("projects/standalone/Builds/");
+    
+	
+
+	
+	
+	auto currentExecutable = File::getSpecialLocation(File::currentExecutableFile);
+
+
+#if JUCE_WINDOWS
+    auto isUsingVs2017 = HelperClasses::isUsingVisualStudio2017(settings);
+    auto vsString = isUsingVs2017 ? "VisualStudio2017" : "VisualStudio2022";
+    auto vsVersion = isUsingVs2017 ? "15.0" : "17.0";
+    
+    debugExecutable = debugExecutable.getChildFile(vsString).getChildFile("x64/Debug/App/HISE Debug.exe");
+
+	// If this hits, then you have a mismatch between VS2022 and VS2017...
+	jassertEqual(debugExecutable, currentExecutable);
+	
+    solutionFolder = solutionFolder.getChildFile(vsString);
+    auto solutionFile = solutionFolder.getChildFile(projectName).withFileExtension("sln");
+    
+	ScopedPointer<XmlElement> xml = new XmlElement("Project");
+	xml->setAttribute("ToolsVersion", vsVersion);
+	xml->setAttribute("xmlns", "http://schemas.microsoft.com/developer/msbuild/2003");
+	auto pg = new XmlElement("PropertyGroup");
+	pg->setAttribute("Condition", "'$(Configuration)|$(Platform)'=='Debug|x64'");
+	xml->addChildElement(pg);
+
+	auto ldc = new XmlElement("LocalDebuggerCommand");
+
+	jassert(debugExecutable.existsAsFile());
+
+	ldc->addTextElement(debugExecutable.getFullPathName());
+	
+	pg->addChildElement(ldc);
+	auto df = new XmlElement("DebuggerFlavor");
+	df->addTextElement("WindowsLocalDebugger");
+	pg->addChildElement(df);
+
+	auto userFile = solutionFile.getSiblingFile(projectName + "_DynamicLibrary.vcxproj.user");
+
+	auto fileContent = xml->createDocument("");
+
+	userFile.replaceWithText(fileContent);
+    
+	auto hasThirdPartyFiles = includedThirdPartyFiles.isEmpty();
+
+    if (hasThirdPartyFiles && PresetHandler::showYesNoWindow("Quit HISE", "Do you want to quit HISE and show VS solution for debugging the DLL?  \n> Double click on the solution file, then run the VS debugger and it will open HISE with the ability to set VS breakpoints in your C++ nodes"))
+    {
+        solutionFile.revealToUser();
+        JUCEApplication::quit();
+    }
+    
+#elif JUCE_MAC
+    debugExecutable = debugExecutable.getChildFile("MacOSX/build/Debug/HISE Debug.app");
+    
+    jassert(debugExecutable.isDirectory());
+    solutionFolder = solutionFolder.getChildFile("MacOSX");
+    auto solutionFile = solutionFolder.getChildFile(projectName).withFileExtension("xcodeproj");
+    
+    if (PresetHandler::showYesNoWindow("Show XCode Project", "Do you want to show the Xcode Project file?  \n> Double click on the file to open XCode, then choose `Debug->Attach to Process->HISE Debug` in order to run your C++ node in the Xcode Debugger"))
+    {
+        solutionFile.revealToUser();
+    }
+#endif
+    
+	
+}
+
+hise::DspNetworkCompileExporter::CppFileLocationType DspNetworkCompileExporter::getLocationType(const File& f) const
+{
+	if (f.getParentDirectory().getFileNameWithoutExtension() == "src")
+		return ThirdPartySourceFile;
+
+	if (f.getFileNameWithoutExtension() == "embedded_audiodata")
+		return EmbeddedDataFile;
+
+	for (auto& incF : includedFiles)
+	{
+		if (incF.getFileNameWithoutExtension() == f.getFileNameWithoutExtension())
+			return CompiledNetworkFile;
+	}
+
+	for (auto& itf : includedThirdPartyFiles)
+	{
+		if (itf.getFileNameWithoutExtension() == f.getFileNameWithoutExtension())
+			return ThirdPartyFile;
+	}
+
+	return UnknownFileType;
 }
 
 scriptnode::DspNetwork* DspNetworkCompileExporter::getNetwork()
@@ -841,6 +980,8 @@ void DspNetworkCompileExporter::run()
 	getSourceDirectory(true).deleteRecursively();
 	getSourceDirectory(true).createDirectory();
 
+	
+
 	showStatusMessage("Unload DLL");
 
 	if (auto ed = getEditorWorkbench())
@@ -858,6 +999,8 @@ void DspNetworkCompileExporter::run()
 	auto unsortedList = BackendDllManager::getNetworkFiles(getMainController(), false);
 
 	auto unsortedListU = BackendDllManager::getNetworkFiles(getMainController(), true);
+
+	
 
 	for (auto s : unsortedList)
 		unsortedListU.removeAllInstancesOf(s);
@@ -903,7 +1046,14 @@ void DspNetworkCompileExporter::run()
 
 	auto sourceDir = getFolder(BackendDllManager::FolderSubType::ProjucerSourceFolder);
 
+	
+
 	using namespace snex::cppgen;
+
+	ValueTreeBuilder::SampleList externalSamples;
+
+	// set with all files to generate for all networks
+	std::set<String> faustClassIds;
 
 	for (auto e : list)
 	{
@@ -924,6 +1074,15 @@ void DspNetworkCompileExporter::run()
                 return;
             }
             
+			if (id.compareIgnoreCase(e.getFileNameWithoutExtension()) != 0)
+			{
+				errorMessage << "Error at exporting `" << e.getFileName() << "`: Name mismatch between DSP network file and Root container.  \n>";
+				errorMessage << "You need to either rename the file to `" << id;
+				errorMessage << ".xml` or edit the XML data and set the root node's ID to `" << e.getFileNameWithoutExtension() << "`.";
+				ok = ErrorCodes::ProjectXmlInvalid;
+				return;
+			}
+
 			if(cppgen::StringHelpers::makeValidCppName(id).compareIgnoreCase(id) != 0)
 			{
 				errorMessage << "Illegal ID: `" << id << "`  \n> The network ID must be a valid C++ identifier";
@@ -931,13 +1090,21 @@ void DspNetworkCompileExporter::run()
 				return;
 			}
 				
+            showStatusMessage("Creating C++ file for Network " + id);
+            
 			ValueTreeBuilder b(v, ValueTreeBuilder::Format::CppDynamicLibrary);
 
 			b.setCodeProvider(new BackendDllManager::FileCodeProvider(getMainController()));
+			b.addAudioFileProvider(new PooledAudioFileDataProvider(getMainController()));
 
 			auto f = sourceDir.getChildFile(id).withFileExtension(".h");
 
 			auto r = b.createCppCode();
+
+			faustClassIds.insert(r.faustClassIds->begin(), r.faustClassIds->end());
+
+			externalSamples.addArray(b.getExternalSampleList());
+			
 
 			if (r.r.wasOk())
 				f.replaceWithText(r.code);
@@ -954,6 +1121,151 @@ void DspNetworkCompileExporter::run()
 
 			includedFiles.add(f);
 		}
+	}
+
+#if HISE_INCLUDE_FAUST_JIT
+	DBG("sourceDir: " + sourceDir.getFullPathName());
+	auto codeDestDir = getFolder(BackendDllManager::FolderSubType::ThirdParty).getChildFile("src");
+	auto codeDestDirPath = codeDestDir.getFullPathName().toStdString();
+	if (!codeDestDir.isDirectory())
+		codeDestDir.createDirectory();
+	DBG("codeDestDirPath: " + codeDestDirPath);
+
+	auto boilerplateDestDirPath = codeDestDir.getParentDirectory().getFullPathName().toStdString();
+	DBG("boilerplateDestDirPath: " + boilerplateDestDirPath);
+	// we either need to hard code this path and keep it consistent with faust_jit_node or hi_backend will have to depend on hi_faust_jit
+	auto codeLibDir = getFolder(BackendDllManager::FolderSubType::CodeLibrary).getChildFile("faust");
+	auto codeLibDirPath = codeLibDir.getFullPathName().toStdString();
+	DBG("codeLibDirPath: " + codeLibDirPath);
+
+	// create all necessary files before thirdPartyFiles
+	for (const auto& classId : faustClassIds)
+	{
+		auto _classId = classId.toStdString();
+		DBG("Found Faust classId: " + classId);
+		auto faustSourcePath = codeLibDir.getChildFile(classId + ".dsp").getFullPathName().toStdString();
+
+		auto boilerplate_path = scriptnode::faust::faust_jit_helpers::genStaticInstanceBoilerplate(boilerplateDestDirPath, _classId);
+		if (boilerplate_path.size() > 0)
+			DBG("Wrote boilerplate file to " + boilerplate_path);
+		else
+			DBG("Writing generated boilerplate failed.");
+
+		std::vector<std::string> faustLibraryPaths = {codeLibDirPath};
+		// lookup FaustPath from settings
+		auto& settings = dynamic_cast<GlobalSettingManager*>(getMainController())->getSettingsObject();
+        
+        auto faustPath = settings.getFaustPath();
+        
+		if (faustPath.isDirectory()) {
+			auto globalFaustLibraryPath = faustPath.getChildFile("share").getChildFile("faust");
+            
+			if (globalFaustLibraryPath.isDirectory()) {
+				faustLibraryPaths.push_back(globalFaustLibraryPath.getFullPathName().toStdString());
+			}
+		}
+
+		auto code_path = scriptnode::faust::faust_jit_helpers::genStaticInstanceCode(_classId, faustSourcePath, faustLibraryPaths, codeDestDirPath);
+		if (code_path.size() > 0)
+			DBG("Wrote code file to " + code_path);
+		else
+			DBG("Writing generated code failed.");
+	}
+
+#endif // HISE_INCLUDE_FAUST_JIT
+
+	auto thirdPartyFiles = BackendDllManager::getThirdPartyFiles(getMainController(), false);
+
+	if (!thirdPartyFiles.isEmpty())
+	{
+		showStatusMessage("Copying third party files");
+
+		for (auto tpf : thirdPartyFiles)
+		{
+			includedThirdPartyFiles.insert(0, tpf);
+
+#if 0
+			auto target = sourceDir.getChildFile(tpf.getFileName());
+
+			if (target.existsAsFile())
+			{
+				auto sourceContent = tpf.loadFileAsString();
+				auto targetContent = target.loadFileAsString();
+
+				if (sourceContent.compare(targetContent) != 0)
+				{
+					auto sourceTime = tpf.getLastModificationTime();
+					auto targetTime = target.getLastModificationTime();
+
+					if (targetTime > sourceTime)
+					{
+						errorMessage << "A newer version of the file " << tpf.getFileName() << " is already in the target folder.  \n> This file will get overriden by the ";
+						ok = ErrorCodes::SanityCheckFailed;
+						return;
+
+					}
+
+					
+				}
+			}
+
+			tpf.copyFileTo(target);
+			includedThirdPartyFiles.insert(0, target);
+#endif
+
+			
+		}
+
+#if 0
+		auto srcDir = BackendDllManager::getThirdPartyFiles(getMainController(), true).getFirst();
+
+		if (srcDir.isDirectory())
+		{
+			showStatusMessage("Copying /src folder");
+
+			auto targetSrc = sourceDir.getChildFile(srcDir.getFileName());
+			auto additionalSrc = BackendDllManager::getSubFolder(getMainController(), BackendDllManager::FolderSubType::AdditionalCode);
+
+			targetSrc.deleteRecursively();
+			additionalSrc.deleteRecursively();
+
+			srcDir.copyDirectoryTo(targetSrc);
+			srcDir.copyDirectoryTo(additionalSrc);
+		}	
+#endif
+	}
+
+	if (!externalSamples.isEmpty())
+	{
+        showStatusMessage("Writing embedded audio data file");
+        
+		auto eadFile = getSourceDirectory(true).getChildFile("embedded_audiodata.h");
+		eadFile.deleteFile();
+
+		FileOutputStream fos(eadFile);
+
+		fos << "// Embedded audiodata" << "\n";
+
+        fos << "#pragma once\n\n";
+        
+		fos << "namespace audiodata {\n";
+
+		for (const auto& es : externalSamples)
+		{
+			auto& bf = es.data->buffer;
+
+			for (int i = 0; i < bf.getNumChannels(); i++)
+			{
+				fos << "static const uint32 " << es.className << i << "[] = { \n";
+				cppgen::IntegerArray<uint32, float>::writeToStream(fos, reinterpret_cast<uint32*>(bf.getWritePointer(i)), bf.getNumSamples());
+				fos << "};\n";
+			}
+		}
+
+		fos << "}\n";
+		fos.flush();
+
+		eadFile.copyFileTo(getSourceDirectory(false).getChildFile("embedded_audiodata.h"));
 	}
 
 	for (auto u : unsortedListU)
@@ -1073,6 +1385,10 @@ void DspNetworkCompileExporter::threadFinished()
 
 	if (ok == ErrorCodes::OK)
 	{
+#if JUCE_DEBUG
+		writeDebugFileAndShowSolution();
+#endif
+
 		globalCommandLineExport = false;
 
 		if (auto ed = getEditorWorkbench())
@@ -1175,13 +1491,86 @@ void DspNetworkCompileExporter::createIncludeFile(const File& sourceDir)
 
 	cppgen::Base i(cppgen::Base::OutputType::AddTabs);
 
-	i.setHeader([]() { return "/* Include file. */"; });
+	i.setHeader([]() { return "/* Autogenerated include file. */"; });
 
-	for (auto f : sourceDir.findChildFiles(File::findFiles, false, "*.h"))
+	i << "#if (defined (_WIN32) || defined (_WIN64))";
+	i << "#pragma warning( push )";
+	i << "#pragma warning( disable : 4189 4373)";  // unused variables, wrong override (from faust classes)
+	i << "#else";
+    i << "#pragma clang diagnostic push";
+    i << "#pragma clang diagnostic ignored \"-Wunused-variable\"";
+	i << "#endif";
+
+    i.addEmptyLine();
+    
+
+    auto fileList = sourceDir.findChildFiles(File::findFiles, false, "*.h");
+
+	auto thirdPartyFiles = getFolder(BackendDllManager::FolderSubType::ThirdParty).findChildFiles(File::findFiles, false, "*.h");
+
+	fileList.addArray(thirdPartyFiles);
+
+	for (auto& f : fileList)
 	{
-		cppgen::Include m(i, sourceDir, f);
+		if (getLocationType(f) == EmbeddedDataFile)
+		{
+			i.addComment("Include embedded audio data", cppgen::Base::CommentType::FillTo80Light);
+			cppgen::Include m(i, sourceDir, f);
+			break;
+		}
 	}
 
+	bool somethingFound = false;
+
+	for (auto& f : fileList)
+	{
+		if (getLocationType(f) == ThirdPartyFile)
+		{
+			if (!somethingFound)
+			{
+				i.addComment("Include third party header files", cppgen::Base::CommentType::FillTo80Light);
+				somethingFound = true;
+			}
+
+			cppgen::Base dummyInclude(cppgen::Base::OutputType::NoProcessing);
+			{
+				dummyInclude.addComment("This just references the real file", cppgen::Base::CommentType::RawWithNewLine);
+				cppgen::Include m(dummyInclude, sourceDir, f);
+			}
+			
+			auto fInDir = sourceDir.getChildFile(f.getFileName());
+			fInDir.replaceWithText(dummyInclude.toString());
+			cppgen::Include m2(i, sourceDir, fInDir);
+		}
+	}
+
+	if (somethingFound)
+		i.addEmptyLine();
+
+	somethingFound = false;
+
+	for (auto& f : fileList)
+	{
+		if (getLocationType(f) == CompiledNetworkFile)
+		{
+			if (!somethingFound)
+			{
+				i.addComment("Include compiled network files", cppgen::Base::CommentType::FillTo80Light);
+				somethingFound = true;
+			}
+
+			cppgen::Include m(i, sourceDir, f);
+		}
+	}
+
+    i.addEmptyLine();
+    
+	i << "#if (defined (_WIN32) || defined (_WIN64))";
+	i << "#pragma warning( pop )";
+	i << "#else";
+    i << "#pragma clang diagnostic pop";
+	i << "#endif";
+    
 	includeFile.replaceWithText(i.toString());
 }
 
@@ -1189,15 +1578,22 @@ void DspNetworkCompileExporter::createProjucerFile()
 {
 	String templateProject = String(projectDllTemplate_jucer);
 
+	ProjectTemplateHelpers::handleCompilerWarnings(templateProject);
 	
+	auto& dataObject = dynamic_cast<GlobalSettingManager*>(getMainController())->getSettingsObject();
+
+	ProjectTemplateHelpers::handleVisualStudioVersion(dataObject, templateProject);
+
 	const File jucePath = hisePath.getChildFile("JUCE/modules");
 
 	auto projectName = GET_HISE_SETTING(getMainController()->getMainSynthChain(), HiseSettings::Project::Name).toString();
 
+    auto dllprefix = cppgen::StringHelpers::makeValidCppName(projectName);
+    
 	auto dllFolder = getFolder(BackendDllManager::FolderSubType::DllLocation);
-	auto dbgFile = dllFolder.getChildFile("project_debug").withFileExtension(".dll");
-	auto rlsFile = dllFolder.getChildFile("project").withFileExtension(".dll");
-	auto ciFile = dllFolder.getChildFile("project_ci").withFileExtension(".dll");
+	auto dbgFile = dllFolder.getChildFile(dllprefix + "_debug").withFileExtension(".dll");
+	auto rlsFile = dllFolder.getChildFile(dllprefix).withFileExtension(".dll");
+	auto ciFile = dllFolder.getChildFile(dllprefix + "_ci").withFileExtension(".dll");
 
 	auto dbgName = dbgFile.getNonexistentSibling(false).getFileNameWithoutExtension().removeCharacters(" ");
 	auto rlsName = rlsFile.getNonexistentSibling(false).getFileNameWithoutExtension().removeCharacters(" ");
@@ -1210,12 +1606,31 @@ void DspNetworkCompileExporter::createProjucerFile()
     REPLACE_WILDCARD_WITH_STRING("%IPP_LIBRARY%", useIpp ? "/opt/intel/ipp/lib" : String());
 #endif
 
+#if JUCE_LINUX
+    REPLACE_WILDCARD_WITH_STRING("%USE_IPP_LINUX%", useIpp ? "USE_IPP=1" : "USE_IPP=0");
+    REPLACE_WILDCARD_WITH_STRING("%IPP_COMPILER_FLAGS%", useIpp ? "/opt/intel/ipp/lib/libippi.a  /opt/intel/ipp/lib/libipps.a /opt/intel/ipp/lib/libippvm.a /opt/intel/ipp/lib/libippcore.a" : String());
+#endif
+
 	REPLACE_WILDCARD_WITH_STRING("%DEBUG_DLL_NAME%", dbgName);
 	REPLACE_WILDCARD_WITH_STRING("%RELEASE_DLL_NAME%", rlsName);
 	REPLACE_WILDCARD_WITH_STRING("%CI_DLL_NAME%", ciName);
 	REPLACE_WILDCARD_WITH_STRING("%NAME%", projectName);
 	REPLACE_WILDCARD_WITH_STRING("%HISE_PATH%", hisePath.getFullPathName());
 	REPLACE_WILDCARD_WITH_STRING("%JUCE_PATH%", jucePath.getFullPathName());
+
+	auto includeFaust = BackendDllManager::shouldIncludeFaust(getMainController());
+	REPLACE_WILDCARD_WITH_STRING("%HISE_INCLUDE_FAUST%", includeFaust ? "enabled" : "disabled");
+
+	if (includeFaust)
+	{
+        auto faustPath = dynamic_cast<GlobalSettingManager*>(getMainController())->getSettingsObject().getFaustPath();
+		auto headerPath = faustPath.getChildFile("include");
+		REPLACE_WILDCARD_WITH_STRING("%FAUST_HEADER_PATH%", headerPath.getFullPathName());
+	}
+	else
+	{
+		REPLACE_WILDCARD_WITH_STRING("%FAUST_HEADER_PATH%", "");
+	}
 
 	auto targetFile = getFolder(BackendDllManager::FolderSubType::Binaries).getChildFile("AutogeneratedProject.jucer");
 
@@ -1273,6 +1688,17 @@ void DspNetworkCompileExporter::createMainCppFile(bool isDllMainFile)
 			b << "TempoSyncer::initTempoData();";
 
 			b.addComment("Node registrations", snex::cppgen::Base::CommentType::FillTo80Light);
+
+			for (int i = 0; i < includedThirdPartyFiles.size(); i++)
+			{
+				String def;
+
+				String nid;
+				nid << "project::" << includedThirdPartyFiles[i].getFileNameWithoutExtension();
+
+				def << "registerPolyNode<" << nid << "<1>, " << nid << "<NUM_POLYPHONIC_VOICES>>();";
+				b << def;
+			}
 
 			for (int i = 0; i < includedFiles.size(); i++)
 			{
@@ -1333,6 +1759,16 @@ void DspNetworkCompileExporter::createMainCppFile(bool isDllMainFile)
 		b.addEmptyLine();
 
 		{
+			b << "DLL_EXPORT bool isThirdPartyNode(int index)";
+			StatementBlock bk(b);
+			String def;
+			def << "return index < " << String(includedThirdPartyFiles.size()) << ";";
+			b << def;
+		}
+
+		b.addEmptyLine();
+
+		{
 			b << "DLL_EXPORT int getNumDataObjects(int nodeIndex, int dataTypeAsInt)";
 			StatementBlock bk(b);
 			b << "return f.getNumDataObjects(nodeIndex, dataTypeAsInt);";
@@ -1364,6 +1800,10 @@ void DspNetworkCompileExporter::createMainCppFile(bool isDllMainFile)
 			}
 			else
 			{
+				String def1;
+				def1 << "static const int thirdPartyOffset = " << String(includedThirdPartyFiles.size()) << ";";
+				b << def1;
+
 				String def;
 
 				def << "static const int hashIndexes[" << includedFiles.size() << "] =";
@@ -1395,7 +1835,7 @@ void DspNetworkCompileExporter::createMainCppFile(bool isDllMainFile)
 					}
 				}
 
-				b << "return hashIndexes[index];";
+				b << "return (index >= thirdPartyOffset) ? hashIndexes[index - thirdPartyOffset] : 0;";
 			}
 		}
 		{
@@ -1414,6 +1854,12 @@ void DspNetworkCompileExporter::createMainCppFile(bool isDllMainFile)
 			b << "DLL_EXPORT void clearError()";
 			StatementBlock bk(b);
 			b << "f.clearError();";
+		}
+
+		{
+			b << "DLL_EXPORT int getDllVersionCounter()";
+			StatementBlock bk(b);
+			b << "return scriptnode::dll::ProjectDll::DllUpdateCounter;";
 		}
 	}
 	else

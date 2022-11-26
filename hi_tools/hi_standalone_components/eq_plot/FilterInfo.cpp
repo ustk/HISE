@@ -116,19 +116,20 @@ void FilterInfo::zeroCoeffs()
     denominatorCoeffs [0] = 1;
 }
  
-void FilterInfo::setCoefficients(int /*filterNum*/, double /*sampleRate*/, IIRCoefficients newCoefficients)
+bool FilterInfo::setCoefficients(int /*filterNum*/, double /*sampleRate*/, IIRCoefficients newCoefficients)
 {
 	numNumeratorCoeffs = 3;
     numDenominatorCoeffs = 3;
         
     numeratorCoeffs.resize (3, 0);
     denominatorCoeffs.resize (3, 0);
+
+	coefficients = newCoefficients;
         
     zeroCoeffs();
 
 	for (int numOrder = 0; numOrder < 3; numOrder++)
     {
-		
         numeratorCoeffs [numOrder] = newCoefficients.coefficients[numOrder];
     }
         
@@ -138,6 +139,7 @@ void FilterInfo::setCoefficients(int /*filterNum*/, double /*sampleRate*/, IIRCo
     }
     
     gainValue = 1;
+	return true;
 }
 
 void FilterInfo::setFilter (double frequency, FilterType filterType)
@@ -235,6 +237,8 @@ bool FilterDataObject::Broadcaster::registerAtObject(ComplexDataUIBase* obj)
 {
 	if (auto f = dynamic_cast<FilterDataObject*>(obj))
 	{
+		SimpleReadWriteLock::ScopedWriteLock sl(f->getDataLock());
+
 		for (auto& d : f->internalData)
 		{
 			if (d.broadcaster == this)
@@ -243,7 +247,7 @@ bool FilterDataObject::Broadcaster::registerAtObject(ComplexDataUIBase* obj)
 
 		InternalData d;
 		d.broadcaster = this;
-		f->internalData.add(d);
+		f->internalData.insert(d);
 		return true;
 	}
 	
@@ -254,11 +258,13 @@ bool FilterDataObject::Broadcaster::deregisterAtObject(ComplexDataUIBase* obj)
 {
 	if (auto f = dynamic_cast<FilterDataObject*>(obj))
 	{
+		SimpleReadWriteLock::ScopedWriteLock sl(f->getDataLock());
+
 		for (int i = 0; i < f->internalData.size(); i++)
 		{
 			if (f->internalData[i].broadcaster == this)
 			{
-				f->internalData.remove(i);
+				f->internalData.removeElement(i);
 				return true;
 			}
 		}
@@ -269,8 +275,21 @@ bool FilterDataObject::Broadcaster::deregisterAtObject(ComplexDataUIBase* obj)
 	return false;
 }
 
+FilterDataObject::FilterDataObject() :
+	ComplexDataUIBase()
+{
+
+}
+
+FilterDataObject::~FilterDataObject()
+{
+	internalData.clear();
+}
+
 void FilterDataObject::setCoefficients(Broadcaster* b, IIRCoefficients newCoefficients)
 {
+	SimpleReadWriteLock::ScopedReadLock sl(getDataLock());
+
 	auto isMessageThread = MessageManager::getInstance()->isThisTheMessageThread();
 
 	bool found = false;
@@ -289,8 +308,19 @@ void FilterDataObject::setCoefficients(Broadcaster* b, IIRCoefficients newCoeffi
 		getUpdater().sendDisplayChangeMessage(sampleRate, isMessageThread ? sendNotificationSync : sendNotificationAsync, true);
 }
 
+
+juce::IIRCoefficients FilterDataObject::getCoefficients(int index) const
+{
+	SimpleReadWriteLock::ScopedReadLock sl(getDataLock());
+
+	jassert(isPositiveAndBelow(index, internalData.size()));
+	return internalData[index].coefficients;
+}
+
 juce::IIRCoefficients FilterDataObject::getCoefficientsForBroadcaster(Broadcaster* b) const
 {
+	SimpleReadWriteLock::ScopedReadLock sl(getDataLock());
+
 	for (const auto& d : internalData)
 	{
 		if (b == d.broadcaster.get())
@@ -298,6 +328,13 @@ juce::IIRCoefficients FilterDataObject::getCoefficientsForBroadcaster(Broadcaste
 	}
 
 	return {};
+}
+
+int FilterDataObject::getNumCoefficients() const
+{
+	SimpleReadWriteLock::ScopedReadLock sl(getDataLock());
+
+	return internalData.size();
 }
 
 } // namespace hise

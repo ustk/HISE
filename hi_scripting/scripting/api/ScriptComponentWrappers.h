@@ -243,7 +243,7 @@ public:
 
 		ValuePopup(ScriptCreatedComponentWrapper& p):
 			parent(p),
-			shadow({ Colours::black, 10,{ 0, 0 } })
+			shadow({ Colours::black.withAlpha(0.4f), 5,{ 0, 0 } })
 		{
 			f = GLOBAL_BOLD_FONT();
 
@@ -267,6 +267,7 @@ public:
 
 		void paint(Graphics& g) override;
 
+		Colour shadowColour;
 		Colour bgColour;
 		Colour itemColour;
 		Colour itemColour2;
@@ -281,6 +282,8 @@ public:
 		DropShadower shadow;
 	};
 
+	struct AdditionalMouseCallback;
+
 	/** Don't forget to deregister the listener here. */
 	virtual ~ScriptCreatedComponentWrapper();;
 
@@ -292,6 +295,8 @@ public:
 
 	/** Overwrite this method and update the value of the component. */
 	virtual void updateValue(var newValue) {};
+
+	static void updateFadeState(ScriptCreatedComponentWrapper& wrapper, bool shouldBeVisible, int fadeTime);
 
 	void sourceHasChanged(ComplexDataUIBase*, ComplexDataUIBase*) override;
 
@@ -318,6 +323,12 @@ public:
 	};
 
 	ScopedPointer<ValuePopup> currentPopup;
+
+	static void repaintComponent(ScriptCreatedComponentWrapper& w, bool unused)
+	{
+		if (auto c = w.getComponent())
+			c->repaint();
+	}
 
 protected:
 
@@ -372,6 +383,8 @@ protected:
 
     ScopedPointer<LookAndFeel> localLookAndFeel;
     
+	OwnedArray<AdditionalMouseCallback> mouseCallbacks;
+
 private:
 
 	bool wasFocused = false;
@@ -625,9 +638,11 @@ public:
 		void subComponentAdded(ScriptComponent* newComponent) override;
 		void subComponentRemoved(ScriptComponent* componentAboutToBeRemoved) override;
 
+		static void cursorChanged(PanelWrapper& p, ScriptingApi::Content::ScriptPanel::MouseCursorInfo newInfo);
 
 		void animationChanged() override;
 
+        void paintRoutineChanged() override;
 
 		void initPanel(ScriptingApi::Content::ScriptPanel* panel);
 
@@ -650,12 +665,21 @@ public:
 		void boundsChanged(const Rectangle<int> &newBounds) override;
 
 		JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PanelWrapper)
+		JUCE_DECLARE_WEAK_REFERENCEABLE(PanelWrapper);
 	};
 
 
-	class ViewportWrapper : public ScriptCreatedComponentWrapper
+	class ViewportWrapper : public ScriptCreatedComponentWrapper,
+							public juce::ScrollBar::Listener
 	{
 	public:
+
+		enum class Mode
+		{
+			List,
+			Table,
+			Viewport
+		};
 
 		ViewportWrapper(ScriptContentComponent* content, ScriptingApi::Content::ScriptedViewport* viewport, int index);
 		~ViewportWrapper();
@@ -664,7 +688,13 @@ public:
 		void updateComponent(int index, var newValue) override;
 		void updateValue(var newValue) override;
 
+		static void tableUpdated(ViewportWrapper& w, int index);
+
 	private:
+
+		void scrollBarMoved(ScrollBar* scrollBarThatHasMoved,
+			double newRangeStart) override;
+
 
 		void updateItems(ScriptingApi::Content::ScriptedViewport * vpc);
 		void updateColours();
@@ -706,7 +736,11 @@ public:
 			StringArray list;
 		};
 
-		bool shouldUseList = false;
+		Mode mode;
+
+		ScriptTableListModel::Ptr tableModel;
+
+		Component::SafePointer<juce::Viewport> vp;
 
 		ScopedPointer<ColumnListBoxModel> model;
 		ScopedPointer<LookAndFeel> slaf;
@@ -776,6 +810,8 @@ public:
 		void updateComponent(int index, var newValue) override;
 		void updateValue(var newValue) override;
 
+        void updateLookAndFeel();
+        
 		JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(FloatingTileWrapper)
 	};
 

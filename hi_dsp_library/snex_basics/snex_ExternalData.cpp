@@ -119,9 +119,37 @@ hise::ComplexDataUIBase* ExternalDataHolder::getComplexBaseType(ExternalData::Da
 	case ExternalData::DataType::DisplayBuffer: return getDisplayBuffer(index);
     default: return nullptr;
 	}
-
-	return nullptr;
 }
+
+
+ExternalData::ExternalData(scriptnode::data::embedded::multichannel_data& d, DataType type_):
+	dataType(DataType::AudioFile),
+	obj(d.buffer.get())
+{
+	jassert(type_ == DataType::AudioFile);
+	numSamples = d.getNumSamples();
+	numChannels = d.getNumChannels();
+	sampleRate = d.getSamplerate();
+
+	for (int i = 0; i < numChannels; i++)
+		d.channelData[i] = const_cast<float*>(d.getChannelData(i));
+
+	data = d.channelData;
+
+	auto mb = dynamic_cast<MultiChannelAudioBuffer*>(obj);
+
+	MultiChannelAudioBuffer::SampleReference::Ptr newRef = new hise::MultiChannelAudioBuffer::SampleReference();
+
+	newRef->buffer.setDataToReferTo(d.channelData, numChannels, numSamples);
+	newRef->r = Result::ok();
+	newRef->sampleRate = sampleRate;
+	newRef->loopRange = {}; // Implement this maybe?
+	
+	mb->loadFromEmbeddedData(newRef);
+}
+
+
+
 
 ExternalData::ExternalData(ComplexDataUIBase* b, int absoluteIndex) :
 	dataType(getDataTypeForClass(b)),
@@ -265,6 +293,20 @@ juce::AudioSampleBuffer ExternalData::toAudioSampleBuffer() const
 		return AudioSampleBuffer((float**)&data, 1, numSamples);
 }
 
+snex::ExternalData::DataType ExternalData::getDataTypeForId(const Identifier& id, bool plural/*=false*/)
+{
+	for (int i = 0; i < (int)DataType::numDataTypes; i++)
+	{
+		Identifier a(getDataTypeName((DataType)i, plural));
+
+		if (a == id)
+			return (DataType)i;
+	}
+
+	jassertfalse;
+	return DataType::numDataTypes;
+}
+
 snex::ExternalData::DataType ExternalData::getDataTypeForClass(ComplexDataUIBase* d)
 {
 	if (auto s = dynamic_cast<SliderPackData*>(d))
@@ -295,7 +337,12 @@ hise::ComplexDataUIBase::EditorBase* ExternalData::createEditor(ComplexDataUIBas
 	}
 	else if (auto t = dynamic_cast<hise::MultiChannelAudioBuffer*>(dataObject))
 	{
-		c = new hise::MultiChannelAudioBufferDisplay();
+		auto availableProviders = t->getAvailableXYZProviders();
+
+		if (availableProviders.size() != 1)
+			c = new hise::XYZMultiChannelAudioBufferEditor();
+		else
+			c = new hise::MultiChannelAudioBufferDisplay();
 	}
 	else if (auto t = dynamic_cast<hise::FilterDataObject*>(dataObject))
 	{

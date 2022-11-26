@@ -167,7 +167,6 @@ void VariantBuffer::addMethods()
 			if (n.numArguments == 0)
 			{
 				throw String("samplerate expected as first argument");
-				return var(0);
 			}
 
 			auto sampleRate = (double)n.arguments[0];
@@ -279,13 +278,16 @@ void VariantBuffer::addMethods()
 		{
 			int numSamples = bf->buffer.getNumSamples();
 
+			if (numSamples == 0)
+				return var(0.0f);
+
 			if (n.numArguments > 1)
-				numSamples = jmin(numSamples, (int)n.arguments[1]);
+				numSamples = jlimit(0, numSamples, (int)n.arguments[1]);
 
 			int offset = 0;
 
 			if (n.numArguments > 0)
-				offset = jmin((int)n.arguments[0], bf->buffer.getNumSamples() - numSamples);
+				offset = jlimit(0, jmax(0, bf->buffer.getNumSamples() - numSamples), (int)n.arguments[0]);
 
 			return var(bf->buffer.getMagnitude(0, offset, numSamples));
 		}

@@ -127,18 +127,14 @@ public:
 	/** Sets the value immediately and stores it asynchronously. */
 	void setValueAsync(double newValue);
 
+	/** Returns the range properties as JSON object. */
+	var getRangeObject() const;
 
+	/** Updates the parameter range from the given object. */
+	void setRangeFromObject(var propertyObject);
 
     /** Sets a range property. */
-    void setRangeProperty(String id, var newValue)
-    {
-        Identifier i(id);
-        
-        if(RangeHelpers::isRangeId(i))
-        {
-            data.setProperty(i, newValue, nullptr);
-        }
-    }
+    void setRangeProperty(String id, var newValue);
     
 	/** Stores the value synchronously and calls the callback. */
 	void setValueSync(double newValue);
@@ -209,7 +205,7 @@ class NodeBase : public ConstScriptingObject
 {
 public:
 
-	using Parameter = Parameter;
+	using Parameter = scriptnode::Parameter;
 
 	using FrameType = snex::Types::dyn<float>;
 	using MonoFrameType = snex::Types::span<float, 1>;
@@ -412,6 +408,9 @@ public:
 	/** Returns the number of parameters. */
 	int getNumParameters() const;;
 
+	/** Returns a list of child nodes if this node is a container. */
+	var getChildNodes(bool recursive);
+
 	// ============================================================================================= END NODE API
 
 	void setValueTreeProperty(const Identifier& id, const var value);
@@ -499,6 +498,7 @@ public:
 
 	void addParameter(Parameter* p);
 	void removeParameter(int index);
+	void removeParameter(const String& id);
 
 	void setParentNode(Ptr newParentNode);
 
@@ -518,6 +518,9 @@ public:
 		return {};
 	}
 
+    static bool sendResizeMessage(Component* c, bool async);
+    
+    
 	double& getCpuFlag() { return cpuUsage; }
 
 	String getCpuUsageInPercent() const;
@@ -533,10 +536,25 @@ public:
 
     int getCurrentChannelAmount() const { return lastSpecs.numChannels; };
     
+    virtual int getNumChannelsToDisplay() const { return getCurrentChannelAmount(); };
+    
 	String getDynamicBypassSource(bool forceUpdate) const;
 
 	int getCurrentBlockRate() const { return lastBlockSize; }
 
+    void setSignalPeaks(float* p, int numChannels, bool postSignal)
+    {
+		auto& s = signalPeaks[(int)postSignal];
+
+        for(int i = 0; i < numChannels; i++)
+        {
+            s[i] *= 0.5f;
+            s[i] += 0.5f * p[i];
+        }
+    }
+    
+    float getSignalPeak(int channel, bool post) const { return signalPeaks[(int)post][channel]; }
+    
 protected:
 
 	ValueTree v_data;
@@ -544,11 +562,15 @@ protected:
 
 private:
 
+    span<span<float, NUM_MAX_CHANNELS>, 2> signalPeaks;
+    
 	void updateBypassState(Identifier, var newValue)
 	{
 		auto shouldBeBypassed = (bool)newValue;
 		setBypassed((bool)newValue);
 
+        ignoreUnused(shouldBeBypassed);
+        
 		// This needs to be set in the virtual method above
 		jassert(shouldBeBypassed == bypassState);
 	}
@@ -595,6 +617,33 @@ struct DummyNodeProfiler
 	{
 		ignoreUnused(unused, unused2);
 	}
+};
+
+struct ProcessDataPeakChecker
+{
+    ProcessDataPeakChecker(NodeBase* n, ProcessDataDyn& d_);
+    ~ProcessDataPeakChecker();
+    
+	void check(bool post);
+    
+    NodeBase& p;
+    ProcessDataDyn& d;
+};
+
+#ifndef ALLOW_FRAME_SIGNAL_CHECK
+#define ALLOW_FRAME_SIGNAL_CHECK 1
+#endif
+
+struct FrameDataPeakChecker
+{
+	FrameDataPeakChecker(NodeBase* n, float* d, int s);
+
+	~FrameDataPeakChecker();
+
+	void check(bool post);
+
+	NodeBase& p;
+	dyn<float> b;
 };
 
 struct RealNodeProfiler

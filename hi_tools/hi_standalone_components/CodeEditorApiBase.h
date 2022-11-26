@@ -55,6 +55,8 @@ public:
 
 	struct Location
 	{
+		operator bool() const { return charNumber != 0 || fileName.isNotEmpty(); }
+		bool operator==(const Location& other) { return other.charNumber == charNumber && fileName == other.fileName; }
 		String fileName = String();
 		int charNumber = 0;
 	};
@@ -551,6 +553,8 @@ public:
 
 		virtual void rebuild();;
 
+        void sendClearMessage();
+        
 		virtual bool handleKeyPress(const KeyPress& k, Component* c) 
 		{
 			ignoreUnused(k, c);
@@ -654,6 +658,8 @@ public:
 
 		virtual void providerWasRebuilt() {};
 
+        virtual void providerCleared() {};
+        
 	protected:
 
 		void registerAtHolder()

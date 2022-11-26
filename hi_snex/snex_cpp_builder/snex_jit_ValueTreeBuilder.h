@@ -34,6 +34,8 @@
 
 #define BETTER_TEMPLATE_FORWARDING 1
 
+#define ENABLE_CPP_DEBUG_LOG 0
+
 namespace snex {
 namespace cppgen {
 using namespace juce;
@@ -71,6 +73,17 @@ struct ValueTreeIterator
 		return (v.getParent().getNumChildren() - 1) == getIndexInParent(v);
 	}
 
+	static bool isParent(const ValueTree& v, const ValueTree& possibleParent)
+	{
+		if (!v.isValid())
+			return false;
+
+		if (v == possibleParent)
+			return true;
+
+		return isParent(v.getParent(), possibleParent);
+	}
+
 	static int getIndexInParent(const ValueTree& v)
 	{
 		return v.getParent().indexOf(v);
@@ -86,6 +99,17 @@ struct ValueTreeIterator
 		return v;
 	}
 
+    static bool fixCppIllegalCppKeyword(String& s)
+    {
+        if(s == "switch")
+        {
+            s = "switcher";
+            return true;
+        }
+        
+        return false;
+    }
+    
 	static bool isBetween(IterationType l, IterationType u, IterationType v);
 	static bool isBackwards(IterationType t);
 	static bool isRecursive(IterationType t);
@@ -120,6 +144,8 @@ struct ValueTreeIterator
 	static NamespacedIdentifier getNodeFactoryPath(const ValueTree& nodeTree);
 
 	static ValueTree getTargetParameterTree(const ValueTree& connectionTree);
+
+	static int calculateChannelCount(const ValueTree& nodeTree, int numCurrentChannels);
 
 	static bool hasChildNodeWithProperty(const ValueTree& nodeTree, Identifier propId);
 
@@ -185,6 +211,9 @@ struct Node : public ReferenceCountedObject,
 			auto fId = NamespacedIdentifier(CustomNodeProperties::getModeNamespace(nodeTree));
 			auto cId = ValueTreeIterator::getNodeProperty(nodeTree, PropertyIds::Mode).toString().toLowerCase().replaceCharacter(' ', '_');
 
+            ValueTreeIterator::fixCppIllegalCppKeyword(cId);
+            
+            
 			UsingTemplate ud(parent, "unused", fId.getChildId(cId));
 
 			if (hasProperty(PropertyIds::TemplateArgumentIsPolyphonic))
@@ -529,19 +558,29 @@ struct ValueTreeBuilder: public Base
 
 		Result r;
 		String code;
+		std::shared_ptr<std::set<String>> faustClassIds;
 	};
     
     struct ScopedChannelSetter
     {
-        ScopedChannelSetter(ValueTreeBuilder& vtb_, int numChannels):
+        ScopedChannelSetter(ValueTreeBuilder& vtb_, int numChannels, bool allowHigherChannelCount):
           vtb(vtb_),
           prevNumChannels(vtb_.numChannelsToCompile)
         {
-            jassert(numChannels <= vtb.numChannelsToCompile);
+            jassert(numChannels <= vtb.numChannelsToCompile || allowHigherChannelCount);
+
+#if ENABLE_CPP_DEBUG_LOG
+			DBG("Setting channel count to " + String(numChannels));
+#endif
+
             vtb.numChannelsToCompile = numChannels;
         }
         ~ScopedChannelSetter()
         {
+#if ENABLE_CPP_DEBUG_LOG
+			DBG("Setting channel count back to " + String(prevNumChannels));
+#endif
+
             vtb.numChannelsToCompile = prevNumChannels;
         }
         
@@ -566,12 +605,24 @@ struct ValueTreeBuilder: public Base
 		numFormatGlueCodes
 	};
 
+	static int getRootChannelAmount(const ValueTree& v)
+	{
+		auto c = (int)v.getParent()[PropertyIds::CompileChannelAmount];
+
+		if (c == 0)
+			return 2;
+
+		return c;
+	}
+
 	ValueTreeBuilder(const ValueTree& data, Format outputFormatToUse) :
 		Base(Base::OutputType::AddTabs),
 		v(data),
 		outputFormat(Format::CppDynamicLibrary),
 		r(Result::ok()),
-        numChannelsToCompile((int)v.getParent()[PropertyIds::CompileChannelAmount])
+		rootChannelAmount(getRootChannelAmount(v)),
+		numChannelsToCompile(rootChannelAmount),
+		faustClassIds(new std::set<String>)
 	{
 		if (numChannelsToCompile == 0)
 			numChannelsToCompile = 2;
@@ -590,9 +641,12 @@ struct ValueTreeBuilder: public Base
 
 
 		if (r.wasOk())
+		{
 			br.code = getCurrentCode();
+		}
 		else
 			br.code = wrongNodeCode;
+		br.faustClassIds = faustClassIds;
 
 		return br;
 	}
@@ -604,13 +658,53 @@ struct ValueTreeBuilder: public Base
 
 	static Result cleanValueTreeIds(ValueTree& vToClean);
 
+	void addAudioFileProvider(hise::MultiChannelAudioBuffer::DataProvider* p)
+	{
+		audioFileProviders.add(p);
+	}
+
+	hise::MultiChannelAudioBuffer::SampleReference::Ptr loadAudioFile(const String& ref)
+	{
+		for (auto sr : audioFileProviders)
+		{
+			auto p = sr->loadFile(ref);
+
+			if (p != nullptr && p->r.wasOk())
+				return p;
+		}
+
+		return nullptr;
+	}
+
+	struct ExternalSample
+	{
+		String className;
+		hise::MultiChannelAudioBuffer::SampleReference::Ptr data;
+	};
+
+	void addExternalSample(const String& id, hise::MultiChannelAudioBuffer::SampleReference::Ptr s)
+	{
+		externalReferences.add({ id, s });
+	}
+
+	using SampleList = Array<ExternalSample>;
+
+	SampleList getExternalSampleList() const { return externalReferences; };
+
 private:
 
+	SampleList externalReferences;
+
+	ReferenceCountedArray<hise::MultiChannelAudioBuffer::DataProvider> audioFileProviders;
+
 	ScopedPointer<CodeProvider> codeProvider;
+
+	std::shared_ptr<std::set<String>> faustClassIds;
 
 	void setHeaderForFormat();
 
 	String getCurrentCode() const { return toString(); }
+
 
 	struct Error
 	{
@@ -794,6 +888,8 @@ private:
 
 	Node::Ptr getNode(const NamespacedIdentifier& id, bool allowZeroMatch) const;
 
+	Node::Ptr parseFaustNode(Node::Ptr u);
+
 	Node::Ptr parseRoutingNode(Node::Ptr u);
 
 	Node::Ptr parseComplexDataNode(Node::Ptr u, bool flushNode=true);
@@ -848,11 +944,15 @@ private:
 	PoolBase<PooledExpression> pooledExpressions;
 	PoolBase<PooledCableType> pooledCables;
 
+	StringArray definedSnexClasses;
+
 	NamespacedIdentifier getNodeId(const ValueTree& n);
 	NamespacedIdentifier getNodeVariable(const ValueTree& n);
 
 	ValueTree v;
+	const int rootChannelAmount;
     int numChannelsToCompile;
+	
 };
 
 

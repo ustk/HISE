@@ -102,6 +102,7 @@ struct BackendDllManager : public ReferenceCountedObject,
 		DllLocation,
 		ProjucerSourceFolder,
 		Layouts,
+		ThirdParty,
 		numFolderSubTypes
 	};
 
@@ -113,6 +114,8 @@ struct BackendDllManager : public ReferenceCountedObject,
 
 	static Array<File> getNetworkFiles(MainController* mc, bool includeNoCompilers = true);
 
+	static Array<File> getThirdPartyFiles(MainController* mc, bool getSrcDirectory);
+
 	int getDllHash(int index);
 
 	static int getHashForNetworkFile(MainController* mc, const String& id);
@@ -121,6 +124,9 @@ struct BackendDllManager : public ReferenceCountedObject,
 	bool loadDll(bool forceUnload);
 
 	var getStatistics();
+
+	/** This function will check whether the project that is about to be compiled requires the faust modules to be enabled. */
+	static bool shouldIncludeFaust(MainController* mc);
 
 	static bool allowCompilation(const File& networkFile);
 	static bool allowPolyphonic(const File& networkFile);

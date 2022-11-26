@@ -509,11 +509,6 @@ public:
 		const Identifier stateId = getEditorStateForIndex(state);
 
 		editorStateValueSet.set(stateId, isOn);
-
-        if(notifyView)
-		{
-			getMainController()->setCurrentViewChanged();
-		}
 	};
 
 	const var getEditorState(Identifier editorStateId) const
@@ -526,11 +521,6 @@ public:
 		jassert(state.isValid());
 
 		editorStateValueSet.set(state, stateValue);
-
-		if(notifyView)
-		{
-			getMainController()->setCurrentViewChanged();
-		}
 	}
 
 	Identifier getEditorStateForIndex(int index) const
@@ -872,6 +862,8 @@ public:
 			getChildProcessor(i)->setParentProcessor(this);
 	}
 
+	Array<Identifier> parameterNames;
+
 protected:
 
 	/** Overwrite this method if you want to supply a custom symbol for the Processor. 
@@ -918,7 +910,7 @@ protected:
 	
 	bool consoleEnabled;
 
-	Array<Identifier> parameterNames;
+	
 	StringArray parameterDescriptions;
 	Array<Identifier> editorStateIdentifiers;
 
@@ -976,6 +968,13 @@ private:
 class ProcessorHelpers
 {
 public:
+
+	struct ObjectWithProcessor
+	{
+		virtual ~ObjectWithProcessor() {};
+
+		virtual Processor* getProcessor() = 0;
+	};
 
 	/** Small helper function that returns the parent processor of the given child processor. 
 	*
@@ -1088,7 +1087,17 @@ public:
 		static ValueTree getValueTreeFromBase64String(const String& base64State);
 	};
 
-
+    static void connectTableEditor(TableEditor& t, Processor* p, int index=0)
+    {
+        if(auto eh = dynamic_cast<snex::ExternalDataHolder*>(p))
+        {
+            t.setEditedTable(eh->getTable(index));
+        }
+        else
+        {
+            jassertfalse;
+        }
+    }
 	
 
 	/** Returns a list of all processors that can be connected to a parameter. */

@@ -153,7 +153,7 @@ public:
 
 	float getValue(int index) const;
 
-	void setFromFloatArray(const Array<float> &valueArray);
+	void setFromFloatArray(const Array<float> &valueArray, NotificationType n = NotificationType::sendNotificationAsync);
 
 	void writeToFloatArray(Array<float> &valueArray) const;
 
@@ -191,6 +191,8 @@ public:
 	{
 		defaultValue = (float)newDefaultValue;
 	}
+    
+    float getDefaultValue() const { return defaultValue; }
 
 	void setNewUndoAction() const;
 
@@ -213,6 +215,42 @@ public:
 		internalUpdater.sendContentChangeMessage(notify, index);
 	}
 
+    void setUsePreallocatedLength(int numMaxSliders)
+    {
+        if(numMaxSliders != numPreallocated)
+        {
+            numPreallocated = numMaxSliders;
+            
+            if(numPreallocated > 0)
+            {
+                preallocatedData.calloc(numPreallocated);
+                
+                int numToCopy = jmin(numMaxSliders, getNumSliders());
+                
+                FloatVectorOperations::copy(preallocatedData.get(), dataBuffer->buffer.getReadPointer(0), numToCopy);
+                
+                {
+                    SimpleReadWriteLock::ScopedWriteLock sl(getDataLock());
+                    dataBuffer->referToData(preallocatedData.get(), numToCopy);
+                }
+                
+                internalUpdater.sendContentRedirectMessage();
+            }
+            else
+            {
+                auto newBuffer = new VariantBuffer(getNumSliders());
+                
+                FloatVectorOperations::copy(newBuffer->buffer.getWritePointer(0), dataBuffer->buffer.getReadPointer(0), getNumSliders());
+                
+                swapBuffer(newBuffer, sendNotification);
+                
+                preallocatedData.free();
+            }
+            
+            
+        }
+    }
+    
 private:
 
 	void swapBuffer(VariantBuffer::Ptr otherBuffer, NotificationType n);
@@ -265,6 +303,9 @@ private:
 	
 	Range<double> sliderRange;
 
+    HeapBlock<float> preallocatedData;
+    int numPreallocated = 0;
+    
 	double stepSize;
 
 	float defaultValue;
@@ -295,8 +336,9 @@ public:
 		virtual ~LookAndFeelMethods() {};
 
 		virtual void drawSliderPackBackground(Graphics& g, SliderPack& s);
-
 		virtual void drawSliderPackFlashOverlay(Graphics& g, SliderPack& s, int sliderIndex, Rectangle<int> sliderBounds, float intensity);
+		virtual void drawSliderPackRightClickLine(Graphics& g, SliderPack& s, Line<float> lineToDraw);
+		virtual void drawSliderPackTextPopup(Graphics& g, SliderPack& s, const String& textToDraw);
 	};
 
 	struct SliderLookAndFeel : public BiPolarSliderLookAndFeel,
@@ -345,6 +387,9 @@ public:
 	/** Sets the value of one of the sliders. If the index is bigger than the slider amount, it will do nothing. */
 	void setValue(int sliderIndex, double newValue);
 
+	int getCurrentlyDraggedSliderIndex() const { return currentlyDraggedSlider; }
+	double getCurrentlyDraggedSliderValue() const { return currentlyDraggedSliderValue; }
+
 	void setSliderPackData(SliderPackData* newData);
 
 	void setComplexDataUIBase(ComplexDataUIBase* newData) override
@@ -352,6 +397,8 @@ public:
 		if (auto sp = dynamic_cast<SliderPackData*>(newData))
 			setSliderPackData(sp);
 	}
+
+	void updateSliderRange();
 
 	void updateSliders();
 
@@ -431,6 +478,11 @@ public:
 			d->removeListener(listener);
 	}
 
+	void setCallbackOnMouseUp(bool shouldFireOnMouseUp)
+	{
+		callbackOnMouseUp = shouldFireOnMouseUp;
+	}
+
 private:
 
 	int lastDragIndex = -1;
@@ -447,8 +499,6 @@ private:
 	ReferenceCountedObjectPtr<SliderPackData> dummyData;
 	String suffix;
 
-	double defaultValue;
-
 	Array<float> displayAlphas;
 
     Array<var> sliderWidths;
@@ -456,6 +506,8 @@ private:
 	Line<float> rightClickLine;
 
 	bool currentlyDragged;
+
+	bool callbackOnMouseUp = false;
 
 	int currentlyDraggedSlider;
 

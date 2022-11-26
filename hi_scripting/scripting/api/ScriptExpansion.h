@@ -68,6 +68,9 @@ public:
 
 	// =================================================================================== API Methods
 
+	/** Enables Engine.undo() to restore the previous user preset (default is disabled). */
+	void setUseUndoForPresetLoading(bool shouldUseUndoManager);
+
 	/** Sets a callback that will be executed synchronously before the preset was loaded*/
 	void setPreCallback(var presetPreCallback);
 
@@ -84,7 +87,31 @@ public:
 	void setUseCustomUserPresetModel(var loadCallback, var saveCallback, bool usePersistentObject);
 
 	/** Enables host / MIDI automation with the custom user preset model. */
-	void setCustomAutomation(var automationData, var updateCallback);
+	void setCustomAutomation(var automationData);
+
+	/** Attaches a callback to automation changes. Use empty string to attach to all callbacks. */
+	void attachAutomationCallback(String automationId, var updateCallback, bool isSynchronous);
+
+	/** Clears all attached callbacks. */
+	void clearAttachedCallbacks();
+
+	/** Updates the given automation values and optionally sends out a message. */
+	void updateAutomationValues(var data, bool sendMessage, bool useUndoManager);
+
+	/** Creates an object containing the values for every automation ID. */
+	var createObjectForAutomationValues();
+
+	/** Creates an object containing all values of components with the `saveInPreset` flag. */
+	var createObjectForSaveInPresetComponents();
+
+	/** Restores all values of components with the `saveInPreset` flag. */
+	void updateSaveInPresetComponents(var obj);
+
+	/** Restores the values for all UI elements that are connected to a processor with the `processorID` / `parameterId` properties. */
+	void updateConnectedComponentsFromModuleState();
+	
+	/** Runs a few tests that catches data persistency issues. */
+	void runTest();
 
 	// ===============================================================================================
 
@@ -101,12 +128,17 @@ public:
 
 	}
 
+	
+
 	void loadCustomUserPreset(const var& dataObject) override
 	{
 		if (customLoadCallback)
 		{
 			var args = dataObject;
 			auto ok = customLoadCallback.callSync(&args, 1, nullptr);
+
+			if (!ok.wasOk())
+				debugError(getMainController()->getMainSynthChain(), ok.getErrorMessage());
 		}
 	}
 
@@ -118,16 +150,41 @@ public:
 			var args = presetName;
 			auto ok = customSaveCallback.callSync(&args, 1, &rv);
 
+			if (!ok.wasOk())
+				debugError(getMainController()->getMainSynthChain(), ok.getErrorMessage());
+
 			return rv;
 		}
 
 		return {};
 	}
 	
+	
 
 private:
 
-	
+	struct AttachedCallback: public ReferenceCountedObject
+	{
+		AttachedCallback(ScriptUserPresetHandler* parent, MainController::UserPresetHandler::CustomAutomationData::Ptr cData, var f, bool isSynchronous);
+
+		~AttachedCallback();
+
+		String id;
+		WeakCallbackHolder customUpdateCallback;
+		WeakCallbackHolder customAsyncUpdateCallback;
+
+		static void onCallbackSync(AttachedCallback& c, var* args);
+
+		static void onCallbackAsync(AttachedCallback& c, int index, float newValue);
+
+		MainController::UserPresetHandler::CustomAutomationData::Ptr cData;
+
+		JUCE_DECLARE_WEAK_REFERENCEABLE(AttachedCallback);
+	};
+
+public:
+
+private:
 
 	bool enablePreprocessing = false;
 	bool unpackComplexData = false;
@@ -136,7 +193,8 @@ private:
 
 	WeakCallbackHolder customLoadCallback;
 	WeakCallbackHolder customSaveCallback;
-	WeakCallbackHolder customUpdateCallback;
+	
+	ReferenceCountedArray<AttachedCallback> attachedCallbacks;
 
 	File currentlyLoadedFile;
 	struct Wrapper;
@@ -528,8 +586,14 @@ public:
 	WeakReference<Expansion> e;
 };
 
+struct UnlockerHandler
+{
+	virtual ~UnlockerHandler() {};
+	virtual juce::OnlineUnlockStatus* getUnlockerObject() = 0;
+};
 
 struct ScriptUnlocker : public juce::OnlineUnlockStatus,
+					    public UnlockerHandler,
 					    public ControlledObject
 {
 	ScriptUnlocker(MainController* mc):
@@ -551,12 +615,21 @@ struct ScriptUnlocker : public juce::OnlineUnlockStatus,
 		/** Checks if the registration went OK. */
 		var isUnlocked() const;
 
+		/** Checks if the unlocker's license system has an expiration date. */
+		var canExpire() const;
+
+		/** If the unlocker has an expiration date, it will check it against the RSA encoded time string from the server. */
+		var checkExpirationData(const String& encodedTimeString);
+
 		/** Sets a function that performs a product name check and expects to return true or false for a match. */
 		void setProductCheckFunction(var f);
 
 		/** This checks if there is a key file and applies it.  */
 		var loadKeyFile();
 
+        /** Checks whether the key file exists. */
+        bool keyFileExists() const;
+        
 		/** Writes the key data to the location. */
 		var writeKeyFile(const String& keyData);
 
@@ -575,6 +648,8 @@ struct ScriptUnlocker : public juce::OnlineUnlockStatus,
 
 		JUCE_DECLARE_WEAK_REFERENCEABLE(RefObject);
 	};
+
+	juce::OnlineUnlockStatus* getUnlockerObject() override { return this; }
 
 	String getProductID() override;
 	bool doesProductIDMatch(const String& returnedIDFromServer) override;

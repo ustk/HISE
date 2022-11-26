@@ -47,39 +47,87 @@ BackendHostFactory::BackendHostFactory(DspNetwork* n, ProjectDll::Ptr dll) :
 	dllFactory(dll)
 {
 	auto networks = BackendDllManager::getNetworkFiles(n->getScriptProcessor()->getMainController_());
-	auto numNodes = networks.size();
+	auto numNetworks = networks.size();
 
-	for (int i = 0; i < numNodes; i++)
+	int numNodesInDll = dllFactory.getNumNodes();
+
+	int thirdPartyOffset = 0;
+
+	auto numNodesToCreate = jmax(numNetworks, numNodesInDll);
+
+	for (int i = 0; i < numNodesToCreate; i++)
 	{
-		auto f = networks[i];
-		NodeFactory::Item item;
-		item.id = f.getFileNameWithoutExtension();
-		item.cb = [this, i, f](DspNetwork* p, ValueTree v)
+		auto isThirdPartyNode = dllFactory.isThirdPartyNode(i);
+
+		if (isThirdPartyNode)
 		{
-			auto nodeId = f.getFileNameWithoutExtension();
-			auto networkFile = f;
+			thirdPartyOffset = i + 1;
 
-			if (networkFile.existsAsFile())
+			NodeFactory::Item item;
+			item.id = dllFactory.getId(i);
+
+			dll::FactoryBase* f = &dllFactory;
+			
+			item.cb = [this, i, f](DspNetwork* p, ValueTree v)
 			{
-				if (auto xml = XmlDocument::parse(networkFile.loadFileAsString()))
+				auto isModNode = f->getWrapperType(i) == 1;
+
+				NodeBase* n;
+
+				if (isModNode)
 				{
-					auto nv = ValueTree::fromXml(*xml);
-
-					auto useMod = cppgen::ValueTreeIterator::hasChildNodeWithProperty(nv, PropertyIds::IsPublicMod);
-
-					if (useMod)
-						return HostHelpers::initNodeWithNetwork<InterpretedModNode>(p, v, nv, useMod);
-					else
-						return HostHelpers::initNodeWithNetwork<InterpretedNode>(p, v, nv, useMod);
+					auto mn = new InterpretedModNode(p, v);
+					mn->initFromDll(f, i, true);
+					n = mn;
 				}
-			}
-            
-            jassertfalse;
-            NodeBase* n = nullptr;
-            return n;
-		};
+				else
+				{
+					auto in = new InterpretedNode(p, v);
+					in->initFromDll(f, i, false);
+					n = in;
+				}
+				
+				return n;
+			};
 
-		monoNodes.add(item);
+			monoNodes.add(item);
+			
+		}
+		else
+		{
+			auto networkIndex = i - thirdPartyOffset;
+
+			auto f = networks[networkIndex];
+			NodeFactory::Item item;
+			item.id = f.getFileNameWithoutExtension();
+			item.cb = [this, i, f](DspNetwork* p, ValueTree v)
+			{
+				auto nodeId = f.getFileNameWithoutExtension();
+				auto networkFile = f;
+
+				if (networkFile.existsAsFile())
+				{
+					if (auto xml = XmlDocument::parse(networkFile.loadFileAsString()))
+					{
+						auto nv = ValueTree::fromXml(*xml);
+
+						auto useMod = cppgen::ValueTreeIterator::hasChildNodeWithProperty(nv, PropertyIds::IsPublicMod);
+
+						if (useMod)
+							return HostHelpers::initNodeWithNetwork<InterpretedModNode>(p, v, nv, useMod);
+						else
+							return HostHelpers::initNodeWithNetwork<InterpretedNode>(p, v, nv, useMod);
+					}
+				}
+
+				jassertfalse;
+				NodeBase* n = nullptr;
+				return n;
+			};
+
+			monoNodes.add(item);
+		}
+		
 	}
 }
 
@@ -93,6 +141,9 @@ using namespace juce;
 
 juce::Array<juce::File> BackendDllManager::getNetworkFiles(MainController* mc, bool includeNoCompilers)
 {
+	if (!mc->getCurrentFileHandler().getRootFolder().isDirectory())
+		return {};
+
 	auto networkDirectory = getSubFolder(mc, FolderSubType::Networks);
 
 	auto files = networkDirectory.findChildFiles(File::findFiles, false, "*.xml");
@@ -113,6 +164,36 @@ juce::Array<juce::File> BackendDllManager::getNetworkFiles(MainController* mc, b
 	}
 
 	return files;
+}
+
+Array<juce::File> BackendDllManager::getThirdPartyFiles(MainController* mc, bool getSrcDirectory)
+{
+	auto thirdPartyFolder = getSubFolder(mc, FolderSubType::ThirdParty);
+
+	Array<File> fileList;
+
+	if (getSrcDirectory)
+	{
+		auto srcFolder = thirdPartyFolder.getChildFile("src");
+
+		if (srcFolder.isDirectory())
+			fileList.add(srcFolder);
+	}
+	else
+	{
+		auto thirdPartyFiles = thirdPartyFolder.findChildFiles(File::findFilesAndDirectories, false);
+
+		for (auto f : thirdPartyFiles)
+		{
+			if (f.isHidden())
+				continue;
+
+			if (f.getFileExtension() == ".h")
+				fileList.add(f);
+		}
+	}
+		
+	return fileList;
 }
 
 int BackendDllManager::getDllHash(int index)
@@ -171,6 +252,9 @@ bool BackendDllManager::unloadDll()
 
 bool BackendDllManager::loadDll(bool forceUnload)
 {
+	if (!getMainController()->getCurrentFileHandler().getRootFolder().isDirectory())
+		return false;
+
 	if (forceUnload)
 		unloadDll();
 
@@ -222,6 +306,17 @@ juce::var BackendDllManager::getStatistics()
 	}
 
 	return var(obj.get());
+}
+
+bool BackendDllManager::shouldIncludeFaust(MainController* mc)
+{
+#if !HISE_INCLUDE_FAUST
+	return false;
+#else
+	auto hasFaustFiles = getSubFolder(mc, FolderSubType::CodeLibrary).getChildFile("faust").getNumberOfChildFiles(File::findFiles) != 0;
+	
+	return hasFaustFiles;
+#endif
 }
 
 bool BackendDllManager::allowCompilation(const File& networkFile)
@@ -283,6 +378,7 @@ juce::File BackendDllManager::getSubFolder(const MainController* mc, FolderSubTy
 	case FolderSubType::CustomNodes:			return createIfNotDirectory(f.getChildFile("CustomNodes"));
 	case FolderSubType::AdditionalCode:			return createIfNotDirectory(f.getChildFile("AdditionalCode"));
 	case FolderSubType::CodeLibrary:			return createIfNotDirectory(f.getChildFile("CodeLibrary"));
+	case FolderSubType::ThirdParty:				return createIfNotDirectory(f.getChildFile("ThirdParty"));
 	case FolderSubType::DllLocation:
 #if JUCE_WINDOWS
 		return createIfNotDirectory(f.getChildFile("Binaries").getChildFile("dll").getChildFile("Dynamic Library"));
@@ -292,11 +388,8 @@ juce::File BackendDllManager::getSubFolder(const MainController* mc, FolderSubTy
 	case FolderSubType::Binaries:				return createIfNotDirectory(f.getChildFile("Binaries"));
 	case FolderSubType::Layouts:				return createIfNotDirectory(f.getChildFile("Layouts"));
 	case FolderSubType::ProjucerSourceFolder:	return createIfNotDirectory(f.getChildFile("Binaries").getChildFile("Source"));
-    default: return {};
+	default: jassertfalse; return {};
 	}
-
-	jassertfalse;
-	return {};
 }
 
 }

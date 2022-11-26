@@ -42,6 +42,8 @@ class MouseCallbackComponent : public Component,
 {
 	// ================================================================================================================
 
+public:
+
 	enum EnterState
 	{
 		Nothing = 0,
@@ -64,8 +66,6 @@ class MouseCallbackComponent : public Component,
 		FileDrop,
 		Nothing
 	};
-
-public:
 
 	enum class CallbackLevel
 	{
@@ -147,6 +147,8 @@ public:
 
 	void setPopupMenuItems(const StringArray &newItemList);
 
+	static PopupMenu parseFromStringArray(const StringArray& itemList, Array<int> activeIndexes, LookAndFeel* laf);
+
 	void setActivePopupItem(int menuId)
 	{
 		activePopupId = menuId;
@@ -161,6 +163,8 @@ public:
 	void addMouseCallbackListener(Listener *l);
 	void removeCallbackListener(Listener *l);
 	void removeAllCallbackListeners();
+
+	static var getMouseCallbackObject(Component* c, const MouseEvent& e, CallbackLevel level, Action action, EnterState state);
 
 	void mouseDown(const MouseEvent& event) override;
 
@@ -295,7 +299,24 @@ struct DrawActions
 		JUCE_DECLARE_WEAK_REFERENCEABLE(ActionBase);
 	};
 
-	
+	struct MarkdownAction: public ActionBase
+	{
+		MarkdownAction() :
+			renderer("")
+		{};
+
+		using Ptr = ReferenceCountedObjectPtr<MarkdownAction>;
+
+		void perform(Graphics& g) override
+		{
+			ScopedLock sl(lock);
+			renderer.draw(g, area);
+		}
+
+		CriticalSection lock;
+		MarkdownRenderer renderer;
+		Rectangle<float> area;
+	};
 
 	class ActionLayer : public ActionBase
 	{
@@ -400,9 +421,62 @@ struct DrawActions
 		void perform(Graphics& g) override;
 
 		float alpha;
-		ReferenceCountedArray<ActionBase> actions;
+		
 		Image blendSource;
 		gin::BlendMode blendMode;
+	};
+
+	struct NoiseMapManager
+	{
+		struct NoiseMap
+		{
+			NoiseMap(Rectangle<int> a, bool monochrom_);;
+
+			const int width;
+			const int height;
+			Image img;
+			const bool monochrom;
+		};
+
+		void drawNoiseMap(Graphics& g, Rectangle<int> area, float alpha, bool monochrom, float scale)
+		{
+			auto originalArea = area;
+
+			if(scale != 1.0f)
+				area = area.transformed(AffineTransform::scale(scale));
+
+			const auto& m = getNoiseMap(area, monochrom);
+
+			g.setColour(Colours::black.withAlpha(alpha));
+
+			if (scale != 1.0f)
+				g.drawImageWithin(m.img, originalArea.getX(), originalArea.getY(), originalArea.getWidth(), originalArea.getHeight(), RectanglePlacement::stretchToFit);
+			else
+				g.drawImageAt(m.img, area.getX(), area.getY());
+		}
+
+	private:
+
+		NoiseMap& getNoiseMap(Rectangle<int> area, bool monochrom)
+		{
+			for (auto m : maps)
+			{
+
+				if (area.getWidth() == m->width &&
+					area.getHeight() == m->height &&
+					monochrom == m->monochrom)
+				{
+					return *m;
+				}
+			}
+
+			maps.add(new NoiseMap(area, monochrom));
+
+			return *maps.getLast();
+		}
+
+		SimpleReadWriteLock lock;
+		OwnedArray<NoiseMap> maps;
 	};
 
 	struct Handler: private AsyncUpdater
@@ -462,6 +536,11 @@ struct DrawActions
 			JUCE_DECLARE_WEAK_REFERENCEABLE(Listener);
 		};
 
+        ~Handler()
+        {
+            cancelPendingUpdate();
+        }
+        
 		void beginDrawing()
 		{
 			currentActions.clear();
@@ -533,7 +612,11 @@ struct DrawActions
 
 		bool recursion = false;
 
+		NoiseMapManager* getNoiseMapManager() { return &noiseManager.getObject(); }
+
 	private:
+
+		SharedResourcePointer<NoiseMapManager> noiseManager;
 
 		Rectangle<int> globalBounds;
 		Rectangle<int> topLevelBounds;
@@ -596,13 +679,13 @@ public:
 
 	void registerToTopLevelComponent()
 	{
-		return;
-
+#if 0
 		if (srs == nullptr)
 		{
 			if (auto tc = findParentComponentOfClass<TopLevelWindowWithOptionalOpenGL>())
 				srs = new TopLevelWindowWithOptionalOpenGL::ScopedRegisterState(*tc, this);
 		}
+#endif
 	}
 
 	void resized() override

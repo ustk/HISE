@@ -72,7 +72,7 @@ struct dynamic_base: public ReferenceCountedObject
 		return lastValue; 
 	}
 
-	InvertableParameterRange getRange() const { return range; }
+	virtual InvertableParameterRange getRange() const { return range; }
 
 	virtual void updateRange(const ValueTree& v)
 	{
@@ -109,10 +109,28 @@ struct dynamic_base_holder: public dynamic_base
 			base->call(v);
 	}
 
+	virtual InvertableParameterRange getRange() const final override
+	{
+		if (base != nullptr)
+			return base->getRange();
+
+		return {};
+	}
+
 	virtual void updateRange(const ValueTree& v) override
 	{
-		// Do nothing here because the holder is not supposed to 
-		// change the range?
+        if(!allowForwardToParameter)
+        {
+            // If we do not allow forwarding of parameters
+            // we need to at least forward the range call
+            if(base != nullptr)
+                base->updateRange(v);
+        }
+        else
+        {
+            // Do nothing here because the holder is not supposed to
+            // change the range.
+        }
 	}
 
 	virtual double getDisplayValue() const
@@ -123,9 +141,25 @@ struct dynamic_base_holder: public dynamic_base
 		return dynamic_base::getDisplayValue();
 	}
 
+    /** If this parameter is assigned to another dynamic_base_holder, it will "bypass" this
+        parameter and directly connect the other holder to this target. If you don't want that,
+        call this function with `false`.
+    */
+    void setAllowForwardToParameter(bool forwardParameter)
+    {
+        allowForwardToParameter = forwardParameter;
+    }
+    
 	virtual void setParameter(NodeBase* n, dynamic_base::Ptr b)
 	{
 		dynamic_base::Ptr old = base;
+
+		if (auto s = dynamic_cast<dynamic_base_holder*>(b.get()))
+        {
+            if(s->allowForwardToParameter)
+                b = s->base;
+        }
+			
 
 		auto oldValue = getDisplayValue();
 
@@ -144,28 +178,46 @@ struct dynamic_base_holder: public dynamic_base
 		return true;
 	}
 
-	dynamic_base::Ptr base;
+    dynamic_base::Ptr base;
 	
 protected:
 
 	mutable SimpleReadWriteLock connectionLock;
+    
+private:
+    
+    bool allowForwardToParameter = true;
 };
 
 
 
 template <bool ScaleInput> struct dynamic_chain : public dynamic_base
 {
+	static constexpr int NumMaxSlots = 32;
+
 	using Ptr = ReferenceCountedObjectPtr<dynamic_chain>;
 
 	dynamic_chain() :
 		dynamic_base()
-	{};
+	{
+		for (int i = 0; i < NumMaxSlots; i++)
+			unscaleValue[i] = false;
+	};
 
 	bool isEmpty() const { return targets.isEmpty(); }
 
-	void addParameter(dynamic_base::Ptr p)
+	void addParameter(dynamic_base::Ptr p, bool isUnscaled)
 	{
-		targets.add(p);
+		jassert(p != nullptr);
+		
+		if (p != nullptr)
+		{
+			jassert(targets.size() < NumMaxSlots);
+
+			unscaleValue[targets.size()] = isUnscaled;
+			targets.add(p);
+			
+		}
 	}
 
 	void call(double v)
@@ -173,14 +225,21 @@ template <bool ScaleInput> struct dynamic_chain : public dynamic_base
 		setDisplayValue(v);
 		auto nv = ScaleInput ? getRange().convertTo0to1(v, true) : v;
 
+		int index = 0;
+
 		for (auto& t : targets)
 		{
+			auto isUnscaled = (double)unscaleValue[index++];
 			auto tv = ScaleInput ? t->getRange().convertFrom0to1(nv, true) : v;
-			t->call(tv);
+			auto valueToSend = isUnscaled * v + (1.0 - isUnscaled) * tv;
+
+			t->call(valueToSend);
 		}
 	}
 
 	dynamic_base::List targets;
+	bool unscaleValue[NumMaxSlots];
+	
 };
 
 

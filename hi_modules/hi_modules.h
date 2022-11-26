@@ -56,6 +56,11 @@ END_JUCE_MODULE_DECLARATION
 #include "AppConfig.h"
 #include "../hi_scripting/hi_scripting.h"
 
+/** Defines the number of modulation slots to use in the hardcoded master FX. */
+#ifndef NUM_HARDCODED_FX_MODS
+#define NUM_HARDCODED_FX_MODS 0
+#endif
+
 #include "synthesisers/synths/PolyBlep.h"
 
 
@@ -120,12 +125,7 @@ END_JUCE_MODULE_DECLARATION
 *	A list of all available HISE MIDI processors.
 */
 
-#include "midi_processor/mps/MidiDelay.h"
 #include "midi_processor/mps/Transposer.h"
-#include "midi_processor/mps/SampleRaster.h"
-#include "midi_processor/mps/RoundRobin.h"
-
-
 
 #if USE_BACKEND
 
@@ -154,12 +154,11 @@ END_JUCE_MODULE_DECLARATION
 #include "effects/fx/GainEffect.h"
 #include "effects/fx/Chorus.h"
 #include "effects/fx/Phaser.h"
-#include "effects/convolution/Convolution.h"
+#include "effects/fx/Convolution.h"
 #include "effects/mda/mdaLimiter.h"
 #include "effects/mda/mdaDegrade.h"
 #include "effects/fx/Dynamics.h"
 #include "effects/fx/Saturator.h"
-#include "effects/fx/AudioProcessorWrapper.h"
 #include "effects/fx/Analyser.h"
 #include "effects/fx/ShapeFX.h"
 #include "effects/fx/SlotFX.h"
@@ -189,10 +188,6 @@ END_JUCE_MODULE_DECLARATION
 #include "effects/editors/AnalyserEditor.h"
 
 #endif
-
-#include "effects/editors/AudioProcessorEditorWrapper.h"
-
-#include "effects/fx/WrappedAudioProcessors/WrappedAudioProcessors.h"
 
 
 /** @defgroup synthTypes HISE Sound Generators
@@ -245,5 +240,6 @@ END_JUCE_MODULE_DECLARATION
 
 #include "nodes/MetaNodes.h"
 #include "nodes/snex_library/snex_NodeLibrary.h"
+
 
 #endif   // HI_MODULES_INCLUDED

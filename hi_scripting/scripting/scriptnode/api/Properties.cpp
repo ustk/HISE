@@ -716,19 +716,9 @@ juce::PropertyComponent* PropertyHelpers::createPropertyComponent(ProcessorWithS
 	if (id == MinValue || id == MaxValue)
 		return new SliderWithLimit(d, id, um);
 
-	if (id == SoulPatch)
-	{
-		PoolReference ref(s->getMainController_(), value.toString(), FileHandlerBase::AdditionalSourceCode);
-		
-		auto file = juce::File();
-		if (ref.isValid())
-			file = ref.getFile();
-
-		return new FileNameValuePropertyComponent(id.toString(), file, File::findDirectories, value);
-	}
-
 	if (propId == SplitSignal ||
 		propId == AllowCompilation ||
+		propId == HasTail ||
 		propId == AllowPolyphonic)
 		return new ToggleButtonPropertyComponent(d, id, um);
     

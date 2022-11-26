@@ -148,7 +148,8 @@ public:
 
 	void setId(Identifier newIdentifier)
     {
-        sampleMapId = newIdentifier.toString();
+        sampleMapId = newIdentifier.toString().replaceCharacter('\\', '/');
+
 		data.setProperty("ID", sampleMapId.toString(), nullptr);
     }
     
@@ -527,6 +528,11 @@ public:
 		return false;
 	}
     
+	void setSilentMode(bool shouldShowMessage)
+	{
+		silentMode = shouldShowMessage;
+	}
+
 protected:
     
 	void setError(const String& errorMessage)
@@ -540,6 +546,8 @@ protected:
 
 private:
 
+	bool silentMode = false;
+
 	Array<int> splitIndexes;
 
 	AudioFormatWriter* createWriter(hlac::HiseLosslessAudioFormat& hlaf, const File& f, bool isMono);
@@ -547,7 +555,7 @@ private:
 	/** The max monolith size is 2GB - 60MB (to guarantee to stay below 2GB for FAT32. */
 	//constexpr static int maxMonolithSize = 2084569088;
 
-	uint32 getNumBytesForSplitSize() const;
+	int64 getNumBytesForSplitSize() const;
 
 	void checkSanity();
 
@@ -557,7 +565,7 @@ private:
 	void writeFiles(int channelIndex, bool overwriteExistingData);
 
 	/** Checks whether the monolith needs to be split up. */
-	bool shouldSplit(int channelIndex, int numBytesWritten, int sampleIndex) const;
+	bool shouldSplit(int channelIndex, int64 numBytesWritten, int sampleIndex) const;
 
 	void updateSampleMap();
 

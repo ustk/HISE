@@ -37,15 +37,12 @@ using namespace hise;
 
 namespace ScriptnodeIcons
 {
-	static const unsigned char zoomFit[] = { 110,109,0,0,0,0,27,95,166,67,108,172,92,218,66,168,214,165,67,108,176,114,136,63,223,143,95,67,108,0,0,0,0,27,95,166,67,99,109,23,57,182,67,27,95,166,67,108,215,67,127,67,168,214,165,67,108,164,176,181,67,223,143,95,67,108,23,57,182,67,27,95,166,67,99,
-109,188,212,138,67,29,154,136,67,108,35,27,109,67,162,165,104,67,98,213,56,84,67,225,186,122,67,160,250,51,67,113,125,129,67,211,13,21,67,190,63,125,67,98,164,112,206,66,137,193,116,67,164,48,129,66,27,239,77,67,195,117,102,66,145,77,30,67,98,70,54,78,
-66,41,220,233,66,147,88,140,66,18,195,145,66,98,144,210,66,209,34,66,66,98,68,75,247,66,45,50,15,66,47,189,17,67,45,178,229,65,70,86,40,67,172,28,227,65,98,45,242,40,67,86,14,227,65,20,142,41,67,49,8,227,65,252,41,42,67,61,10,227,65,98,178,157,83,67,
-166,155,228,65,137,225,123,67,197,32,84,66,129,117,135,67,246,232,180,66,98,131,16,144,67,123,148,248,66,188,100,143,67,168,166,38,67,35,155,133,67,0,192,71,67,108,254,148,154,67,182,179,113,67,108,188,212,138,67,29,154,136,67,99,109,102,134,41,67,166,
-27,101,66,98,109,103,20,67,6,129,101,66,27,239,254,66,41,92,131,66,233,38,224,66,164,48,160,66,98,47,93,172,66,33,176,208,66,188,180,155,66,244,93,17,67,86,14,187,66,143,34,50,67,98,2,171,218,66,14,45,83,67,139,236,19,67,78,194,103,67,233,70,57,67,4,
-214,96,67,98,100,123,91,67,125,127,90,67,10,87,120,67,160,90,61,67,145,109,125,67,219,217,25,67,98,86,158,128,67,74,140,254,66,125,127,119,67,162,69,198,66,242,18,100,67,106,60,161,66,98,104,177,84,67,240,231,131,66,231,187,63,67,180,200,101,66,213,88,
-42,67,172,28,101,66,98,176,18,42,67,166,27,101,66,139,204,41,67,160,26,101,66,102,134,41,67,166,27,101,66,99,109,0,0,0,0,0,0,0,0,108,172,92,218,66,176,114,136,63,108,176,114,136,63,172,92,218,66,108,0,0,0,0,0,0,0,0,99,109,23,57,182,67,0,0,0,0,108,215,
-67,127,67,176,114,136,63,108,164,176,181,67,172,92,218,66,108,23,57,182,67,0,0,0,0,99,101,0,0 };
+	
 
+static const unsigned char signalIcon[] = { 110,109,244,229,47,68,184,230,154,68,108,205,140,56,68,184,230,154,68,108,244,229,47,68,205,196,161,68,108,244,229,47,68,174,119,167,68,108,119,118,56,68,174,119,167,68,108,160,202,45,68,236,1,176,68,108,184,30,35,68,174,119,167,68,108,59,175,43,68,174,
+119,167,68,108,59,175,43,68,205,196,161,68,108,115,8,35,68,184,230,154,68,108,59,175,43,68,184,230,154,68,108,59,175,43,68,195,253,153,68,108,244,229,47,68,195,253,153,68,108,244,229,47,68,184,230,154,68,99,109,145,101,27,68,215,179,160,68,108,145,101,
+27,68,195,253,153,68,108,217,46,23,68,195,253,153,68,108,217,46,23,68,215,179,160,68,108,172,236,13,68,215,179,160,68,108,217,46,23,68,82,168,167,68,108,217,46,23,68,102,222,175,68,108,145,101,27,68,102,222,175,68,108,145,101,27,68,82,168,167,68,108,
+174,167,36,68,215,179,160,68,108,145,101,27,68,215,179,160,68,99,101,0,0 };
 
 	static const unsigned char zoomIn[] = { 110,109,125,159,52,67,90,68,76,67,98,47,189,27,67,154,89,94,67,244,253,246,66,154,153,102,67,90,36,185,66,119,222,96,67,98,176,242,58,66,66,96,88,67,193,202,1,65,211,141,49,67,37,6,145,63,74,236,1,67,98,143,194,157,192,154,25,177,66,61,10,91,65,6,1,50,
 66,45,50,67,66,100,59,161,65,98,248,83,134,66,115,104,237,64,18,131,178,66,231,251,169,62,63,181,223,66,188,116,19,60,98,14,237,224,66,111,18,3,59,221,36,226,66,111,18,131,186,172,92,227,66,0,0,0,0,98,12,34,27,67,57,180,72,62,37,102,67,67,76,55,197,65,
@@ -160,11 +157,7 @@ namespace ScriptnodeIcons
 	164,65,98,176,114,252,64,18,131,214,65,211,77,139,65,213,120,228,65,61,10,182,65,45,178,188,65,98,215,163,210,65,111,18,162,65,109,231,219,65,76,55,105,65,221,36,203,65,188,116,33,65,98,244,253,187,65,76,55,193,64,106,188,153,65,129,149,83,64,137,65,
 	106,65,104,145,85,64,99,101,0,0 };
 
-	static const unsigned char errorIcon[] = { 110,109,186,73,129,65,23,217,150,64,108,225,122,129,65,250,126,54,65,108,55,137,55,65,113,61,129,65,108,145,237,152,64,152,110,129,65,108,182,243,253,60,164,112,55,65,108,0,0,0,0,14,45,154,64,108,219,249,150,64,166,155,196,60,108,141,151,54,65,0,0,0,
-	0,98,133,235,79,65,135,22,201,63,125,63,105,65,233,38,73,64,186,73,129,65,23,217,150,64,99,109,27,47,181,64,37,6,17,64,108,158,239,15,64,188,116,183,64,108,115,104,17,64,127,106,40,65,108,152,110,182,64,96,229,94,65,108,43,135,40,65,166,155,94,65,108,
-	244,253,94,65,119,190,39,65,108,82,184,94,65,47,221,180,64,108,35,219,39,65,59,223,15,64,98,147,24,14,65,137,65,16,64,8,172,232,64,215,163,16,64,27,47,181,64,37,6,17,64,99,109,55,137,1,65,229,208,206,64,108,137,65,38,65,66,96,133,64,108,162,69,64,65,
-	115,104,185,64,108,80,141,27,65,139,108,1,65,108,162,69,64,65,221,36,38,65,108,137,65,38,65,246,40,64,65,108,55,137,1,65,164,112,27,65,108,203,161,185,64,246,40,64,65,108,154,153,133,64,221,36,38,65,108,61,10,207,64,139,108,1,65,108,154,153,133,64,115,
-	104,185,64,108,203,161,185,64,66,96,133,64,108,55,137,1,65,229,208,206,64,99,101,0,0 };
+	
 
 	static const unsigned char profileIcon[] = { 110,109,72,225,30,66,0,0,0,0,98,248,211,103,66,197,32,48,62,39,177,149,66,201,118,98,65,217,142,156,66,33,48,0,66,98,195,117,161,66,174,71,51,66,193,202,152,66,131,192,106,66,84,35,134,66,10,151,135,66,98,70,182,96,66,166,219,156,66,109,103,27,66,170,
 	241,163,66,113,61,196,65,231,59,152,66,98,201,118,254,64,20,174,138,66,61,10,39,192,98,16,73,66,59,223,15,63,197,32,2,66,98,158,239,111,64,238,124,107,65,47,221,163,65,115,104,209,62,217,206,26,66,66,96,229,59,98,252,41,28,66,111,18,131,58,37,134,29,
@@ -213,11 +206,13 @@ juce::Path DspNetworkPathFactory::createPath(const String& url) const
 	LOAD_PATH_IF_URL("zoom", ScriptnodeIcons::zoomOriginal);
 	LOAD_PATH_IF_URL("zoom-in", ScriptnodeIcons::zoomIn);
 	LOAD_PATH_IF_URL("zoom-out", ScriptnodeIcons::zoomOut);
-	LOAD_PATH_IF_URL("zoom-fit", ScriptnodeIcons::zoomFit);
+	LOAD_PATH_IF_URL("zoom-fit", ::ScriptnodeIcons::zoomFit);
 	LOAD_PATH_IF_URL("zoom-sel", ScriptnodeIcons::zoomSelection);
-	LOAD_PATH_IF_URL("error", ScriptnodeIcons::errorIcon);
+    LOAD_PATH_IF_URL("signal", ScriptnodeIcons::signalIcon);
+	LOAD_PATH_IF_URL("error", ::ScriptnodeIcons::errorIcon);
 	LOAD_PATH_IF_URL("export", HnodeIcons::freezeIcon);
 	LOAD_PATH_IF_URL("wrap", HnodeIcons::mapIcon);
+	LOAD_PATH_IF_URL("parameters", HiBinaryData::SpecialSymbols::macros);
 	LOAD_PATH_IF_URL("surround", HnodeIcons::injectNodeIcon);
     LOAD_PATH_IF_URL("save", SampleMapIcons::saveSampleMap);
     LOAD_PATH_IF_URL("export", SampleMapIcons::monolith);
@@ -269,6 +264,11 @@ DspNetworkGraph::DspNetworkGraph(DspNetwork* n) :
 			this->resizeNodes();
 	});
 
+	n->getExceptionHandler().errorBroadcaster.addListener(*this, [](DspNetworkGraph& g, NodeBase* , Error )
+	{
+		g.resizeNodes();
+	});
+
 	setOpaque(true);
 }
 
@@ -284,49 +284,40 @@ DspNetworkGraph::~DspNetworkGraph()
 	network = nullptr;
 }
 
-
-
-
 bool DspNetworkGraph::keyPressed(const KeyPress& key)
 {
-	if (key == KeyPress::escapeKey)
+	if (TopLevelWindowWithKeyMappings::matches(this, key, ScriptnodeShortcuts::sn_deselect_all))
 		return Actions::deselectAll(*this);
 	if (key == KeyPress::deleteKey || key == KeyPress::backspaceKey)
 		return Actions::deleteSelection(*this);
-#if 0
-	if ((key.isKeyCode('j') || key.isKeyCode('J')))
-		return Actions::showJSONEditorForSelection(*this);
-#endif
 	if ((key.isKeyCode('z') || key.isKeyCode('Z')) && key.getModifiers().isCommandDown())
 		return Actions::undo(*this);
 	if ((key.isKeyCode('Y') || key.isKeyCode('Y')) && key.getModifiers().isCommandDown())
 		return Actions::redo(*this);
-	if ((key.isKeyCode('d') || key.isKeyCode('D')) && key.getModifiers().isCommandDown())
+	if (TopLevelWindowWithKeyMappings::matches(this, key, ScriptnodeShortcuts::sn_duplicate))
 		return Actions::duplicateSelection(*this);
-	if ((key.isKeyCode('n') || key.isKeyCode('N')))
+	if (TopLevelWindowWithKeyMappings::matches(this, key, ScriptnodeShortcuts::sn_new_node))
 		return Actions::showKeyboardPopup(*this, KeyboardPopup::Mode::New);
-	if ((key).isKeyCode('f') || key.isKeyCode('F'))
+	if (TopLevelWindowWithKeyMappings::matches(this, key, ScriptnodeShortcuts::sn_fold))
 		return Actions::foldSelection(*this);
-	if (key.getKeyCode() == KeyPress::F11Key)
+	if (TopLevelWindowWithKeyMappings::matches(this, key, ScriptnodeShortcuts::sn_add_bookmark))
 	{
-		if (key.getModifiers().isCommandDown())
-			return Actions::addBookMark(*this);
-		if(key.getModifiers().isShiftDown())
-			return Actions::zoomFit(*this);
-		else
-			return Actions::foldUnselectedNodes(*this);
+		Actions::addBookMark(network.get());
+		return true;
 	}
-	if ((key).isKeyCode('u') || key.isKeyCode('U'))
-		return Actions::toggleFreeze(*this);
-	if ((key).isKeyCode('p') || key.isKeyCode('P'))
+	if(TopLevelWindowWithKeyMappings::matches(this, key, ScriptnodeShortcuts::sn_zoom_fit))
+		return Actions::zoomFit(*this);
+	if(TopLevelWindowWithKeyMappings::matches(this, key, ScriptnodeShortcuts::sn_zoom_reset))
+		return Actions::foldUnselectedNodes(*this);
+	if (TopLevelWindowWithKeyMappings::matches(this, key, ScriptnodeShortcuts::sn_edit_property))
 		return Actions::editNodeProperty(*this);
 	if ((key).isKeyCode('+') && key.getModifiers().isCommandDown())
 		return Actions::zoomIn(*this);
 	if ((key).isKeyCode('-') && key.getModifiers().isCommandDown())
 		return Actions::zoomOut(*this);
-	if ((key).isKeyCode('q') || key.isKeyCode('Q'))
+	if (TopLevelWindowWithKeyMappings::matches(this, key, ScriptnodeShortcuts::sn_toggle_bypass))
 		return Actions::toggleBypass(*this);
-	if (((key).isKeyCode('c') || key.isKeyCode('C')))
+	if (TopLevelWindowWithKeyMappings::matches(this, key, ScriptnodeShortcuts::sn_toggle_cables))
 		return Actions::toggleCableDisplay(*this);
 	if (((key).isKeyCode('c') || key.isKeyCode('C')) && key.getModifiers().isCommandDown())
 		return Actions::copyToClipboard(*this);
@@ -349,6 +340,16 @@ void DspNetworkGraph::rebuildNodes()
 
 void DspNetworkGraph::resizeNodes()
 {
+    Component::callRecursive<NodeComponent>(this, [](NodeComponent* nc)
+    {
+        if(auto mc = dynamic_cast<WrapperNode*>(nc->node.get()))
+        {
+            mc->setCachedSize(-1, -1);
+        }
+        
+        return false;
+    });
+    
 	auto b = network->getRootNode()->getPositionInCanvas({ UIValues::NodeMargin, UIValues::NodeMargin });
 	setSize(b.getWidth() + 2 * UIValues::NodeMargin, b.getHeight() + 2 * UIValues::NodeMargin);
 	resized();
@@ -396,22 +397,6 @@ void DspNetworkGraph::finishDrag()
 void DspNetworkGraph::paint(Graphics& g)
 {
 	g.fillAll(JUCE_LIVE_CONSTANT_OFF(Colour(0xff1d1d1d)));
-	return;
-	g.fillAll(JUCE_LIVE_CONSTANT_OFF(Colour(0xFF444444)));
-
-	Colour lineColour = Colours::white;
-
-	for (int x = 15; x < getWidth(); x += 10)
-	{
-		g.setColour(lineColour.withAlpha(((x - 5) % 100 == 0) ? 0.12f : 0.05f));
-		g.drawVerticalLine(x, 0.0f, (float)getHeight());
-	}
-
-	for (int y = 15; y < getHeight(); y += 10)
-	{
-		g.setColour(lineColour.withAlpha(((y - 5) % 100 == 0) ? 0.12f : 0.05f));
-		g.drawHorizontalLine(y, 0.0f, (float)getWidth());
-	}
 }
 
 void DspNetworkGraph::resized()
@@ -479,6 +464,11 @@ void drawBlockrateForCable(Graphics& g, Point<float> midPoint, Colour cableColou
 
 void DspNetworkGraph::paintOverChildren(Graphics& g)
 {
+	float HoverAlpha = 0.4f;
+
+	if (Component::isMouseButtonDownAnywhere())
+		HoverAlpha += 0.1f;
+
 	if (network->isFrozen())
 		return;
 
@@ -513,28 +503,11 @@ void DspNetworkGraph::paintOverChildren(Graphics& g)
 		auto start = getCircle(e->getDetails().sourceComponent, false);
 		auto end = a.withSize(start.getWidth(), start.getHeight());
 
-		paintCable(g, start, end, Colours::white, 0.6f);
+		GlobalHiseLookAndFeel::paintCable(g, start, end, Colours::white, 0.6f);
 	}
 
 	Array<ModulationSourceBaseComponent*> modSourceList;
 	fillChildComponentList(modSourceList, this);
-
-#if 0
-	for (auto modSource : modSourceList)
-	{
-		auto ms = modSource->getSourceNodeFromParent();
-
-		if (ms == nullptr || !ms->isBodyShown())
-			continue;
-
-		auto start = getCircle(modSource, false);
-
-		g.setColour(Colours::black);
-		g.fillEllipse(start);
-		g.setColour(Colour(0xFFAAAAAA));
-		g.drawEllipse(start, 2.0f);
-	}
-#endif
 
 	float alpha = showCables ? 1.0f : 0.1f;
 
@@ -543,6 +516,63 @@ void DspNetworkGraph::paintOverChildren(Graphics& g)
 
 	Array<MultiOutputDragSource*> multiOutputList;
 	fillChildComponentList(multiOutputList, this);
+
+	Array<MacroParameterSlider*> hoveredMacros;
+	Array<ModulationSourceBaseComponent*> hoveredModSources;
+	Array<MultiOutputDragSource*> hoveredDragSources;
+
+	auto addDragSource = [&](ParameterSlider* sliderToCheck)
+	{
+		auto isCableNode = dynamic_cast<InterpretedCableNode*>(sliderToCheck->parameterToControl->parent);
+
+		if (isCableNode)
+		{
+			if (auto nc = sliderToCheck->findParentComponentOfClass<NodeComponent>())
+			{
+				Component::callRecursive<MultiOutputDragSource>(nc, [&](MultiOutputDragSource* msc)
+				{
+					hoveredDragSources.add(msc);
+					return false;
+				});
+			}
+		}
+	};
+
+	auto addModSource = [&](ParameterSlider* sliderToCheck)
+	{
+		auto isCableNode = dynamic_cast<InterpretedCableNode*>(sliderToCheck->parameterToControl->parent);
+
+		if (isCableNode)
+		{
+			if (auto nc = sliderToCheck->findParentComponentOfClass<NodeComponent>())
+			{
+				Component::callRecursive<ModulationSourceBaseComponent>(nc, [&](ModulationSourceBaseComponent* msc)
+				{
+					hoveredModSources.add(msc);
+					return true;
+				});
+			}
+		}
+	};
+
+	if (!showCables)
+	{
+		auto hoveredComponent = Desktop::getInstance().getMainMouseSource().getComponentUnderMouse();
+
+		auto hoveredMacro = dynamic_cast<MacroParameterSlider*>(hoveredComponent);
+
+		if (hoveredMacro == nullptr && hoveredComponent != nullptr)
+			hoveredMacro = hoveredComponent->findParentComponentOfClass<MacroParameterSlider>();
+
+		if (hoveredMacro != nullptr)
+			hoveredMacros.add(hoveredMacro);
+
+		if (auto hoveredModSource = dynamic_cast<ModulationSourceBaseComponent*>(hoveredComponent))
+			hoveredModSources.add(hoveredModSource);
+
+		if (auto hoveredDragSource = dynamic_cast<MultiOutputDragSource*>(hoveredComponent))
+			hoveredDragSources.add(hoveredDragSource);
+	}
 
 	for (auto sourceSlider : sliderList)
 	{
@@ -577,6 +607,20 @@ void DspNetworkGraph::paintOverChildren(Graphics& g)
 		
 		if (auto macro = dynamic_cast<NodeContainer::MacroParameter*>(sourceSlider->parameterToControl.get()))
 		{
+			auto isActiveMacro = false;
+
+			if (!showCables)
+			{
+				for (auto& hv : hoveredMacros)
+				{
+					if (hv->getParameter() == macro)
+					{
+						isActiveMacro = true;
+						break;
+					}
+				}
+			}
+
 			for (auto targetSlider : sliderList)
 			{
 				auto target = targetSlider->parameterToControl;
@@ -598,7 +642,20 @@ void DspNetworkGraph::paintOverChildren(Graphics& g)
 
 					Colour hc = targetSlider->isMouseOver(true) ? Colours::red : Colour(0xFFAAAAAA);
 
-					paintCable(g, start, end, colourToUse, alpha, hc);
+					float thisAlpha = alpha;
+
+					if (isActiveMacro)
+					{
+						if (auto newHv = targetSlider->findParentComponentOfClass<MacroParameterSlider>())
+							hoveredMacros.add(newHv);
+
+						thisAlpha = HoverAlpha;
+
+						addModSource(targetSlider);
+						addDragSource(targetSlider);
+					}
+					
+					GlobalHiseLookAndFeel::paintCable(g, start, end, colourToUse, thisAlpha, hc);
 				}
 			}
 		}
@@ -609,6 +666,8 @@ void DspNetworkGraph::paintOverChildren(Graphics& g)
 		if (!multiSource->getNode()->isBodyShown())
 			continue;
 
+		auto isHovered = !showCables && hoveredDragSources.contains(multiSource);
+
 		for (auto s : sliderList)
 		{
 			if (!s->node->isBodyShown())
@@ -616,6 +675,15 @@ void DspNetworkGraph::paintOverChildren(Graphics& g)
 
 			if (multiSource->matchesParameter(s->parameterToControl))
 			{
+				float thisAlpha = alpha;
+				
+				if (isHovered)
+				{
+					addModSource(s);
+					addDragSource(s);
+					thisAlpha = HoverAlpha;
+				}
+
 				auto start = getCircle(multiSource->asComponent(), false);
 				auto end = getCircle(s);
 
@@ -624,11 +692,11 @@ void DspNetworkGraph::paintOverChildren(Graphics& g)
 				auto c = MultiOutputDragSource::getFadeColour(index, numOutputs).withAlpha(1.0f);
 
 				Colour hc = s->isMouseOver(true) ? Colours::red : Colour(0xFFAAAAAA);
-				auto midPoint = paintCable(g, start, end, c, alpha, hc, network->getCpuProfileFlag());
+				auto midPoint = GlobalHiseLookAndFeel::paintCable(g, start, end, c, thisAlpha, hc, network->getCpuProfileFlag());
 
 				if (!midPoint.isOrigin())
 				{
-					drawBlockrateForCable(g, midPoint, c, alpha, multiSource->getNode(), s->node);
+					drawBlockrateForCable(g, midPoint, c, thisAlpha, multiSource->getNode(), s->node);
 				}
 			}
 		}
@@ -638,6 +706,12 @@ void DspNetworkGraph::paintOverChildren(Graphics& g)
 
 	for (auto modSource : modSourceList)
 	{
+		float thisAlpha = alpha;
+		bool isActiveModSource = !showCables && hoveredModSources.contains(modSource);
+
+		if (isActiveModSource)
+			thisAlpha = HoverAlpha;
+
 		auto start = getCircle(modSource, false);
 
 		auto cableColour = getSpecialColour(modSource, Colour(0xffbe952c));
@@ -664,11 +738,16 @@ void DspNetworkGraph::paintOverChildren(Graphics& g)
 
 					if (parentMatch && paraMatch)
 					{
+						if (isActiveModSource)
+						{
+							addModSource(s);
+						}
+
 						auto end = getCircle(s);
 
 						Colour hc = s->isMouseOver(true) ? Colours::red : Colour(0xFFAAAAAA);
 
-						auto midPoint = paintCable(g, start, end, cableColour, alpha, hc, network->getCpuProfileFlag());
+						auto midPoint = GlobalHiseLookAndFeel::paintCable(g, start, end, cableColour, thisAlpha, hc, network->getCpuProfileFlag());
 
 						if (!midPoint.isOrigin())
 						{
@@ -676,7 +755,7 @@ void DspNetworkGraph::paintOverChildren(Graphics& g)
 							auto thisTarget = ConnectionBase::Helpers::findRealSource(s->parameterToControl->parent);
 
 							if(thisSource != nullptr && thisTarget != nullptr)
-								drawBlockrateForCable(g, midPoint, cableColour, alpha, thisSource, thisTarget);
+								drawBlockrateForCable(g, midPoint, cableColour, thisAlpha, thisSource, thisTarget);
 						}
 
 						auto drawSiblingCables = s->node->isClone() && !sourceNode->isClone();
@@ -697,7 +776,7 @@ void DspNetworkGraph::paintOverChildren(Graphics& g)
 									if (cs->parameterToControl->data == cv)
 									{
 										auto cend = getCircle(cs);
-										paintCable(g, start, cend, i++ < numClones ? cableColour : Colours::grey, alpha * 0.1f, hc);
+										GlobalHiseLookAndFeel::paintCable(g, start, cend, i++ < numClones ? cableColour : Colours::grey, thisAlpha * 0.1f, hc);
 									}
 								}
 							}
@@ -751,7 +830,7 @@ void DspNetworkGraph::paintOverChildren(Graphics& g)
 
 							Colour hc = b->isMouseOver(true) ? Colours::red : Colour(0xFFAAAAAA);
 
-							paintCable(g, start, end, c, alpha, hc);
+							GlobalHiseLookAndFeel::paintCable(g, start, end, c, alpha, hc);
 						}
 					}
 				}
@@ -781,7 +860,7 @@ void DspNetworkGraph::paintOverChildren(Graphics& g)
 
 						Colour hc = sourceSlider->isMouseOver(true) ? Colours::red : Colour(0xFFAAAAAA);
 
-						paintCable(g, start, end, c, alpha, hc);
+						GlobalHiseLookAndFeel::paintCable(g, start, end, c, alpha, hc);
 						break;
 					}
 				}
@@ -820,7 +899,7 @@ void DspNetworkGraph::paintOverChildren(Graphics& g)
 
 						Colour hc = r->isMouseOver(true) ? Colours::red : Colour(0xFFAAAAAA);
 
-						paintCable(g, start, end, c, alpha, hc);
+						GlobalHiseLookAndFeel::paintCable(g, start, end, c, alpha, hc);
 					}
 				}
 			}
@@ -1147,6 +1226,26 @@ bool DspNetworkGraph::Actions::toggleBypass(DspNetworkGraph& g)
 	}
 
 	return true;
+}
+
+bool DspNetworkGraph::Actions::toggleSignalDisplay(DspNetworkGraph& g)
+{
+    auto shouldBeOn = !g.network->isSignalDisplayEnabled();
+    
+    g.network->setSignalDisplayEnabled(shouldBeOn);
+    
+    Component::callRecursive<ContainerComponent>(&g, [shouldBeOn](ContainerComponent* c)
+    {
+        if(shouldBeOn)
+            c->start();
+        else
+            c->stop();
+        
+        c->repaint();
+        return false;
+    });
+    
+    return true;
 }
 
 bool DspNetworkGraph::Actions::toggleFreeze(DspNetworkGraph& g)
@@ -1484,7 +1583,7 @@ bool DspNetworkGraph::Actions::foldUnselectedNodes(DspNetworkGraph& g)
     
 	auto parent = g.findParentComponentOfClass<ZoomableViewport>();
 
-	parent->makeSwapSnapshot(JUCE_LIVE_CONSTANT_OFF(1.005));
+	parent->makeSwapSnapshot(JUCE_LIVE_CONSTANT_OFF(1.005f));
 
 	auto l = g.network->getListOfNodesWithType<NodeBase>(false);
 
@@ -2002,6 +2101,116 @@ bool DspNetworkGraph::Actions::eject(DspNetworkGraph& g)
 	return true;
 }
 
+struct ParameterPopup: public Component,
+					   public PooledUIUpdater::SimpleTimer
+{
+	ParameterPopup(DspNetwork* n) :
+		SimpleTimer(n->getMainController()->getGlobalUIUpdater()),
+		network(n)
+	{
+		
+		setName(n->getId() + " Parameters");
+
+		rebuild({ }, true);
+		
+		updater.setCallback(n->getRootNode()->getParameterTree(), valuetree::AsyncMode::Asynchronously, BIND_MEMBER_FUNCTION_2(ParameterPopup::rebuild));
+
+		start();
+	};
+
+	void timerCallback() override
+	{
+		if (network == nullptr)
+		{
+			sliders.clear();
+			stop();
+			repaint();
+			return;
+		}
+
+
+		for(auto s: sliders)
+			s->repaint();
+	}
+
+	void resized() override
+	{
+		auto b = getLocalBounds().reduced(0, UIValues::NodeMargin);
+
+		for (auto s : sliders)
+			s->setBounds(b.removeFromLeft(128));
+
+		repaint();
+	}
+
+	void paint(Graphics& g) override
+	{
+		if (sliders.isEmpty())
+		{
+			g.setFont(GLOBAL_BOLD_FONT());
+			g.setColour(Colours::white.withAlpha(0.3f));
+			g.drawText("No parameters available", getLocalBounds().toFloat(), Justification::centred);
+		}
+	}
+
+	void rebuild(ValueTree, bool)
+	{
+		sliders.clear();
+
+		if (network == nullptr)
+			return;
+
+		for (int i = 0; i < network->getRootNode()->getNumParameters(); i++)
+		{
+			addSlider(i);
+		}
+
+		setSize(128 * jmax(2, sliders.size()), UIValues::ParameterHeight + 1 * UIValues::NodeMargin);
+		resized();
+	}
+
+	void addSlider(int index)
+	{
+		auto ps = new ParameterSlider(network->getRootNode(), index);
+		sliders.add(ps);
+		addAndMakeVisible(ps);
+	}
+
+	OwnedArray<ParameterSlider> sliders;
+
+	WeakReference<DspNetwork> network;
+	valuetree::ChildListener updater;
+};
+
+bool DspNetworkGraph::Actions::showParameterPopup(DspNetworkGraph& g)
+{
+	auto s = new ParameterPopup(g.network.get());
+
+	auto ft = g.findParentComponentOfClass<FloatingTile>();
+
+	auto wb = g.findParentComponentOfClass<WrapperWithMenuBar>();
+
+	Component* b = nullptr;
+
+	Component::callRecursive<ActionButton>(wb, [&b](ActionButton* p)
+	{
+		if (p->getName() == "parameters")
+		{
+			b = p;
+			return true;
+		}
+
+		return false;
+	});
+
+	if (b == nullptr)
+		b = &g;
+
+	ft->showComponentInRootPopup(s, b, {12, 24});
+
+	return true;
+}
+
 bool DspNetworkGraph::Actions::undo(DspNetworkGraph& g)
 {
 	if (auto um = g.network->getUndoManager())
@@ -2019,19 +2228,19 @@ bool DspNetworkGraph::Actions::redo(DspNetworkGraph& g)
 }
 
 
-bool DspNetworkGraph::Actions::addBookMark(DspNetworkGraph& g)
+int DspNetworkGraph::Actions::addBookMark(DspNetwork* network)
 {
 	auto name = PresetHandler::getCustomName("Bookmark", "Enter the name for the bookmark");
 
 	if (name.isEmpty())
-		return true;
+		return -1;
 
-	auto um = g.network->getUndoManager();
-	auto bms = g.network->getValueTree().getOrCreateChildWithName(PropertyIds::Bookmarks, um);
+	auto um = network->getUndoManager();
+	auto bms = network->getValueTree().getOrCreateChildWithName(PropertyIds::Bookmarks, um);
 
 	StringArray sa;
 
-	for (auto n : g.network->getSelection())
+	for (auto n : network->getSelection())
 	{
 		sa.add(n->getId());
 	}
@@ -2043,7 +2252,7 @@ bool DspNetworkGraph::Actions::addBookMark(DspNetworkGraph& g)
 		if (b[PropertyIds::ID].toString() == name)
 		{
 			b.setProperty(PropertyIds::Value, bValue, um);
-			return false;
+            return bms.indexOf(b);
 		}
 	}
 
@@ -2052,7 +2261,7 @@ bool DspNetworkGraph::Actions::addBookMark(DspNetworkGraph& g)
 	bm.setProperty(PropertyIds::Value, bValue, nullptr);
 	bms.addChild(bm, -1, nullptr);
 
-	return true;
+    return bms.getNumChildren() - 1;
 }
 
 bool DspNetworkGraph::Actions::zoomIn(DspNetworkGraph& g)
@@ -2067,7 +2276,7 @@ bool DspNetworkGraph::Actions::zoomOut(DspNetworkGraph& g)
 
 bool DspNetworkGraph::Actions::zoomFit(DspNetworkGraph& g)
 {
-	g.findParentComponentOfClass<ZoomableViewport>()->makeSwapSnapshot(JUCE_LIVE_CONSTANT_OFF(0.998));
+	g.findParentComponentOfClass<ZoomableViewport>()->makeSwapSnapshot(JUCE_LIVE_CONSTANT_OFF(0.998f));
 
 	for (auto& n : g.network->getListOfNodesWithType<NodeBase>(false))
 		n->setValueTreeProperty(PropertyIds::Folded, false);
@@ -2390,6 +2599,8 @@ void DspNetworkGraph::WrapperWithMenuBar::rebuildAfterContentChange()
 	addButton("error");
 	addButton("cable");
 	addButton("probe");
+    addButton("signal");
+	addButton("parameters");
 	addSpacer(10);
 	addButton("wrap");
 	addButton("colour");
@@ -2423,12 +2634,23 @@ void DspNetworkGraph::WrapperWithMenuBar::addButton(const String& name)
     {
         b->actionFunction = Actions::save;
     }
+    if(name == "signal")
+    {
+        b->actionFunction = Actions::toggleSignalDisplay;
+        b->stateFunction = [](DspNetworkGraph& g) { return g.network->isSignalDisplayEnabled(); };
+        b->setTooltip("Display the signal flow in the cables");
+    }
     
     if(name == "export")
     {
         b->actionFunction = Actions::exportAsSnippet;
         b->setTooltip("Export the node and all references SNEX files as snippet");
     }
+	if (name == "parameters")
+	{
+		b->actionFunction = Actions::showParameterPopup;
+		b->setTooltip("Show all parameters in a popup");
+	}
     
     if(name == "eject")
     {

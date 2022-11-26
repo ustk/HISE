@@ -50,7 +50,8 @@ ChainNode::ChainNode(DspNetwork* n, ValueTree t) :
 void ChainNode::process(ProcessDataDyn& data)
 {
 	NodeProfiler np(this, data.getNumSamples());
-
+	ProcessDataPeakChecker pd(this, data);
+	
 	if (isBypassed())
 		return;
 
@@ -63,12 +64,12 @@ void ChainNode::processFrame(NodeBase::FrameType& data)
 	if (isBypassed())
 		return;
 
+	FrameDataPeakChecker fd(this, data.begin(), data.size());
+
 	if (data.size() == 1)
 		processMonoFrame(MonoFrameType::as(data.begin()));
 	if(data.size() == 2)
 		processStereoFrame(StereoFrameType::as(data.begin()));
-
-	wrapper.processFrame(data);
 }
 
 void ChainNode::processMonoFrame(MonoFrameType& data)
@@ -132,7 +133,8 @@ void SplitNode::process(ProcessDataDyn& data)
 		return;
 
 	NodeProfiler np(this, data.getNumSamples());
-
+    ProcessDataPeakChecker pd(this, data);
+    
 	float* ptrs[NUM_MAX_CHANNELS];
 	int numSamples = data.getNumSamples();
 
@@ -181,11 +183,13 @@ void SplitNode::process(ProcessDataDyn& data)
 
 void SplitNode::processMonoFrame(MonoFrameType& data)
 {
+	FrameDataPeakChecker fd(this, data.begin(), data.size());
 	processFrameInternal<1>(data);
 }
 
 void SplitNode::processStereoFrame(StereoFrameType& data)
 {
+	FrameDataPeakChecker fd(this, data.begin(), data.size());
 	processFrameInternal<2>(data);
 }
 
@@ -201,10 +205,12 @@ ModulationChainNode::ModulationChainNode(DspNetwork* n, ValueTree t) :
 	obj.initialise(this);
 }
 
-void ModulationChainNode::processFrame(NodeBase::FrameType& d) noexcept
+void ModulationChainNode::processFrame(NodeBase::FrameType& data) noexcept
 {
+	FrameDataPeakChecker fd(this, data.begin(), data.size());
+
 	if (!isBypassed())
-		obj.processFrame(d);
+		obj.processFrame(data);
 }
 
 void ModulationChainNode::process(ProcessDataDyn& data) noexcept
@@ -213,7 +219,6 @@ void ModulationChainNode::process(ProcessDataDyn& data) noexcept
 		return;
 
 	NodeProfiler np(this, data.getNumSamples());
-
 	obj.process(data);
 }
 
@@ -252,44 +257,6 @@ double ModulationChainNode::getSampleRateForChildNodes() const
 {
 	return isProcessingFrame ? originalSampleRate : originalSampleRate / (double)HISE_EVENT_RASTER;
 }
-
-#if 0
-juce::Rectangle<int> ModulationChainNode::getPositionInCanvas(Point<int> topLeft) const
-{
-	using namespace UIValues;
-
-	const int minWidth = NodeWidth;
-	
-	int maxW = minWidth;
-	int h = 0;
-
-	h += UIValues::NodeMargin;
-	h += UIValues::HeaderHeight; // the input
-
-	if (v_data[PropertyIds::ShowParameters])
-		h += UIValues::ParameterHeight;
-
-	h += PinHeight; // the "hole" for the cable
-
-	Point<int> childPos(NodeMargin, NodeMargin);
-
-	for (auto n : nodes)
-	{
-		auto bounds = n->getPositionInCanvas(childPos);
-
-		bounds = n->getBoundsToDisplay(bounds);
-
-		maxW = jmax<int>(maxW, bounds.getWidth());
-		h += bounds.getHeight() + NodeMargin;
-		childPos = childPos.translated(0, bounds.getHeight());
-	}
-
-	h += PinHeight; // the "hole" for the cable
-
-	return { topLeft.getX(), topLeft.getY(), maxW + 2 * NodeMargin, h };
-}
-#endif
-
 
 template <int OversampleFactor>
 OversampleNode<OversampleFactor>::OversampleNode(DspNetwork* network, ValueTree d) :
@@ -370,8 +337,8 @@ void OversampleNode<OversampleFactor>::handleHiseEvent(HiseEvent& e)
 template <int OversampleFactor>
 void OversampleNode<OversampleFactor>::process(ProcessDataDyn& d) noexcept
 {
+	ProcessDataPeakChecker pd(this, d);
 	
-
 	if (isBypassed())
 	{
 		NodeProfiler np(this, d.getNumSamples());
@@ -418,14 +385,45 @@ void FixedBlockNode<B>::process(ProcessDataDyn& d)
 	if (isBypassed())
 	{
 		NodeProfiler np(this, d.getNumSamples());
+		ProcessDataPeakChecker pd(this, d);
+		
 		obj.getObject().process(d);
 	}
 	else
 	{
 		NodeProfiler np(this, B);
+		ProcessDataPeakChecker pd(this, d);
+		
 		obj.process(d);
 	}
 }
+
+
+
+template <int B>
+void scriptnode::FixedBlockNode<B>::processFrame(FrameType& data) noexcept
+{
+	FrameDataPeakChecker fd(this, data.begin(), data.size());
+
+	if (data.size() == 1)
+		processMonoFrame(MonoFrameType::as(data.begin()));
+	if (data.size() == 2)
+		processStereoFrame(StereoFrameType::as(data.begin()));
+}
+
+
+template <int B>
+void scriptnode::FixedBlockNode<B>::processStereoFrame(StereoFrameType& data)
+{
+	obj.processFrame(data);
+}
+
+template <int B>
+void scriptnode::FixedBlockNode<B>::processMonoFrame(MonoFrameType& data)
+{
+	obj.processFrame(data);
+}
+
 
 template <int B>
 void FixedBlockNode<B>::setBypassed(bool shouldBeBypassed)
@@ -448,8 +446,6 @@ void FixedBlockNode<B>::setBypassed(bool shouldBeBypassed)
 template <int B>
 void FixedBlockNode<B>::prepare(PrepareSpecs ps)
 {
-	DspHelpers::setErrorIfFrameProcessing(ps);
-
 	NodeBase::prepare(ps);
 	lastVoiceIndex = ps.voiceIndex;
 	prepareNodes(ps);
@@ -546,6 +542,8 @@ void MultiChannelNode::handleHiseEvent(HiseEvent& e)
 
 void MultiChannelNode::processFrame(NodeBase::FrameType& data)
 {
+	FrameDataPeakChecker fd(this, data.begin(), data.size());
+
 	for (int i = 0; i < nodes.size(); i++)
 	{
 		auto& r = channelRanges[i];
@@ -563,7 +561,8 @@ void MultiChannelNode::processFrame(NodeBase::FrameType& data)
 void MultiChannelNode::process(ProcessDataDyn& d)
 {
 	NodeProfiler np(this, d.getNumSamples());
-
+    ProcessDataPeakChecker pd(this, d);
+    
 	int channelIndex = 0;
 
 	for (auto n : nodes)
@@ -625,6 +624,8 @@ void SingleSampleBlockX::reset()
 void SingleSampleBlockX::process(ProcessDataDyn& data)
 {
 	NodeProfiler np(this, isBypassed() ? data.getNumSamples() : 1);
+	ProcessDataPeakChecker pd(this, data);
+
 
 	if (isBypassed())
 		obj.getObject().process(data);
@@ -634,6 +635,7 @@ void SingleSampleBlockX::process(ProcessDataDyn& data)
 
 void SingleSampleBlockX::processFrame(NodeBase::FrameType& data)
 {
+	FrameDataPeakChecker fd(this, data.begin(), data.size());
 	obj.processFrame(data);
 }
 
@@ -645,6 +647,49 @@ int SingleSampleBlockX::getBlockSizeForChildNodes() const
 void SingleSampleBlockX::handleHiseEvent(HiseEvent& e)
 {
 	obj.handleHiseEvent(e);
+}
+
+SidechainNode::SidechainNode(DspNetwork* n, ValueTree d) :
+    SerialNode(n, d)
+{
+    initListeners();
+    obj.getObject().initialise(this);
+}
+
+void SidechainNode::prepare(PrepareSpecs ps)
+{
+    obj.prepare(ps);
+    NodeBase::prepare(ps);
+    ps.numChannels *= 2;
+    prepareNodes(ps);
+}
+
+void SidechainNode::reset()
+{
+    obj.reset();
+}
+
+void SidechainNode::process(ProcessDataDyn& data)
+{
+    NodeProfiler np(this, isBypassed() ? data.getNumSamples() : 1);
+    ProcessDataPeakChecker pd(this, data);
+    obj.process(data);
+}
+
+void SidechainNode::processFrame(NodeBase::FrameType& data)
+{
+    FrameDataPeakChecker fd(this, data.begin(), data.size());
+    obj.processFrame(data);
+}
+
+int SidechainNode::getBlockSizeForChildNodes() const
+{
+    return originalBlockSize;
+}
+
+void SidechainNode::handleHiseEvent(HiseEvent& e)
+{
+    obj.handleHiseEvent(e);
 }
 
 MidiChainNode::MidiChainNode(DspNetwork* n, ValueTree t):
@@ -661,6 +706,9 @@ void MidiChainNode::processFrame(NodeBase::FrameType& data) noexcept
 
 void MidiChainNode::process(ProcessDataDyn& data) noexcept
 {
+	NodeProfiler np(this, isBypassed() ? data.getNumSamples() : 1);
+	ProcessDataPeakChecker pd(this, data);
+
 	if (isBypassed())
 	{
 		obj.getObject().process(data);
@@ -699,10 +747,13 @@ OfflineChainNode::OfflineChainNode(DspNetwork* n, ValueTree t) :
 
 void OfflineChainNode::processFrame(FrameType& data) noexcept
 {
+	FrameDataPeakChecker pd(this, data.begin(), data.size());
 }
 
 void OfflineChainNode::process(ProcessDataDyn& data) noexcept
 {
+	NodeProfiler np(this, isBypassed() ? data.getNumSamples() : 1);
+	ProcessDataPeakChecker pd(this, data);
 }
 
 void OfflineChainNode::prepare(PrepareSpecs ps)
@@ -717,6 +768,7 @@ void OfflineChainNode::handleHiseEvent(HiseEvent& e)
 
 void OfflineChainNode::reset()
 {
+	obj.reset();
 }
 
 struct CloneOptionComponent : public Component,
@@ -972,32 +1024,12 @@ void CloneNode::processFrame(FrameType& data) noexcept
 void CloneNode::process(ProcessDataDyn& data) noexcept
 {
 	NodeProfiler np(this, data.getNumSamples());
+	ProcessDataPeakChecker pd(this, data);
 
 	if (isBypassed() && !nodes.isEmpty())
 		nodes.getFirst()->process(data);
 	else
-	{
         obj.process(data);
-#if 0
-		if (splitSignal)
-		{
-			for (auto n : *this)
-			{
-				splitCopy.clear();
-				ProcessDataDyn copy(splitCopy.getArrayOfWritePointers(), data.getNumSamples(), data.getNumChannels());
-				n->process(copy);
-
-				for (int i = 0; i < splitCopy.getNumChannels(); i++)
-					FloatVectorOperations::add(data.getRawDataPointers()[i], splitCopy.getReadPointer(i), data.getNumSamples());
-			}
-		}
-		else
-		{
-			for (auto n : *this)
-				n->process(data);
-		}
-#endif
-	}
 }
 
 void CloneNode::prepare(PrepareSpecs ps)
@@ -1006,15 +1038,6 @@ void CloneNode::prepare(PrepareSpecs ps)
 	prepareNodes(ps);
 
     obj.prepare(ps);
-    
-#if 0
-	lastSpecs = ps;
-
-	if (splitSignal)
-		DspHelpers::increaseBuffer(splitCopy, ps);
-	else
-		splitCopy = {};
-#endif
 }
 
 void CloneNode::handleHiseEvent(HiseEvent& e)
@@ -1096,8 +1119,6 @@ void CloneNode::updateConnections(const ValueTree& v, bool wasAdded)
 	else
 	{
 		CloneIterator cit(*this, connectionListener.getCurrentParent(), true);
-
-		
 
 		for (auto& cv : cit)
 		{
@@ -1246,7 +1267,14 @@ FixedBlockXNode::FixedBlockXNode(DspNetwork* network, ValueTree d) :
 void FixedBlockXNode::process(ProcessDataDyn& data)
 {
 	NodeProfiler np(this, getBlockSizeForChildNodes());
+	ProcessDataPeakChecker pd(this, data);
 	obj.process(data);
+}
+
+void FixedBlockXNode::processFrame(FrameType& data) noexcept
+{
+	FrameDataPeakChecker fd(this, data.begin(), data.size());
+	obj.processFrame(data);
 }
 
 void FixedBlockXNode::prepare(PrepareSpecs ps)
@@ -1318,6 +1346,7 @@ NoMidiChainNode::NoMidiChainNode(DspNetwork* n, ValueTree t):
 
 void NoMidiChainNode::processFrame(FrameType& data) noexcept
 {
+	FrameDataPeakChecker fd(this, data.begin(), data.size());
 	obj.processFrame(data);
 }
 
@@ -1345,19 +1374,26 @@ void NoMidiChainNode::reset()
 }
 
 SoftBypassNode::SoftBypassNode(DspNetwork* n, ValueTree t):
-	SerialNode(n, t)
+	SerialNode(n, t),
+	smoothingTime(PropertyIds::SmoothingTime, 20)
 {
 	initListeners();
 	obj.initialise(this);
+
+	smoothingTime.initialise(this);
+	smoothingTime.setAdditionalCallback(BIND_MEMBER_FUNCTION_2(SoftBypassNode::updateSmoothingTime), true);
 }
 
 void SoftBypassNode::processFrame(FrameType& data) noexcept
 {
+	FrameDataPeakChecker fd(this, data.begin(), data.size());
 	obj.processFrame(data);
 }
 
 void SoftBypassNode::process(ProcessDataDyn& data) noexcept
 {
+	NodeProfiler np(this, getBlockSizeForChildNodes());
+	ProcessDataPeakChecker pd(this, data);
 	obj.process(data);
 }
 
@@ -1378,11 +1414,22 @@ void SoftBypassNode::reset()
 	obj.reset();
 }
 
+void SoftBypassNode::updateSmoothingTime(Identifier id, var newValue)
+{
+	if (id == PropertyIds::Value)
+	{
+		auto newTime = (int)newValue;
+		obj.setSmoothingTime(newTime);
+	}
+}
+
 void SoftBypassNode::setBypassed(bool shouldBeBypassed)
 {
 	SerialNode::setBypassed(shouldBeBypassed);
 	WrapperType::setParameter<bypass::ParameterId>(&this->obj, (double)shouldBeBypassed);
 }
+
+
 
 
 

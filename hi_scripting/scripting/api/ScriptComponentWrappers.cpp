@@ -42,8 +42,149 @@ namespace hise { using namespace juce;
 
 #define GET_OBJECT_COLOUR(id) (ScriptingApi::Content::Helpers::getCleanedObjectColour(GET_SCRIPT_PROPERTY(id)))
 
+
+
+struct ScriptCreatedComponentWrapper::AdditionalMouseCallback: public MouseListener
+{
+	AdditionalMouseCallback(ScriptComponent* sc, Component* c, const ScriptComponent::MouseListenerData& cd) :
+		scriptComponent(sc),
+		component(c),
+		data(cd)
+	{
+		component->addMouseListener(this, true);
+	};
+
+	~AdditionalMouseCallback()
+	{
+		if (component.getComponent() != nullptr)
+			component->removeMouseListener(this);
+	}
+
+	void mouseDown(const MouseEvent& event)
+	{
+		if (event.mods.isRightButtonDown() && data.mouseCallbackLevel == MouseCallbackComponent::CallbackLevel::PopupMenuOnly)
+		{
+			if (data.listener == nullptr)
+				return;
+
+			StringArray thisArray;
+			Array<int> indexes;
+
+			int index = 0;
+
+			for (auto& s : data.popupMenuItems)
+			{
+				if (s.startsWith("**") || s.startsWith("__"))
+				{
+					thisArray.add(s);
+					continue;
+				}
+
+				String copy(s);
+
+				static const String dynamicWildcard("{DYNAMIC}");
+
+				if (copy.contains(dynamicWildcard))
+				{
+					auto textValue = data.textFunction(index).toString();
+					copy = copy.replace(dynamicWildcard, textValue);
+				}
+
+				if (!copy.startsWith("~~") && data.enabledFunction && !data.enabledFunction(index))
+					thisArray.add("~~" + copy + "~~");
+				else
+					thisArray.add(copy);
+
+				if (data.tickedFunction && data.tickedFunction(index))
+					indexes.add(index);
+
+				index++;
+			}
+
+			auto m = MouseCallbackComponent::parseFromStringArray(thisArray, indexes, &component->getLookAndFeel());
+
+			if (auto r = m.show())
+			{
+				sendMessage(event, MouseCallbackComponent::Action::Clicked, MouseCallbackComponent::EnterState::Nothing, r-1);
+			}
+
+			return;
+		}
+
+		if (data.mouseCallbackLevel < MouseCallbackComponent::CallbackLevel::ClicksOnly) return;
+		sendMessage(event, MouseCallbackComponent::Action::Clicked, MouseCallbackComponent::EnterState::Nothing);
+	}
+
+	void mouseDoubleClick(const MouseEvent& event)
+	{
+		if (data.mouseCallbackLevel < MouseCallbackComponent::CallbackLevel::ClicksOnly) return;
+		sendMessage(event, MouseCallbackComponent::Action::DoubleClicked, MouseCallbackComponent::EnterState::Nothing);
+	}
+
+	void mouseMove(const MouseEvent& event)
+	{
+		if (data.mouseCallbackLevel < MouseCallbackComponent::CallbackLevel::AllCallbacks) return;
+		sendMessage(event, MouseCallbackComponent::Action::Moved, MouseCallbackComponent::EnterState::Nothing);
+	}
+
+	void mouseDrag(const MouseEvent& event)
+	{
+		if (data.mouseCallbackLevel < MouseCallbackComponent::CallbackLevel::Drag) return;
+        
+        // do not forward mouse drags within a 4px threshold
+        if(event.getDistanceFromDragStart() < 4) return;
+        
+		sendMessage(event, MouseCallbackComponent::Action::Dragged, MouseCallbackComponent::EnterState::Nothing);
+	}
+
+	void mouseEnter(const MouseEvent &event)
+	{
+		if (data.mouseCallbackLevel < MouseCallbackComponent::CallbackLevel::ClicksAndEnter) return;
+		sendMessage(event, MouseCallbackComponent::Action::Moved, MouseCallbackComponent::Entered);
+	}
+
+	void mouseExit(const MouseEvent &event)
+	{
+		if (data.mouseCallbackLevel < MouseCallbackComponent::CallbackLevel::ClicksAndEnter) return;
+		sendMessage(event, MouseCallbackComponent::Action::Moved, MouseCallbackComponent::Exited);
+	}
+
+	void mouseUp(const MouseEvent &event)
+	{
+		if (data.mouseCallbackLevel < MouseCallbackComponent::CallbackLevel::ClicksOnly) return;
+		sendMessage(event, MouseCallbackComponent::Action::MouseUp, MouseCallbackComponent::EnterState::Nothing);
+	}
+
+	void sendMessage(const MouseEvent& event, MouseCallbackComponent::Action action, MouseCallbackComponent::EnterState state, int popupMenuIndex = -1)
+	{
+		if (data.listener != nullptr)
+		{
+			var arguments[2];
+
+			arguments[0] = var(scriptComponent.get());
+
+			if (data.mouseCallbackLevel != MouseCallbackComponent::CallbackLevel::PopupMenuOnly)
+            {
+				arguments[1] = MouseCallbackComponent::getMouseCallbackObject(component.getComponent(), event, data.mouseCallbackLevel, action, state);
+                ComponentWithAdditionalMouseProperties::attachMousePropertyFromParent(event, arguments[1]);
+            }
+			else
+				arguments[1] = var(popupMenuIndex);
+
+			var::NativeFunctionArgs args({}, arguments, 2);
+			auto ok = data.listener->call(nullptr, args, nullptr);
+		}
+	}
+
+	Component::SafePointer<Component> component;
+	WeakReference<ScriptComponent> scriptComponent;
+	ScriptComponent::MouseListenerData data;
+};
+
 ScriptCreatedComponentWrapper::~ScriptCreatedComponentWrapper()
 {
+	mouseCallbacks.clear();
+
 	Desktop::getInstance().removeFocusChangeListener(this);
 
 	if (auto c = getComponent())
@@ -87,6 +228,16 @@ void ScriptCreatedComponentWrapper::updateComponent(int propertyIndex, var newVa
 	}
 }
 
+void ScriptCreatedComponentWrapper::updateFadeState(ScriptCreatedComponentWrapper& wrapper, bool shouldBeVisible, int fadeTime)
+{
+    wrapper.component->repaint();
+    
+	if(shouldBeVisible)
+		Desktop::getInstance().getAnimator().fadeIn(wrapper.component, fadeTime);
+	else
+		Desktop::getInstance().getAnimator().fadeOut(wrapper.component, fadeTime);
+}
+
 void ScriptCreatedComponentWrapper::sourceHasChanged(ComplexDataUIBase*, ComplexDataUIBase*)
 {
 	SafeAsyncCall::call<ScriptCreatedComponentWrapper>(*this, [](ScriptCreatedComponentWrapper& t)
@@ -104,7 +255,12 @@ bool ScriptCreatedComponentWrapper::setMouseCursorFromParentPanel(ScriptComponen
 	{
 		auto cursor = sp->getMouseCursorPath();
 
-		if (!cursor.path.isEmpty())
+		if (cursor.path.isEmpty() && cursor.defaultCursorType != MouseCursor::NumStandardCursorTypes)
+		{
+			c = MouseCursor(cursor.defaultCursorType);
+			return true;
+		}
+		else if (!cursor.path.isEmpty())
 		{
 #if JUCE_WINDOWS
 			auto s = 80;
@@ -147,7 +303,10 @@ void ScriptCreatedComponentWrapper::asyncValueTreePropertyChanged(ValueTree& v, 
 
 void ScriptCreatedComponentWrapper::valueTreeParentChanged(ValueTree& /*v*/)
 {
-	contentComponent->updateComponentParent(this);
+    SafeAsyncCall::callAsyncIfNotOnMessageThread<ScriptCreatedComponentWrapper>(*this, [](ScriptCreatedComponentWrapper& f)
+    {
+        f.contentComponent->updateComponentParent(&f);
+    });
 }
 
 ScriptCreatedComponentWrapper::ScriptCreatedComponentWrapper(ScriptContentComponent *content, int index_) :
@@ -157,6 +316,9 @@ ScriptCreatedComponentWrapper::ScriptCreatedComponentWrapper(ScriptContentCompon
 	index(index_)
 {
 	scriptComponent = content->contentData->getComponent(index_);
+
+	scriptComponent->fadeListener.addListener(*this, ScriptCreatedComponentWrapper::updateFadeState, false);
+	scriptComponent->repaintBroadcaster.addListener(*this, ScriptCreatedComponentWrapper::repaintComponent, false);
 
 	scriptComponent->addZLevelListener(this);
 }
@@ -169,6 +331,8 @@ ScriptCreatedComponentWrapper::ScriptCreatedComponentWrapper(ScriptContentCompon
 	scriptComponent(sc)
 {
 	scriptComponent->addZLevelListener(this);
+	scriptComponent->repaintBroadcaster.addListener(*this, ScriptCreatedComponentWrapper::repaintComponent, false);
+	scriptComponent->fadeListener.addListener(*this, ScriptCreatedComponentWrapper::updateFadeState, false);
 }
 
 Processor * ScriptCreatedComponentWrapper::getProcessor()
@@ -184,6 +348,11 @@ ScriptingApi::Content * ScriptCreatedComponentWrapper::getContent()
 void ScriptCreatedComponentWrapper::initAllProperties()
 {
 	auto sc = getScriptComponent();
+
+	component->setComponentID(sc->getName().toString());
+
+	for(const auto& c: sc->getMouseListeners())
+		mouseCallbacks.add(new AdditionalMouseCallback(sc, component, c));
 
 	if (sc->wantsKeyboardFocus())
 	{
@@ -1191,7 +1360,8 @@ ScriptCreatedComponentWrapper(content, index)
 
 	t->setName(table->name.toString());
 	t->popupFunction = BIND_MEMBER_FUNCTION_2(TableWrapper::getTextForTablePopup);
-
+    t->setDrawTableValueLabel(false);
+    
 	table->getSourceWatcher().addSourceListener(this);
 
 	component = t;
@@ -1203,13 +1373,9 @@ ScriptCreatedComponentWrapper(content, index)
     auto slaf = &mc->getGlobalLookAndFeel();
 
     if(auto l = dynamic_cast<TableEditor::LookAndFeelMethods*>(localLookAndFeel.get()))
-    {
         t->setSpecialLookAndFeel(localLookAndFeel, false);
-    }
     else if (auto s = dynamic_cast<TableEditor::LookAndFeelMethods*>(slaf))
-    {
         t->setSpecialLookAndFeel(slaf, false);
-    }
 }
 
 ScriptCreatedComponentWrappers::TableWrapper::~TableWrapper()
@@ -1356,11 +1522,18 @@ public:
 ScriptCreatedComponentWrappers::ViewportWrapper::ViewportWrapper(ScriptContentComponent* content, ScriptingApi::Content::ScriptedViewport* viewport, int index):
 	ScriptCreatedComponentWrapper(content, index)
 {
-	shouldUseList = (bool)viewport->getScriptObjectProperty(ScriptingApi::Content::ScriptedViewport::Properties::useList);
+	if ((tableModel = viewport->getTableModel()))
+	{
+		mode = Mode::Table;
+		tableModel->tableRefreshBroadcaster.addListener(*this, ViewportWrapper::tableUpdated, false);
+	}
+	else
+	{
+		auto shouldUseList = (bool)viewport->getScriptObjectProperty(ScriptingApi::Content::ScriptedViewport::Properties::useList);
+		mode = shouldUseList ? Mode::List : Mode::Viewport;
+	}
 
-	Viewport* vp = nullptr;
-
-	if (!shouldUseList)
+	if (mode == Mode::Viewport)
 	{
 		vp = new Viewport();
 		vp->setName(viewport->name.toString());
@@ -1376,7 +1549,7 @@ ScriptCreatedComponentWrappers::ViewportWrapper::ViewportWrapper(ScriptContentCo
 
 		component = vp;
 	}
-	else
+	else if (mode == Mode::List)
 	{
 		model = new ColumnListBoxModel(this);
 		auto table = new ListBox();
@@ -1398,19 +1571,44 @@ ScriptCreatedComponentWrappers::ViewportWrapper::ViewportWrapper(ScriptContentCo
 
 		component = table;
 	}
-	
-	viewport->positionBroadcaster.addListener(*this, [vp](ViewportWrapper& v, double x, double y)
+	else
 	{
-		vp->setViewPositionProportionately(x, y);
-	});
+		auto t = new TableListBox();
+		tableModel->setup(t);
+		vp = t->getViewport();
+		component = t;
+	}
+	
+	vp->getVerticalScrollBar().addListener(this);
+	vp->getHorizontalScrollBar().addListener(this);
+
+	viewport->positionBroadcaster.addListener(*this, [](ViewportWrapper& v, double x, double y)
+	{
+		v.vp.getComponent()->setViewPositionProportionately(x, y);
+	}, true);
 
 	initAllProperties();
 	updateValue(viewport->value);
+
+	if (mode == Mode::Table && localLookAndFeel != nullptr)
+	{
+		if (auto typed = dynamic_cast<ScriptTableListModel::LookAndFeelMethods*>(localLookAndFeel.get()))
+		{
+			tableModel->setExternalLookAndFeel(typed);
+		}
+	}
 }
 
 
 ScriptCreatedComponentWrappers::ViewportWrapper::~ViewportWrapper()
 {
+	if (vp.getComponent() != nullptr)
+	{
+		juce::Viewport* v = vp.getComponent();
+		v->getHorizontalScrollBar().removeListener(this);
+		v->getVerticalScrollBar().removeListener(this);
+	}
+
 	component = nullptr;
 	model = nullptr;
 }
@@ -1419,20 +1617,29 @@ void ScriptCreatedComponentWrappers::ViewportWrapper::updateComponent()
 {
 	auto vpc = dynamic_cast<ScriptingApi::Content::ScriptedViewport*>(getScriptComponent());
 
-	if (shouldUseList)
+	if (mode == Mode::List)
 	{
 		updateFont(vpc);
 
 		updateColours();
 		updateItems(vpc);
-
 	}
-	else
+	else if (mode == Mode::Viewport)
 	{
 		auto vp = dynamic_cast<Viewport*>(component.get());
 
 		vp->setScrollBarThickness(vpc->getScriptObjectProperty(ScriptingApi::Content::ScriptedViewport::Properties::scrollbarThickness));
 		vp->setColour(ScrollBar::ColourIds::thumbColourId, GET_OBJECT_COLOUR(itemColour));
+	}
+	else
+	{
+		auto list = dynamic_cast<TableListBox*>(getComponent());
+		auto vp = list->getViewport();
+		vp->setScrollBarThickness(vpc->getScriptObjectProperty(ScriptingApi::Content::ScriptedViewport::Properties::scrollbarThickness));
+		
+		updateColours();
+		updateFont(vpc);
+		list->updateContent();
 	}
 }
 
@@ -1448,7 +1655,7 @@ void ScriptCreatedComponentWrappers::ViewportWrapper::updateComponent(int proper
 	auto vpc = dynamic_cast<ScriptingApi::Content::ScriptedViewport*>(getScriptComponent());
 	auto vp = dynamic_cast<Viewport*>(component.get());
 
-	if (shouldUseList)
+	if (mode != Mode::Viewport)
 	{
 		switch (propertyIndex)
 		{
@@ -1461,6 +1668,8 @@ void ScriptCreatedComponentWrappers::ViewportWrapper::updateComponent(int proper
 			PROPERTY_CASE::ScriptComponent::itemColour2 :
 			PROPERTY_CASE::ScriptComponent::textColour : updateColours(); break;
 			PROPERTY_CASE::ScriptedViewport::Properties::Items: updateItems(vpc); break;
+			PROPERTY_CASE::ScriptedViewport::Properties::scrollbarThickness: 
+				dynamic_cast<ListBox*>(getComponent())->getViewport()->setScrollBarThickness(newValue); break;
 		}
 	}
 	else
@@ -1477,10 +1686,18 @@ void ScriptCreatedComponentWrappers::ViewportWrapper::updateValue(var newValue)
 {
 	auto listBox = dynamic_cast<ListBox*>(component.get());
 
-	if (listBox != nullptr)
+	if (listBox != nullptr && !newValue.isArray())
 	{
 		int viewportIndex = (int)newValue;
 		listBox->selectRow(viewportIndex);
+	}
+}
+
+void ScriptCreatedComponentWrappers::ViewportWrapper::tableUpdated(ViewportWrapper& w, int index)
+{
+	if (auto t = dynamic_cast<TableListBox*>(w.getComponent()))
+	{
+		t->updateContent();
 	}
 }
 
@@ -1490,9 +1707,8 @@ void ScriptCreatedComponentWrappers::ViewportWrapper::updateItems(ScriptingApi::
 
 	if (listBox != nullptr)
 	{
-		if (model->shouldUpdate(vpc->getItemList()))
+		if (model != nullptr && model->shouldUpdate(vpc->getItemList()))
 		{
-			
 			model->setItems(vpc->getItemList());
 			listBox->deselectAllRows();
 			listBox->repaint();
@@ -1506,6 +1722,35 @@ void ScriptCreatedComponentWrappers::ViewportWrapper::updateItems(ScriptingApi::
 
 
 
+void ScriptCreatedComponentWrappers::ViewportWrapper::scrollBarMoved(ScrollBar* scrollBarThatHasMoved, double newRangeStart)
+{
+	auto isY = &vp->getVerticalScrollBar() == scrollBarThatHasMoved;
+
+	auto limit = scrollBarThatHasMoved->getRangeLimit();
+	auto s = scrollBarThatHasMoved->getCurrentRange();
+
+	limit.setEnd(limit.getEnd() - s.getLength());
+	if (limit.getLength() > 0.0)
+	{
+		auto normPos  = jlimit(0.0, 1.0, s.getStart() / limit.getLength());
+
+		double pos[2];
+
+		pos[0] = (double)getScriptComponent()->getScriptObjectProperty(ScriptingApi::Content::ScriptedViewport::Properties::viewPositionX);
+
+		pos[1] = (double)getScriptComponent()->getScriptObjectProperty(ScriptingApi::Content::ScriptedViewport::Properties::viewPositionY);
+
+		auto propertyToChange = isY ? ScriptingApi::Content::ScriptedViewport::Properties::viewPositionY :
+									  ScriptingApi::Content::ScriptedViewport::Properties::viewPositionX;
+
+		pos[(int)isY] = normPos;
+
+		auto sv = dynamic_cast<ScriptingApi::Content::ScriptedViewport*>(getScriptComponent());
+		sv->positionBroadcaster.sendMessage(dontSendNotification, pos[0], pos[1]);
+		getScriptComponent()->setScriptObjectProperty(propertyToChange, normPos, dontSendNotification);
+	}
+}
+
 void ScriptCreatedComponentWrappers::ViewportWrapper::updateColours()
 {
 	auto listBox = dynamic_cast<ListBox*>(component.get());
@@ -1518,20 +1763,23 @@ void ScriptCreatedComponentWrappers::ViewportWrapper::updateColours()
 		auto bgColour = GET_OBJECT_COLOUR(bgColour);
 		auto textColour = GET_OBJECT_COLOUR(textColour);
 
-
-		model->itemColour1 = itemColour1;
-		model->itemColour2 = itemColour2;
-		model->bgColour = bgColour;
-		model->textColour = textColour;
-
-
+		if (model != nullptr)
+		{
+			model->itemColour1 = itemColour1;
+			model->itemColour2 = itemColour2;
+			model->bgColour = bgColour;
+			model->textColour = textColour;
+		}
+		else if (tableModel != nullptr)
+		{
+			tableModel->setColours(textColour, bgColour, itemColour1, itemColour2);
+		}
 
 		listBox->getViewport()->setColour(ScrollBar::ColourIds::thumbColourId, itemColour1);
 
 		listBox->setColour(ListBox::ColourIds::backgroundColourId, bgColour);
 		listBox->setColour(ListBox::ColourIds::outlineColourId, itemColour2);
 		listBox->repaint();
-
 	}
 }
 
@@ -1576,10 +1824,18 @@ void ScriptCreatedComponentWrappers::ViewportWrapper::updateFont(ScriptingApi::C
 			}
 		}
 
-		model->font = f;
-		model->justification = vpc->getJustification();
-		listBox->setRowHeight((int)f.getHeight() + 15);
-		listBox->repaint();
+		if (tableModel != nullptr)
+		{
+			tableModel->setFont(f, vpc->getJustification());
+			getComponent()->repaint();
+		}
+		else if (model != nullptr)
+		{
+			model->font = f;
+			model->justification = vpc->getJustification();
+			listBox->setRowHeight((int)f.getHeight() + 15);
+			listBox->repaint();
+		}
 	}
 }
 
@@ -1881,6 +2137,19 @@ void ScriptCreatedComponentWrappers::PanelWrapper::subComponentRemoved(ScriptCom
 
 
 
+void ScriptCreatedComponentWrappers::PanelWrapper::cursorChanged(PanelWrapper& p, ScriptingApi::Content::ScriptPanel::MouseCursorInfo newInfo)
+{
+	MouseCursor cursor;
+
+	auto panel = p.getScriptComponent();
+	auto bp = p.getComponent();
+
+	if (p.setMouseCursorFromParentPanel(panel, cursor))
+	{
+		bp->setMouseCursor(cursor);
+	}
+}
+
 void ScriptCreatedComponentWrappers::PanelWrapper::animationChanged()
 {
 #if HISE_INCLUDE_RLOTTIE
@@ -1890,12 +2159,24 @@ void ScriptCreatedComponentWrappers::PanelWrapper::animationChanged()
 #endif
 }
 
+void ScriptCreatedComponentWrappers::PanelWrapper::paintRoutineChanged()
+{
+    auto panel = dynamic_cast<ScriptingApi::Content::ScriptPanel*>(getScriptComponent());
+    
+    if(auto bp = dynamic_cast<BorderPanel*>(getComponent()))
+    {
+        bp->isUsingCustomImage = panel->isUsingCustomPaintRoutine() || panel->isUsingClippedFixedImage();
+        
+        SafeAsyncCall::repaint(bp);
+    }
+}
+
 void ScriptCreatedComponentWrappers::PanelWrapper::initPanel(ScriptingApi::Content::ScriptPanel* panel)
 {
 	BorderPanel *bp = new BorderPanel(panel->getDrawActionHandler());
 
 	panel->addSubComponentListener(this);
-	panel->addAnimationListener(this);
+	
 
 	bp->setName(panel->name.toString());
 
@@ -1912,14 +2193,12 @@ void ScriptCreatedComponentWrappers::PanelWrapper::initPanel(ScriptingApi::Conte
 
 	bp->setEnableFileDrop(panel->fileDropLevel, panel->fileDropExtension);
 
-	MouseCursor cursor;
-
-	if (setMouseCursorFromParentPanel(panel, cursor))
-	{
-		bp->setMouseCursor(cursor);
-	}
+	
+    bp->setBufferedToImage(panel->getScriptObjectProperty(ScriptingApi::Content::ScriptPanel::bufferToImage));
 
 	component = bp;
+
+    panel->addAnimationListener(this);
 
 #if HISE_INCLUDE_RLOTTIE
 	animationChanged();
@@ -1931,6 +2210,7 @@ void ScriptCreatedComponentWrappers::PanelWrapper::initPanel(ScriptingApi::Conte
 
 	panel->repaint();
 
+	panel->getCursorUpdater().addListener(*this, cursorChanged);
 }
 
 void ScriptCreatedComponentWrappers::PanelWrapper::rebuildChildPanels()
@@ -1963,6 +2243,17 @@ ScriptCreatedComponentWrapper(content, index)
 	component = sp;
 
 	initAllProperties();
+
+	auto slaf = &pack->getScriptProcessor()->getMainController_()->getGlobalLookAndFeel();
+
+	if (auto l = dynamic_cast<SliderPack::LookAndFeelMethods*>(localLookAndFeel.get()))
+	{
+		sp->setSpecialLookAndFeel(localLookAndFeel, false);
+	}
+	else if (auto s = dynamic_cast<SliderPack::LookAndFeelMethods*>(slaf))
+	{
+		sp->setSpecialLookAndFeel(slaf, false);
+	}
 }
 
 ScriptCreatedComponentWrappers::SliderPackWrapper::~SliderPackWrapper()
@@ -1999,7 +2290,8 @@ void ScriptCreatedComponentWrappers::SliderPackWrapper::updateComponent(int prop
 		PROPERTY_CASE::ScriptSliderPack::Properties::ShowValueOverlay : sp->setShowValueOverlay(newValue); break;
 		PROPERTY_CASE::ScriptSliderPack::Properties::StepSize:
 		PROPERTY_CASE::ScriptComponent::Properties::min :
-		PROPERTY_CASE::ScriptComponent::Properties::max : updateRange(dynamic_cast<SliderPackData*>(ssp->getCachedDataObject()));
+		PROPERTY_CASE::ScriptComponent::Properties::max : updateRange(dynamic_cast<SliderPackData*>(ssp->getCachedDataObject())); break;
+		PROPERTY_CASE::ScriptSliderPack::Properties::CallbackOnMouseUpOnly : sp->setCallbackOnMouseUp((bool)newValue); break;
 	}
 }
 
@@ -2015,9 +2307,6 @@ void ScriptCreatedComponentWrappers::SliderPackWrapper::updateColours(SliderPack
 
 void ScriptCreatedComponentWrappers::SliderPackWrapper::updateRange(SliderPackData* data)
 {
-	return;
-
-#if 0
 	ScriptingApi::Content::ScriptSliderPack *ssp = dynamic_cast<ScriptingApi::Content::ScriptSliderPack*>(getScriptComponent());
 
 	double min = GET_SCRIPT_PROPERTY(min);
@@ -2028,9 +2317,8 @@ void ScriptCreatedComponentWrappers::SliderPackWrapper::updateRange(SliderPackDa
 	{
 		data->setRange(min, max, stepSize);
 		SliderPack *sp = dynamic_cast<SliderPack*>(component.get());
-		sp->updateSliders();
+		sp->updateSliderRange();
 	}
-#endif
 }
 
 void ScriptCreatedComponentWrappers::SliderPackWrapper::updateValue(var newValue)
@@ -2210,8 +2498,6 @@ ScriptCreatedComponentWrappers::AudioWaveformWrapper::AudioWaveformWrapper(Scrip
 {
     auto slaf = &form->getScriptProcessor()->getMainController_()->getGlobalLookAndFeel();
     
-    
-    
 	if (auto s = form->getSampler())
 	{
 		SamplerSoundWaveform* ssw = new SamplerSoundWaveform(s);
@@ -2223,11 +2509,6 @@ ScriptCreatedComponentWrappers::AudioWaveformWrapper::AudioWaveformWrapper(Scrip
 
 		component = ssw;
 
-        if (auto s = dynamic_cast<HiseAudioThumbnail::LookAndFeelMethods*>(slaf))
-        {
-            ssw->getThumbnail()->setLookAndFeel(slaf);
-        }
-        
 		samplerListener = new SamplerListener(s, ssw);
 	}
 	else
@@ -2235,18 +2516,20 @@ ScriptCreatedComponentWrappers::AudioWaveformWrapper::AudioWaveformWrapper(Scrip
 		auto asb = new MultiChannelAudioBufferDisplay();
 		asb->setName(form->name.toString());
         
-        
-        if (auto s = dynamic_cast<HiseAudioThumbnail::LookAndFeelMethods*>(slaf))
-        {
-            asb->getThumbnail()->setLookAndFeel(slaf);
-        }
-        
 		component = asb;
 	}
 
 	form->getSourceWatcher().addSourceListener(this);
 
 	initAllProperties();
+
+	if (auto adc = dynamic_cast<AudioDisplayComponent*>(component.get()))
+	{
+		if (auto l = dynamic_cast<HiseAudioThumbnail::LookAndFeelMethods*>(localLookAndFeel.get()))
+			adc->getThumbnail()->setLookAndFeel(localLookAndFeel);
+		else if (auto s = dynamic_cast<HiseAudioThumbnail::LookAndFeelMethods*>(slaf))
+			adc->getThumbnail()->setLookAndFeel(slaf);
+	}
 }
 
 
@@ -2362,19 +2645,41 @@ ScriptCreatedComponentWrappers::FloatingTileWrapper::FloatingTileWrapper(ScriptC
 	ft->setContent(floatingTile->getContentData());
 	ft->refreshRootLayout();
 
-    if (auto l = floatingTile->createLocalLookAndFeel())
+	for (const auto& c : floatingTile->getMouseListeners())
+		mouseCallbacks.add(new AdditionalMouseCallback(floatingTile, component, c));
+
+    updateLookAndFeel();
+}
+
+void ScriptCreatedComponentWrappers::FloatingTileWrapper::updateLookAndFeel()
+{
+    auto mc = const_cast<MainController*>(dynamic_cast<const Processor*>(getScriptComponent()->getScriptProcessor())->getMainController());
+    
+    auto ft = dynamic_cast<FloatingTile*>(getComponent());
+    auto floatingTile = getScriptComponent();
+    
+    LookAndFeel* laf = localLookAndFeel.get();
+    
+    if(laf == nullptr)
     {
-        localLookAndFeel = l;
-        
-        Component::callRecursive<Component>(ft, [l](Component* c)
+        laf = &mc->getGlobalLookAndFeel();
+
+        if (auto l = floatingTile->createLocalLookAndFeel())
         {
-            c->setLookAndFeel(l);
+            localLookAndFeel = l;
+            laf = localLookAndFeel.get();
+        }
+    }
+    
+    if (dynamic_cast<ScriptingObjects::ScriptedLookAndFeel::Laf*>(laf) != nullptr)
+    {
+        Component::callRecursive<Component>(ft, [laf](Component* c)
+        {
+            c->setLookAndFeel(laf);
             return false;
         });
     }
 }
-
-
 
 void ScriptCreatedComponentWrappers::FloatingTileWrapper::updateComponent()
 {
@@ -2401,7 +2706,10 @@ void ScriptCreatedComponentWrappers::FloatingTileWrapper::updateComponent(int pr
 	PROPERTY_CASE::ScriptFloatingTile::Properties::Font:
 	PROPERTY_CASE::ScriptFloatingTile::Properties::FontSize:
 	PROPERTY_CASE::ScriptFloatingTile::Properties::Data :
-	PROPERTY_CASE::ScriptFloatingTile::Properties::ContentType: ft->setContent(sft->getContentData()); break;
+	PROPERTY_CASE::ScriptFloatingTile::Properties::ContentType:
+        ft->setContent(sft->getContentData());
+        updateLookAndFeel();
+        break;
 	}
 
 #if USE_BACKEND

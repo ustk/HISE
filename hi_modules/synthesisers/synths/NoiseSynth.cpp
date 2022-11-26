@@ -50,9 +50,7 @@ NoiseSynth::NoiseSynth(MainController *mc, const String &id, int numVoices) :
 ProcessorEditorBody* NoiseSynth::createEditor(ProcessorEditor *parentEditor)
 {
 #if USE_BACKEND
-
 	return new EmptyProcessorEditorBody(parentEditor);
-
 #else 
 
 	ignoreUnused(parentEditor);
@@ -67,157 +65,6 @@ void NoiseVoice::calculateBlock(int startSample, int numSamples)
 	const int startIndex = startSample;
 	const int samplesToCopy = numSamples;
 
-#if HI_RUN_UNIT_TESTS
-
-	auto signalType = static_cast<NoiseSynth*>(getOwnerSynth())->getTestSignal();
-
-	switch (signalType)
-	{
-	case hise::NoiseSynth::Normal:
-	{
-		while (--numSamples >= 0)
-		{
-			const float currentSample = getNextValue();
-
-			// Stereo mode assumed
-			voiceBuffer.setSample(0, startSample, currentSample);
-
-			voiceUptime += uptimeDelta;
-
-			++startSample;
-		}
-		break;
-	}
-	case hise::NoiseSynth::DC:
-	{
-		FloatVectorOperations::fill(voiceBuffer.getWritePointer(0, startSample), 1.0f, samplesToCopy);
-		break;
-	}
-		
-	case hise::NoiseSynth::Ramp:
-	{
-		while (--numSamples >= 0)
-		{
-			const float delta1 = 1.0f / (float)INT16_MAX;
-			const float uptimeToUse = (float)((int)voiceUptime % INT16_MAX);
-			const float value = uptimeToUse * delta1;
-
-			voiceBuffer.setSample(0, startSample, value);
-
-			voiceUptime += uptimeDelta;
-			++startSample;
-		}
-
-		break;
-	}
-	case hise::NoiseSynth::DiracTrain:
-	{
-		if (auto voicePitchValues = getOwnerSynth()->getPitchValuesForVoice())
-		{
-			voicePitchValues += startSample;
-
-			while (--numSamples >= 0)
-			{
-				if (voiceUptime == 0.0 && lastUptime == -1.0)
-					voiceBuffer.setSample(0, startSample, -1.0f);
-				else if (voiceUptime >= 256.0)
-				{
-					voiceUptime -= 256.0;
-					voiceBuffer.setSample(0, startSample, 1.0f);
-				}
-				else
-					voiceBuffer.setSample(0, startSample, 0.0f);
-
-				voiceUptime += uptimeDelta * *voicePitchValues++;
-				lastUptime = voiceUptime;
-				++startSample;
-			}
-		}
-		else
-		{
-			while (--numSamples >= 0)
-			{
-				if (voiceUptime == 0.0)
-					voiceBuffer.setSample(0, startSample, -1.0f);
-				else if (voiceUptime >= 256.0)
-				{
-					voiceUptime -= 256.0;
-					voiceBuffer.setSample(0, startSample, 1.0f);
-				}
-				else
-					voiceBuffer.setSample(0, startSample, 0.0f);
-
-				voiceUptime += uptimeDelta;
-				lastUptime = voiceUptime;
-				++startSample;
-			}
-		}
-
-		
-
-		break;
-	}
-	case hise::NoiseSynth::Square:
-	{
-		if (auto voicePitchValues = getOwnerSynth()->getPitchValuesForVoice())
-		{
-			voicePitchValues += startSample;
-
-
-			while (--numSamples >= 0)
-			{
-				voiceUptime += uptimeDelta * *voicePitchValues++;
-
-				auto prevUptime = (int)(voiceUptime / 128.0);
-
-				if (prevUptime % 2 == 0)
-				{
-					voiceUptime -= 256.0;
-					voiceBuffer.setSample(0, startSample, 1.0f);
-				}
-				else
-				{
-					voiceBuffer.setSample(0, startSample, -1.0f);
-				}
-
-				++startSample;
-			}
-		}
-		else
-		{
-			while (--numSamples >= 0)
-			{
-				voiceUptime += uptimeDelta;
-
-				auto prevUptime = (int)(voiceUptime / 128.0);
-
-				if (prevUptime % 2 == 0)
-				{
-					voiceUptime -= 256.0;
-					voiceBuffer.setSample(0, startSample, 1.0f);
-				}
-				else
-				{
-					voiceBuffer.setSample(0, startSample, -1.0f);
-				}
-
-				++startSample;
-			}
-
-		}
-
-
-		break;
-	}
-		
-	case hise::NoiseSynth::numTestSignals:
-		break;
-	default:
-		break;
-}
-
-#else
-
 	while (--numSamples >= 0)
 	{
 		const float currentSample = getNextValue();
@@ -230,9 +77,6 @@ void NoiseVoice::calculateBlock(int startSample, int numSamples)
 		++startSample;
 	}
 	
-
-#endif
-
 	if (auto modValues = getOwnerSynth()->getVoiceGainValues())
 	{
 		FloatVectorOperations::multiply(voiceBuffer.getWritePointer(0, startIndex), modValues + startIndex, samplesToCopy);
@@ -246,6 +90,35 @@ void NoiseVoice::calculateBlock(int startSample, int numSamples)
 	FloatVectorOperations::copy(voiceBuffer.getWritePointer(1, startIndex), voiceBuffer.getReadPointer(0, startIndex), samplesToCopy);
 	
 	getOwnerSynth()->effectChain->renderVoice(voiceIndex, voiceBuffer, startIndex, samplesToCopy);
+}
+
+SilentSynth::SilentSynth(MainController *mc, const String &id, int numVoices) :
+	ModulatorSynth(mc, id, numVoices)
+{
+	finaliseModChains();
+
+	modChains[BasicChains::GainChain].getChain()->setBypassed(true);
+	modChains[BasicChains::PitchChain].getChain()->setBypassed(true);
+
+	for (int i = 0; i < numVoices; i++) 
+		addVoice(new SilentVoice(this));
+	
+	addSound(new SilentSound());
+
+	getMatrix().setAllowResizing(true);
+}
+
+hise::ProcessorEditorBody* SilentSynth::createEditor(ProcessorEditor *parentEditor)
+{
+#if USE_BACKEND
+	return new EmptyProcessorEditorBody(parentEditor);
+#else 
+
+	ignoreUnused(parentEditor);
+	jassertfalse;
+	return nullptr;
+
+#endif
 }
 
 } // namespace hise

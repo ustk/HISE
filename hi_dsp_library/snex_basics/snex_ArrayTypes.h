@@ -91,18 +91,16 @@ template <typename T> struct SpanOperators
 };
 
 
-/** A fixed-size array type for SNEX. 
+/** A fixed-size array type for SNEX.
+    @ingroup snex_containers
 
 	The span type is an iteratable compile-time array. The elements can be accessed 
 	using the []-operator or via a range-based for loop.
 
-	Note that the []-operator access can either take a literal integer index (that 
-	is compiled-time checked against the boundaries), or a index subtype with a 
+	In order to prevent unsafe out-of-bounds memory access, the []-operator access can
+    either take a literal integer index (that will be compiled-time checked
+    against the boundaries), or a index subtype with a
 	defined out-of-bounds behaviour (wrapping, clamping, etc).
-
-	A special version of the span is the span<float, 4> type, which will use optimized
-	SSE instructions for common operations. Also any span type with floats and a 
-	length that is a multiple of 4 will use SSE instructions when optimizing loops.
 */
 template <class T, int Size, int Alignment=16> struct span
 {
@@ -192,7 +190,7 @@ template <class T, int Size, int Alignment=16> struct span
 		return *begin();
 	}
 
-	
+	JUCE_BEGIN_IGNORE_WARNINGS_MSVC(4267);
 
 	template <typename OpType, typename OperandType> Type& performOp(const OperandType& op)
 	{
@@ -238,8 +236,12 @@ template <class T, int Size, int Alignment=16> struct span
 #endif
 			static_assert(std::is_same<typename OperandType::DataType, T>(), "type mismatch");
 
-			memset(begin(), 0, sizeof(void*) * size());
-			memcpy(begin(), op.begin(), sizeof(void*) * jmin<int>(op.size(), size()));
+			memset(begin(), 0, sizeof(void*) * (size_t)size());
+            
+            int numElements = jmin((int)op.size(), (int)size());
+            
+            
+			memcpy(begin(), op.begin(), sizeof(void*) * numElements);
 		}
 		else
 		{
@@ -281,11 +283,11 @@ template <class T, int Size, int Alignment=16> struct span
 				}
 				else
 				{
-					static constexpr int MaxIndex = jmin(ThisSize, OtherSize) / getSimdSize();
+					static constexpr int MaxIndex = jmin(ThisSize, OtherSize) / (int)getSimdSize();
 					
 
-					using SSESpanType = span<span<float, getSimdSize()>, ThisSize / getSimdSize()>;
-					using OpSSESpanType = span<span<float, getSimdSize()>, OtherSize / getSimdSize()>;
+					using SSESpanType = span<span<float, (int)getSimdSize()>, ThisSize / (int)getSimdSize()>;
+					using OpSSESpanType = span<span<float, (int)getSimdSize()>, OtherSize / (int)getSimdSize()>;
 
 					auto& thisSSE = *reinterpret_cast<SSESpanType*>(this);
 					auto& opSSE = *reinterpret_cast<const OpSSESpanType*>(&op);
@@ -336,12 +338,12 @@ template <class T, int Size, int Alignment=16> struct span
 						OpType::op((*this)[i], op[jmin<int>(i, OtherSize)]);
 				}
 			}
-
-			return *this;
 		}
 
 		return *this;
 	}
+
+	JUCE_END_IGNORE_WARNINGS_MSVC;
 
 	template <typename OperandType> Type& operator+(const OperandType& op) { return this->performOp<typename SpanOperators<T>::add>(op); }
 	template <typename OperandType> Type& operator+=(const OperandType& t) { return *this + t; }
@@ -582,10 +584,13 @@ template <class T, int Size, int Alignment=16> struct span
 /** This alias is a special type on its own as it has mathematical operators that directly translate to SSE instructions. */
 using float4 = span<float, 4>;
 
-/** The dyn template is a typed array with a dynamic amount of elements. 
-	
-	The memory used by this type will be allocated on the heap and it can be resized to fit a new size limit.
-
+/** The dyn template class is an array that is only referencing memory that is owned by something else.
+	@ingroup snex_containers
+ 
+	It can be freely resized, redirected and allows a fast and safe iteration and []-operator access using
+    the index type.
+ 
+    Maybe the most important usage of this class is a dyn<float> which has an alias called `block`.
 */
 template <class T> struct dyn
 {

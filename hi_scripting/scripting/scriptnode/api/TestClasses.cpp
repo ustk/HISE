@@ -283,6 +283,7 @@ String ScriptNetworkTest::createAsciiDiff(var data1, var data2, int numLines)
 		int l = s1.length();
 		int l2 = s2.length();
 
+        ignoreUnused(l2);
 		jassert(l == l2);
 
 		String newC;
@@ -445,7 +446,7 @@ void ScriptNetworkTest::CHandler::processTest(ProcessDataDyn& data)
 }
 
 ScriptNetworkTest::CHandler::RuntimeFunction::RuntimeFunction(DspNetwork* n, const var& f_, int timestamp_) :
-	f(n->getScriptProcessor(), f_, 0),
+	f(n->getScriptProcessor(), nullptr, f_, 0),
 	timestamp(timestamp_)
 {
 	f.incRefCount();
@@ -736,7 +737,7 @@ String Buffer2Ascii::printBufferSlice(VariantBuffer::Ptr b, int i, int numSample
 	auto absStart = hmath::abs(magRange.getStart());
 	auto absEnd = hmath::abs(magRange.getEnd());
 
-	float mag;
+	float mag = 0.0f;
 
 	if (absStart > absEnd)
 		mag = magRange.getStart();

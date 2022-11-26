@@ -250,7 +250,7 @@ void NodeContainer::updateChannels(ValueTree v, Identifier id)
 		if (originalSampleRate > 0.0)
 		{
 			PrepareSpecs ps;
-			ps.numChannels = asNode()->getCurrentChannelAmount();
+            ps.numChannels = asNode()->getCurrentChannelAmount();
 			ps.blockSize = originalBlockSize;
 			ps.sampleRate = originalSampleRate;
 			ps.voiceIndex = lastVoiceIndex;
@@ -270,7 +270,7 @@ void NodeContainer::updateChannels(ValueTree v, Identifier id)
 		if (originalSampleRate > 0.0)
 		{
 			PrepareSpecs ps;
-			ps.numChannels = asNode()->getCurrentChannelAmount();
+            ps.numChannels = asNode()->getCurrentChannelAmount();
 			ps.blockSize = originalBlockSize;
 			ps.sampleRate = originalSampleRate;
 			ps.voiceIndex = lastVoiceIndex;
@@ -363,6 +363,10 @@ juce::Rectangle<int> NodeContainer::getContainerPosition(bool isVerticalContaine
 	minWidth += 100 * an->getNumParameters();
 
 	minWidth = jmax(UIValues::NodeWidth, minWidth);
+
+	auto titleWidth = GLOBAL_BOLD_FONT().getStringWidthFloat(asNode()->getId());
+
+	minWidth = jmax<int>(minWidth, titleWidth + UIValues::HeaderHeight * 4);
 
 	if (isVerticalContainer)
 	{
@@ -558,6 +562,7 @@ NodeContainerFactory::NodeContainerFactory(DspNetwork* parent) :
 	registerNodeRaw<CloneNode>();
 	registerNodeRaw<NoMidiChainNode>();
 	registerNodeRaw<SoftBypassNode>();
+    registerNodeRaw<SidechainNode>();
 }
 
 juce::ValueTree NodeContainer::MacroParameter::getConnectionTree()

@@ -59,6 +59,7 @@ DspNetwork::DspNetwork(hise::ProcessorWithScriptingContent* p, ValueTree data_, 
 	data(data_),
 	isPoly(poly),
 	polyHandler(poly),
+	faustManager(*this),
 #if HISE_INCLUDE_SNEX
 	codeManager(*this),
 #endif
@@ -81,6 +82,11 @@ DspNetwork::DspNetwork(hise::ProcessorWithScriptingContent* p, ValueTree data_, 
     if(!data.hasProperty(PropertyIds::CompileChannelAmount))
         data.setProperty(PropertyIds::CompileChannelAmount, 2, nullptr);
     
+	if (!data.hasProperty(PropertyIds::HasTail))
+		data.setProperty(PropertyIds::HasTail, true, nullptr);
+
+	hasTailProperty.referTo(data, PropertyIds::HasTail, &um, true);
+
 	if (!data.hasProperty(ExpansionIds::Version))
 	{
 		data.setProperty(ExpansionIds::Version, "0.0.0", nullptr);
@@ -114,10 +120,24 @@ DspNetwork::DspNetwork(hise::ProcessorWithScriptingContent* p, ValueTree data_, 
                 projectNodeHolder.init(ah->projectDll);
         }
 	}
+
+	ownedFactories.add(new TemplateNodeFactory(this));
+
 #else
 	if (auto ah = dynamic_cast<Holder*>(p))
 	{
-		ownedFactories.add(new hise::FrontendHostFactory(this));
+		auto nf = new hise::FrontendHostFactory(this);
+
+		ownedFactories.add(nf);
+
+		String selfId = "project." + getId();
+
+		if (nf->getModuleList().contains(selfId))
+		{
+			// This network is supposed to be frozen
+			projectNodeHolder.init(nf->staticFactory.get());
+			projectNodeHolder.setEnabled(true);
+		}
 	}
 #endif
 
@@ -128,6 +148,10 @@ DspNetwork::DspNetwork(hise::ProcessorWithScriptingContent* p, ValueTree data_, 
 
 	setRootNode(createFromValueTree(true, data.getChild(0), true));
 	networkParameterHandler.root = getRootNode();
+
+	initialId = getId();
+
+	idGuard.setCallback(getRootNode()->getValueTree(), { PropertyIds::ID }, valuetree::AsyncMode::Asynchronously, BIND_MEMBER_FUNCTION_2(DspNetwork::checkId));
 
 	ADD_API_METHOD_1(processBlock);
 	ADD_API_METHOD_2(prepareToPlay);
@@ -211,6 +235,8 @@ DspNetwork::DspNetwork(hise::ProcessorWithScriptingContent* p, ValueTree data_, 
 
 DspNetwork::~DspNetwork()
 {
+	stopTimer();
+
 	root = nullptr;
 	selectionUpdater = nullptr;
 	nodes.clear();
@@ -238,17 +264,23 @@ void DspNetwork::createAllNodesOnce()
 
 	for (auto f : nodeFactories)
 	{
-        if(f->getId() == Identifier("project"))
-            continue;
-        
+		auto isProjectFactory = f->getId() == Identifier("project");
+            
+		if (isProjectFactory)
+			continue;
+
+		MainController::ScopedBadBabysitter sb(getScriptProcessor()->getMainController_());
+
 		for (auto id : f->getModuleList())
 		{
-			NodeBase::Holder s;
+			ScopedPointer<NodeBase::Holder> s = new NodeBase::Holder();
 
-			currentNodeHolder = &s;
+			currentNodeHolder = s;
 			create(id, "unused");
 			exceptionHandler.removeError(nullptr);
 			currentNodeHolder = nullptr;
+
+			s = nullptr;
 		}
 	}
 
@@ -431,8 +463,8 @@ void DspNetwork::reset()
 	
 	if (projectNodeHolder.isActive())
 		projectNodeHolder.n.reset();
-	else
-		getRootNode()->reset();
+	else if (auto rn = getRootNode())
+		rn->reset();
 }
 
 void DspNetwork::handleHiseEvent(HiseEvent& e)
@@ -471,7 +503,7 @@ void DspNetwork::process(ProcessDataDyn& data)
 
 bool DspNetwork::hasTail() const
 {
-	return true;
+	return hasTailProperty.get();
 }
 
 juce::Identifier DspNetwork::getParameterIdentifier(int parameterIndex)
@@ -520,7 +552,7 @@ void DspNetwork::prepareToPlay(double sampleRate, double blockSize)
             
             initialised = true;
 		}
-		catch (String& errorMessage)
+		catch (String& )
 		{
 			jassertfalse;
 		}
@@ -785,6 +817,18 @@ NodeBase* DspNetwork::createFromValueTree(bool createPolyIfAvailable, ValueTree 
 	{
 		auto n = createFromValueTree(createPolyIfAvailable, c, forceCreate);
 
+		if (n == nullptr)
+		{
+			String errorMessage;
+			errorMessage << "Error at node `" << id << "`:  \n> ";
+			errorMessage << "Can't create node with factory path `" << d[PropertyIds::FactoryPath].toString() << "`";
+
+			if (MessageManager::getInstanceWithoutCreating()->isThisTheMessageThread())
+			{
+				PresetHandler::showMessageWindow("Error", errorMessage, PresetHandler::IconType::Error);
+			}
+		}
+
 		if (currentNodeHolder != nullptr)
 		{
 			currentNodeHolder->nodes.addIfNotAlreadyThere(n);
@@ -1002,6 +1046,22 @@ juce::String DspNetwork::getNonExistentId(String id, StringArray& usedIds) const
 	return id;
 }
 
+void DspNetwork::checkId(const Identifier& id, const var& newValue)
+{
+	auto newId = newValue.toString();
+
+	auto ok = newId == initialId;
+
+	if (ok)
+		getExceptionHandler().removeError(getRootNode(), scriptnode::Error::RootIdMismatch);
+	else
+	{
+		Error e;
+		e.error = Error::RootIdMismatch;
+		getExceptionHandler().addError(getRootNode(), e, "ID mismatch between DSP network file and root container.  \n> Rename the root container back to `" + initialId + "` in order to clear this error.");
+	}
+}
+
 juce::ValueTree DspNetwork::cloneValueTreeWithNewIds(const ValueTree& treeToClone, Array<IdChange>& changes, bool changeIds)
 {
 	auto c = treeToClone.createCopy();
@@ -1084,6 +1144,12 @@ void DspNetwork::changeNodeId(ValueTree& c, const String& oldId, const String& n
 
 void DspNetwork::setUseFrozenNode(bool shouldBeEnabled)
 {
+	if (projectNodeHolder.isActive() == shouldBeEnabled)
+		return;
+
+	if (shouldBeEnabled && currentSpecs)
+		projectNodeHolder.prepare(currentSpecs);
+
 	projectNodeHolder.setEnabled(shouldBeEnabled);
 	reset();
 }
@@ -1113,6 +1179,25 @@ void DspNetwork::runPostInitFunctions()
 		if (postInitFunctions[i]())
 			postInitFunctions.remove(i--);
 	}
+}
+
+void DspNetwork::initKeyPresses(Component* root)
+{
+	using namespace ScriptnodeShortcuts;
+	String cat = "Scriptnode";
+
+	TopLevelWindowWithKeyMappings::addShortcut(root, cat, sn_deselect_all, "Deselect all nodes", KeyPress(KeyPress::escapeKey));
+	TopLevelWindowWithKeyMappings::addShortcut(root, cat, sn_duplicate, "Duplicate nodes", KeyPress('d', ModifierKeys::commandModifier, 'd'));
+	TopLevelWindowWithKeyMappings::addShortcut(root, cat, sn_new_node, "Create Node", KeyPress('n'));
+	TopLevelWindowWithKeyMappings::addShortcut(root, cat, sn_fold, "Create Node", KeyPress('f'));
+	TopLevelWindowWithKeyMappings::addShortcut(root, cat, sn_add_bookmark, "Add selection bookmark", KeyPress(KeyPress::F11Key, ModifierKeys::commandModifier, 0));
+	TopLevelWindowWithKeyMappings::addShortcut(root, cat, sn_zoom_reset, "Show all nodes", KeyPress(KeyPress::F11Key, ModifierKeys::shiftModifier, 0));
+
+	TopLevelWindowWithKeyMappings::addShortcut(root, cat, sn_zoom_fit, "Fold unselected nodes", KeyPress(KeyPress::F11Key));
+
+	TopLevelWindowWithKeyMappings::addShortcut(root, cat, sn_edit_property, "Edit Node properties", KeyPress('p'));
+	TopLevelWindowWithKeyMappings::addShortcut(root, cat, sn_toggle_bypass, "Toggle Bypass", KeyPress('q'));
+	TopLevelWindowWithKeyMappings::addShortcut(root, cat, sn_toggle_cables, "Show cables", KeyPress('c'));
 }
 
 DspNetwork::Holder::Holder()
@@ -1374,6 +1459,7 @@ DspNetwork::SelectionUpdater::SelectionUpdater(DspNetwork& parent_) :
 
 DspNetwork::SelectionUpdater::~SelectionUpdater()
 {
+	MessageManagerLock mm;
 	parent.selection.removeChangeListener(this);
 }
 
@@ -1398,7 +1484,7 @@ juce::File DspNetwork::CodeManager::getCodeFolder() const
 }
 
 DspNetwork::CodeManager::SnexSourceCompileHandler::SnexSourceCompileHandler(snex::ui::WorkbenchData* d, ProcessorWithScriptingContent* sp_) :
-	Thread("SNEX Compile Thread"),
+	Thread("SNEX Compile Thread", HISE_DEFAULT_STACK_SIZE),
 	CompileHandler(d),
 	ControlledObject(sp_->getMainController_()),
 	sp(sp_)
@@ -1505,7 +1591,6 @@ void DeprecationChecker::throwIf(DeprecationId id)
 
 bool DeprecationChecker::check(DeprecationId id)
 {
-	
 	switch (id)
 	{
 	case DeprecationId::OpTypeNonSet:
@@ -1514,8 +1599,6 @@ bool DeprecationChecker::check(DeprecationId id)
 		return !v.hasProperty("Converter") || v["Converter"] == var("Identity");
     default: return false;
 	}
-
-	return false;
 }
 
 DspNetwork::AnonymousNodeCloner::AnonymousNodeCloner(DspNetwork& p, NodeBase::Holder* other):
@@ -1594,6 +1677,19 @@ void DspNetwork::ProjectNodeHolder::init(dll::ProjectDll::Ptr dllToUse)
 		}
 	}
 #endif
+}
+
+void DspNetwork::ProjectNodeHolder::init(dll::StaticLibraryHostFactory* staticLibrary)
+{
+	int numNodes = staticLibrary->getNumNodes();
+
+	for (int i = 0; i < numNodes; i++)
+	{
+		if (network.getId() == staticLibrary->getId(i))
+		{
+			loaded = staticLibrary->initOpaqueNode(&n, i, network.isPolyphonic());
+		}
+	}
 }
 
 int HostHelpers::getNumMaxDataObjects(const ValueTree& v, snex::ExternalData::DataType t)
@@ -1723,19 +1819,26 @@ void DspNetworkListeners::PatchAutosaver::removeDanglingConnections(ValueTree& v
 
 			if (c.getType() == PropertyIds::Property && c[PropertyIds::ID].toString() == PropertyIds::Connection.toString())
 			{
-				auto idList = StringArray::fromTokens(c[PropertyIds::Value].toString(), ";", "");
+				// A global cable will also store its cable ID as Connection property so we need to avoid stripping this
+				// vital information...
+				auto isGlobalCableConnection = c.getParent().getParent()[PropertyIds::FactoryPath].toString().startsWith("routing.global");
 
-				int numBefore = idList.size();
-
-				for (int i = 0; i < idList.size(); i++)
+				if (!isGlobalCableConnection)
 				{
-					if (!nodeExists(idList[i]))
-						idList.remove(i--);
-				}
+					auto idList = StringArray::fromTokens(c[PropertyIds::Value].toString(), ";", "");
 
-				if (idList.size() != numBefore)
-				{
-					c.setProperty(PropertyIds::Value, idList.joinIntoString(";"), nullptr);
+					int numBefore = idList.size();
+
+					for (int i = 0; i < idList.size(); i++)
+					{
+						if (!nodeExists(idList[i]))
+							idList.remove(i--);
+					}
+
+					if (idList.size() != numBefore)
+					{
+						c.setProperty(PropertyIds::Value, idList.joinIntoString(";"), nullptr);
+					}
 				}
 			}
 
@@ -1745,6 +1848,7 @@ void DspNetworkListeners::PatchAutosaver::removeDanglingConnections(ValueTree& v
 
 bool DspNetworkListeners::PatchAutosaver::stripValueTree(ValueTree& v)
 {
+	
 	// Remove all child nodes from a project node
 	// (might be a leftover from the extraction process)
 	if (v.getType() == PropertyIds::Node && v[PropertyIds::FactoryPath].toString().startsWith("project"))
@@ -1777,6 +1881,112 @@ bool DspNetworkListeners::PatchAutosaver::stripValueTree(ValueTree& v)
 	return false;
 }
 #endif
+
+DspNetwork::FaustManager::FaustManager(DspNetwork& n) :
+	lastCompileResult(Result::ok()),
+	processor(dynamic_cast<Processor*>(n.getScriptProcessor()))
+{
+
+}
+
+void DspNetwork::FaustManager::sendPostCompileMessage()
+{
+	for (auto l : listeners)
+	{
+		if (l != nullptr)
+		{
+			l->faustCodeCompiled(lastCompiledFile, lastCompileResult);
+		}
+	}
+}
+
+void DspNetwork::FaustManager::addFaustListener(FaustListener* l)
+{
+	listeners.addIfNotAlreadyThere(l);
+
+	l->faustFileSelected(currentFile);
+	l->faustCodeCompiled(lastCompiledFile, lastCompileResult);
+}
+
+void DspNetwork::FaustManager::removeFaustListener(FaustListener* l)
+{
+	listeners.removeAllInstancesOf(l);
+}
+
+void DspNetwork::FaustManager::setSelectedFaustFile(Component* c, const File& f, NotificationType n)
+{
+#if USE_BACKEND
+	GET_BACKEND_ROOT_WINDOW(c)->addEditorTabsOfType<FaustEditorPanel>();
+#endif
+
+	currentFile = f;
+
+	if (n != dontSendNotification)
+	{
+		for (auto l : listeners)
+		{
+			if (l != nullptr)
+			{
+				l->faustFileSelected(currentFile);
+			}
+		}
+	}
+}
+
+void DspNetwork::FaustManager::sendCompileMessage(const File& f, NotificationType n)
+{
+	WeakReference<FaustManager> safeThis(this);
+
+	lastCompiledFile = f;
+	lastCompileResult = Result::ok();
+
+	for (auto l : listeners)
+	{
+		if (l != nullptr)
+			l->preCompileFaustCode(lastCompiledFile);
+	}
+
+	auto pf = [safeThis, n](Processor* p)
+	{
+		if (safeThis == nullptr)
+			return SafeFunctionCall::Status::nullPointerCall;
+
+		auto file = safeThis->lastCompiledFile;
+
+		p->getMainController()->getSampleManager().setCurrentPreloadMessage("Compile Faust file " + file.getFileNameWithoutExtension());
+
+		for (auto l : safeThis->listeners)
+		{
+			if (l != nullptr)
+			{
+				auto thisOk = l->compileFaustCode(file);
+
+				if (!thisOk.wasOk())
+				{
+					safeThis->lastCompileResult = thisOk;
+					break;
+				}
+			}
+		}
+
+		if (n != dontSendNotification)
+		{
+			SafeAsyncCall::call<FaustManager>(*safeThis, [](FaustManager& m)
+			{
+				m.sendPostCompileMessage();
+			});
+		}
+
+		return SafeFunctionCall::OK;
+	};
+
+	
+
+	processor->getMainController()->getKillStateHandler().killVoicesAndCall(processor, pf, 
+		MainController::KillStateHandler::SampleLoadingThread);
+}
+
+
 
 }
 

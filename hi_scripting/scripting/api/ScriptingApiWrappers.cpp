@@ -105,6 +105,8 @@ struct ScriptingApi::Content::Wrapper
 
 	static var addVisualGuide(const var::NativeFunctionArgs& args);
 
+	static var getScreenBounds(const var::NativeFunctionArgs& args);
+
 	static var setImageFile(const var::NativeFunctionArgs& args);
 	static var setImageAlpha(const var::NativeFunctionArgs& args);
 	static var showControl(const var::NativeFunctionArgs& args);
@@ -126,6 +128,12 @@ struct ScriptingApi::Content::Wrapper
 	static var contains(const var::NativeFunctionArgs& args);
 	static var createPath(const var::NativeFunctionArgs& args);
 	static var createShader(const var::NativeFunctionArgs& args);
+	static var createMarkdownRenderer(const var::NativeFunctionArgs& args);
+    static var createSVG(const var::NativeFunctionArgs& args);
+	static var isMouseDown(const var::NativeFunctionArgs& args);
+	static var getComponentUnderMouse(const var::NativeFunctionArgs& args);
+	static var callAfterDelay(const var::NativeFunctionArgs& args);
+
 };
 
 var ScriptingApi::Content::Wrapper::addButton (const var::NativeFunctionArgs& args)
@@ -925,6 +933,31 @@ var ScriptingApi::Content::Wrapper::createShader(const var::NativeFunctionArgs& 
 	return var();
 }
 
+
+juce::var ScriptingApi::Content::Wrapper::createMarkdownRenderer(const var::NativeFunctionArgs& args)
+{
+	if (ScriptingApi::Content* thisObject = GET_OBJECT(Content))
+	{
+		CHECK_ARGUMENTS("createMarkdownRenderer()", 0);
+
+		return thisObject->createMarkdownRenderer();
+	}
+
+	return var();
+}
+
+juce::var ScriptingApi::Content::Wrapper::createSVG(const var::NativeFunctionArgs& args)
+{
+    if (ScriptingApi::Content* thisObject = GET_OBJECT(Content))
+    {
+        CHECK_ARGUMENTS("createSVG()", 1);
+
+        return thisObject->createSVG(args.arguments[0]);
+    }
+
+    return var();
+}
+
 var ScriptingApi::Content::Wrapper::createScreenshot(const var::NativeFunctionArgs& args)
 {
 	if (auto thisObject = GET_OBJECT(Content))
@@ -964,6 +997,48 @@ juce::var ScriptingApi::Content::Wrapper::createLocalLookAndFeel(const var::Nati
 	{
 		CHECK_ARGUMENTS("createLocalLookAndFeel()", 0);
 		return thisObject->createLocalLookAndFeel();
+	}
+
+	return var();
+}
+
+juce::var ScriptingApi::Content::Wrapper::getScreenBounds(const var::NativeFunctionArgs& args)
+{
+	if (auto thisObject = GET_OBJECT(Content))
+	{
+		CHECK_ARGUMENTS("getScreenBounds()", 1);
+		return thisObject->getScreenBounds(args.arguments[0]);
+	}
+
+	return var();
+}
+
+juce::var ScriptingApi::Content::Wrapper::getComponentUnderMouse(const var::NativeFunctionArgs& args)
+{
+	if (auto thisObject = GET_OBJECT(Content))
+	{
+		return thisObject->getComponentUnderMouse();
+	}
+
+	return var();
+}
+
+juce::var ScriptingApi::Content::Wrapper::isMouseDown(const var::NativeFunctionArgs& args)
+{
+	if (auto thisObject = GET_OBJECT(Content))
+	{
+		return thisObject->isMouseDown();
+	}
+
+	return var();
+}
+
+juce::var ScriptingApi::Content::Wrapper::callAfterDelay(const var::NativeFunctionArgs& args)
+{
+	if (auto thisObject = GET_OBJECT(Content))
+	{
+		thisObject->callAfterDelay(args.arguments[0], args.arguments[1], args.numArguments == 3 ? args.arguments[2] : var());
+		return thisObject->isMouseDown();
 	}
 
 	return var();

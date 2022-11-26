@@ -4,26 +4,14 @@
 
 #if JUCE_MSVC
 #pragma warning (push)
-#pragma warning (disable: 4127 4706 4100)
+#pragma warning (disable: 4127 4706)
 #endif
 
 #include "synthesisers/synths/PolyBlep.cpp"
 
-#if 0
-namespace wdl
-{
-
-#include "effects/convolution/wdl/convoengine.cpp"
-#include "effects/convolution/wdl/fft.c"
-
-}
-#endif
-
 #if JUCE_MSVC
 #pragma warning (pop)
 #endif
-
-
 
 #include "nodes/HardcodedNetworkModuleBase.cpp"
 
@@ -64,10 +52,7 @@ namespace wdl
 
 #endif
 
-#include "midi_processor/mps/MidiDelay.cpp"
 #include "midi_processor/mps/Transposer.cpp"
-#include "midi_processor/mps/SampleRaster.cpp"
-#include "midi_processor/mps/RoundRobin.cpp"
 
 
 #if USE_BACKEND
@@ -97,12 +82,11 @@ namespace wdl
 #include "effects/fx/GainEffect.cpp"
 #include "effects/fx/Chorus.cpp"
 #include "effects/fx/Phaser.cpp"
-#include "effects/convolution/Convolution.cpp"
+#include "effects/fx/Convolution.cpp"
 #include "effects/mda/mdaLimiter.cpp"
 #include "effects/mda/mdaDegrade.cpp"
 #include "effects/fx/Dynamics.cpp"
 #include "effects/fx/Saturator.cpp"
-#include "effects/fx/AudioProcessorWrapper.cpp"
 #include "effects/fx/SlotFX.cpp"
 #include "effects/fx/Analyser.cpp"
 #include "effects/fx/WaveShapers.cpp"
@@ -133,12 +117,6 @@ namespace wdl
 #include "effects/editors/PolyShapeFXEditor.cpp"
 
 #endif
-
-#include "effects/fx/WrappedAudioProcessors/WrappedAudioProcessors.cpp"
-
-#include "effects/editors/AudioProcessorEditorWrapper.cpp"
-
-
 
 #include "synthesisers/synths/GlobalModulatorContainer.cpp"
 #include "synthesisers/synths/MacroModulationSource.cpp"

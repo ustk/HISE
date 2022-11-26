@@ -162,9 +162,13 @@ public:
 
 	String getNodeDescription() const override { return "Allows soft bypassing without clicks"; }
 
+	void updateSmoothingTime(Identifier id, var newValue);
+
 private:
 
-	using WrapperType = bypass::smoothed<SerialNode::DynamicSerialProcessor>;
+	NodePropertyT<int> smoothingTime;
+
+	using WrapperType = bypass::smoothed<-1, SerialNode::DynamicSerialProcessor>;
 	
 	WrapperType obj;
 };
@@ -185,7 +189,7 @@ public:
 
 private:
 
-	wrap::data<wrap::offline<SerialNode::DynamicSerialProcessor>, scriptnode::data::dynamic::audiofile> obj;
+	wrap::offline<SerialNode::DynamicSerialProcessor> obj;
 };
 
 namespace wrap {
@@ -230,6 +234,7 @@ public:
 	}
 
 	SN_PARAMETER_MEMBER_FUNCTION;
+	SN_REGISTER_CALLBACK(CloneNode);
 
 	SCRIPTNODE_FACTORY(CloneNode, "clone");
 
@@ -530,7 +535,10 @@ public:
 
 	void process(ProcessDataDyn& data) final override;
 
-	void processFrame(FrameType& data) noexcept final override { jassertfalse; }
+	void processFrame(FrameType& data) noexcept final override;
+
+	void processMonoFrame(MonoFrameType& data);
+	void processStereoFrame(StereoFrameType& data);
 
 	void prepare(PrepareSpecs ps) final override;
 	void reset() final override;
@@ -538,14 +546,13 @@ public:
 
 	int getBlockSizeForChildNodes() const override
 	{
-		return isBypassed() ? originalBlockSize : FixedBlockSize;
+		return (isBypassed() || originalBlockSize == 1) ? originalBlockSize : FixedBlockSize;
 	}
 
 	void setBypassed(bool shouldBeBypassed) override;
 
 	wrap::fix_block<FixedBlockSize, DynamicSerialProcessor> obj;
 };
-
 
 
 class FixedBlockXNode : public SerialNode
@@ -586,7 +593,7 @@ public:
 		void prepare(void* obj, prototypes::prepare f, const PrepareSpecs& ps)
 		{
 			originalSpecs = ps;
-			auto ps_ = ps.withBlockSize(blockSize);
+			auto ps_ = ps.withBlockSize(blockSize, true);
 			f(obj, &ps_);
 		}
 
@@ -619,7 +626,7 @@ public:
 
 	void process(ProcessDataDyn& data) final override;
 
-	void processFrame(FrameType& data) noexcept final override { jassertfalse; }
+	void processFrame(FrameType& data) noexcept final override;
 
 	void prepare(PrepareSpecs ps) final override;
 	void reset() final override;
@@ -629,7 +636,7 @@ public:
 
 	int getBlockSizeForChildNodes() const override
 	{
-		return isBypassed() ? originalBlockSize : obj.fbClass.blockSize;
+		return (isBypassed() || originalBlockSize == 1) ? originalBlockSize : obj.fbClass.blockSize;
 	}
 
 	void setBypassed(bool shouldBeBypassed) override;
@@ -750,6 +757,27 @@ public:
 	AudioSampleBuffer leftoverBuffer;
 };
 
+class SidechainNode : public SerialNode
+{
+public:
+
+    SidechainNode(DspNetwork* n, ValueTree d);
+
+    SCRIPTNODE_FACTORY(SidechainNode, "sidechain");
+
+    String getNodeDescription() const override { return "Creates a empty audio by duplicating the channel amount for sidechain routing."; }
+
+    void prepare(PrepareSpecs ps) final override;
+    void reset() final override;
+    void process(ProcessDataDyn& data) final override;
+    void processFrame(FrameType& data) final override;
+    int getBlockSizeForChildNodes() const override;;
+    int getNumChannelsToDisplay() const override { return lastSpecs.numChannels * 2; };
+    void handleHiseEvent(HiseEvent& e) override;
+
+    wrap::sidechain<SerialNode::DynamicSerialProcessor> obj;
+};
+
 template <int NumChannels> class SingleSampleBlock : public SerialNode
 {
 public:
@@ -789,16 +817,17 @@ public:
 	void process(ProcessDataDyn& data) final override
 	{
 		
-
 		if (isBypassed())
 		{
 			NodeProfiler np(this, data.getNumSamples());
+			ProcessDataPeakChecker pd(this, data);
 			obj.getObject().process(data.as<FixProcessType>());
 		}
 			
 		else
 		{
 			NodeProfiler np(this, 1);
+			ProcessDataPeakChecker pd(this, data);
 			float* channels[NumChannels];
 			int numChannels = jmin(NumChannels, data.getNumChannels());
 			memcpy(channels, data.getRawDataPointers(), numChannels * sizeof(float*));
@@ -825,6 +854,7 @@ public:
 	void processFrame(FrameType& d) final override
 	{
 		jassert(d.size() == NumChannels);
+		FrameDataPeakChecker fd(this, d.begin(), d.size());
 
 		auto& s = FixFrameType::as(d.begin());
 		obj.processFrame(s);

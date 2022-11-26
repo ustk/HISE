@@ -195,9 +195,6 @@ size_t Types::Helpers::getSizeForType(ID type)
 	case Types::ID::Pointer: return sizeof(int*);
     default: return 0;
 	}
-
-	jassertfalse;
-	return 0;
 }
 
 bool Types::Helpers::matchesTypeLoose(ID expected, ID actual)
@@ -324,8 +321,9 @@ juce::String Types::Helpers::getCppValueString(const var& v, ID type)
 
 		double dValue = (double)v;
 
+		auto fracPart = fmod(dValue, 1.0);
 
-		if (fmod(v, 1.0f) == 0.0f)
+		if (fracPart == 0.0f || ((hmath::abs(dValue) > 10.0) && fracPart < 0.001))
 			value << juce::String(static_cast<int>(dValue)) << ".0";
 		else
 		{

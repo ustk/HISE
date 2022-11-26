@@ -134,17 +134,22 @@ public:
 		}
 
 		items.add({ n, e });
+
+		errorBroadcaster.sendMessage(sendNotificationAsync, n, e);
 	}
 
 	void removeError(NodeBase* n, Error::ErrorCode errorToRemove=Error::numErrorCodes)
 	{
 		customErrorMessage = {};
 
+		bool didSomething = false;
+
 		for (int i = 0; i < items.size(); i++)
 		{
 			if(items[i].node == nullptr)
 			{
 				items.remove(i--);
+				didSomething = true;
 				continue;
 			}
 
@@ -156,8 +161,16 @@ public:
 				  e != Error::ErrorCode::IllegalBypassConnection);
 
 			if ((n == nullptr || (items[i].node == n)) && isErrorCode)
+			{
 				items.remove(i--);
+				didSomething = true;
+			}
 		}
+
+		auto lastItem = items.getLast();
+
+		if(didSomething)
+			errorBroadcaster.sendMessage(sendNotificationAsync, lastItem.node, lastItem.error);
 	}
 
 	static String getErrorMessage(Error e)
@@ -175,15 +188,23 @@ public:
 		case Error::SampleRateMismatch: s << "Samplerate mismatch"; break;
 		case Error::InitialisationError: return "Initialisation error";
 		case Error::TooManyChildNodes: s << "Number of child nodes (" << e.actual << ") exceed channels (" << e.expected << ")."; return s;
+        case Error::TooManyParameters: s << "Number of modulation sources (" << e.actual << ") exceed limit (" << e.expected << ")."; return s;
 		case Error::NoMatchingParent:	 return "Can't find suitable parent node";
 		case Error::RingBufferMultipleWriters: return "Buffer used multiple times";
 		case Error::NodeDebuggerEnabled: return "Node is being debugged";
 		case Error::DeprecatedNode:		 return DeprecationChecker::getErrorMessage(e.actual);
 		case Error::IllegalPolyphony: return "Can't use this node in a polyphonic network";
+		case Error::IllegalFaustNode: return "Faust is disabled. Enable faust and recompile HISE.";
+		case Error::IllegalFaustChannelCount: 
+			s << "Faust node channel mismatch. Expected channels: `" << String(e.expected) << "`";
+			s << "  \nActual input channels: `" << String(e.actual / 1000) << "`";
+			s << "  \nActual output channels: `" << String(e.actual % 1000) << "`";
+			return s;
 		case Error::IllegalBypassConnection: return "Use a `container.soft_bypass` node";
 		case Error::CloneMismatch:	return "Clone container must have equal child nodes";
 		case Error::IllegalCompilation: return "Can't compile networks with this node. Uncheck the `AllowCompilation` flag to remove the error.";
 		case Error::CompileFail:	s << "Compilation error** at Line " << e.expected << ", Column " << e.actual; return s;
+		case Error::UnscaledModRangeMismatch: s << "Unscaled mod range mismatch.  \n> Copy range to source"; return s;
 		default:
 			break;
 		}
@@ -193,7 +214,7 @@ public:
 		return s;
 	}
 
-	String getErrorMessage(NodeBase* n = nullptr) const
+	String getErrorMessage(const NodeBase* n = nullptr) const
 	{
 		for (auto& i : items)
 		{
@@ -205,6 +226,8 @@ public:
 
 		return {};
 	}
+
+	LambdaBroadcaster<NodeBase*, Error> errorBroadcaster;
 
 private:
 
@@ -357,7 +380,12 @@ public:
 		void setVoiceKillerToUse(snex::Types::VoiceResetter* vk_)
 		{
 			if (isPolyphonic())
+			{
 				vk = vk_;
+
+				if (getActiveNetwork())
+					getActiveNetwork()->setVoiceKiller(vk);
+			}
 		}
 
 		SimpleReadWriteLock& getNetworkLock() { return connectLock; }
@@ -401,6 +429,69 @@ public:
 	DspNetwork(ProcessorWithScriptingContent* p, ValueTree data, bool isPolyphonic, ExternalDataHolder* dataHolder=nullptr);
 	~DspNetwork();
 
+    /** The faust manager will handle the IDE editing features by sending out compilation and selection messages to its registered listeners. */
+    struct FaustManager
+    {
+        struct FaustListener
+        {
+            virtual ~FaustListener() {};
+            
+            /** This message will be sent out synchronously when the faust file is selected for editing. */
+            virtual void faustFileSelected(const File& f) = 0;
+            
+			/** This message will be sent out synchronously before compileFaustCode and can be overriden to indicate a pending compilation. */
+			virtual void preCompileFaustCode(const File& f) {};
+
+            /** This message is sent out on the sample loading thread when the faust code needs to be recompiled. */
+            virtual Result compileFaustCode(const File& f) = 0;
+            
+            /** This message will be sent out on the message thread after the faust code was recompiled. */
+            virtual void faustCodeCompiled(const File& f, const Result& compileResult) = 0;
+            
+            JUCE_DECLARE_WEAK_REFERENCEABLE(FaustListener);
+        };
+        
+        /** Adds a listener and calls all messages with the current state. */
+        void addFaustListener(FaustListener* l);
+        
+        /** Removes a listener. */
+        void removeFaustListener(FaustListener* l);
+        
+        /** Call this function when you want to set a FAUST file to be selected for editing.
+            There is only a single edited file per faust_manager instance and the listeners
+            will receive a message that the edited file changed.
+        */
+        void setSelectedFaustFile(Component* c, const File& f, NotificationType n);
+        
+        /** Send a message that this file is about to be compiled.
+            The listeners will be called with `compileFaustCode()` which can be override
+            to implement the actual compilation.
+         
+            After the compilation the `faustCodeCompiled()` function will be called with the
+            file and the compile result.
+        */
+        void sendCompileMessage(const File& f, NotificationType n);
+        
+        FaustManager(DspNetwork& n);;
+        
+        virtual ~FaustManager() {};
+        
+    private:
+        
+		void sendPostCompileMessage();
+
+        Result lastCompileResult;
+        File currentFile;
+        File lastCompiledFile;
+        
+		WeakReference<Processor> processor;
+
+        Array<WeakReference<FaustListener>> listeners;
+        
+        JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(FaustManager);
+		JUCE_DECLARE_WEAK_REFERENCEABLE(FaustManager);
+    } faustManager;
+    
 #if HISE_INCLUDE_SNEX
 	struct CodeManager
 	{
@@ -429,6 +520,11 @@ public:
 
 			SnexSourceCompileHandler(snex::ui::WorkbenchData* d, ProcessorWithScriptingContent* sp_);;
 
+            ~SnexSourceCompileHandler()
+            {
+                stopThread(1000);
+            }
+            
 			void processTestParameterEvent(int parameterIndex, double value) final override {};
             Result prepareTest(PrepareSpecs ps, const Array<snex::ui::WorkbenchData::TestData::ParameterEvent>& initialParameters) final override { return Result::ok(); };
 			void processTest(ProcessDataDyn& data) final override {};
@@ -522,7 +618,7 @@ public:
 			return {};
 		}
 		
-		StringArray getClassList(const Identifier& id)
+		StringArray getClassList(const Identifier& id, const String& fileExtension = "*.h")
 		{
 			auto f = getCodeFolder();
 
@@ -531,7 +627,7 @@ public:
 
 			StringArray sa;
 
-			for (auto& l : f.findChildFiles(File::findFiles, true, "*.h"))
+			for (auto& l : f.findChildFiles(File::findFiles, true, fileExtension))
 			{
 				sa.add(l.getFileNameWithoutExtension());
 			}
@@ -848,6 +944,11 @@ public:
 		return exceptionHandler;
 	}
 
+	const ScriptnodeExceptionHandler& getExceptionHandler() const
+	{
+		return exceptionHandler;
+	}
+
 	//int* getVoiceIndexPtr() { return &voiceIndex; }
 
 	void timerCallback() override
@@ -941,8 +1042,31 @@ public:
 
 	void runPostInitFunctions();
 
+	static void initKeyPresses(Component* root);
+
+
+
+    bool isSignalDisplayEnabled() const { return signalDisplayEnabled; }
+    
+    void setSignalDisplayEnabled(bool shouldBeEnabled)
+    {
+        signalDisplayEnabled = shouldBeEnabled;
+    }
+    
+	String getNonExistentId(String id, StringArray& usedIds) const;
+
+	
+
 private:
 
+	String initialId;
+
+	void checkId(const Identifier& id, const var& newValue);
+
+	valuetree::PropertyListener idGuard;
+
+    bool signalDisplayEnabled = false;
+    
 	Array<std::function<bool()>> postInitFunctions;
 
 	ModValue networkModValue;
@@ -973,6 +1097,8 @@ private:
 
 	const bool isPoly;
 
+	CachedValue<bool> hasTailProperty;
+
 	snex::Types::DllBoundaryTempoSyncer tempoSyncer;
 	snex::Types::PolyHandler polyHandler;
 
@@ -1000,7 +1126,7 @@ private:
 
 	Array<WeakReference<NodeFactory>> nodeFactories;
 
-	String getNonExistentId(String id, StringArray& usedIds) const;
+	
 
 	valuetree::RecursivePropertyListener idUpdater;
 	valuetree::RecursiveTypedChildListener exceptionResetter;
@@ -1035,10 +1161,10 @@ private:
 
 		void setParameter(int index, float newValue) override
 		{
-			if (isPositiveAndBelow(index, n.numParameters))
+			if (auto p = n.getParameter(index))
 			{
 				parameterValues[index] = newValue;
-				n.parameterFunctions[index](n.parameterObjects[index], (double)newValue);
+				p->callback.call(newValue);
 			}
 		}
 
@@ -1056,14 +1182,18 @@ private:
 
 		void prepare(PrepareSpecs ps)
 		{
-			dll->clearError();
+			if(dll != nullptr)
+				dll->clearError();
 
 			n.prepare(ps);
 
-			auto e = dll->getError();
+			if (dll != nullptr)
+			{
+				auto e = dll->getError();
 
-			if (!e.isOk())
-				throw e;
+				if (!e.isOk())
+					throw e;
+			}
 
 			n.reset();
 		}
@@ -1101,9 +1231,12 @@ private:
 			}
 		}
 
+		void init(dll::StaticLibraryHostFactory* staticLibrary);
+
 		void init(dll::ProjectDll::Ptr dllToUse);
 
 		bool hashMatches = false;
+
 		float parameterValues[OpaqueNode::NumMaxParameters];
 		DspNetwork& network;
 		dll::ProjectDll::Ptr dll;
@@ -1123,7 +1256,7 @@ struct OpaqueNetworkHolder
 	bool isPolyphonic() const { return false; }
 
 	SN_EMPTY_INITIALISE;
-	SN_EMPTY_PROCESS_FRAME;
+	
 
 	OpaqueNetworkHolder()
 	{
@@ -1153,6 +1286,20 @@ struct OpaqueNetworkHolder
 	void reset()
 	{
 		ownedNetwork->reset();
+	}
+
+	template <typename FrameDataType> void processFrame(FrameDataType& d)
+	{
+		// this might be the most inefficient code ever but we need
+		// to allow frame based processing of wrapped networks
+		float* channels[NUM_MAX_CHANNELS];
+
+		for (int i = 0; i < d.size(); i++)
+			channels[i] = d.begin() + i;
+
+		ProcessDataDyn pd(channels, 1, d.size());
+
+		ownedNetwork->process(pd);
 	}
 
 	void prepare(PrepareSpecs ps)

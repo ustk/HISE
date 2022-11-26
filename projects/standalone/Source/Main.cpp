@@ -14,33 +14,35 @@
 class CommandLineActions
 {
 private:
-
-	static void throwErrorAndQuit(const String& errorMessage)
-	{
+    
+    static void throwErrorAndQuit(const String& errorMessage)
+    {
 #if JUCE_DEBUG
-		DBG(errorMessage);
-		jassertfalse;
+        DBG(errorMessage);
+        jassertfalse;
 #else
-		print("ERROR: " + errorMessage);
-		exit(1);
+        print("ERROR: " + errorMessage);
+        exit(1);
 #endif
-	}
-
-	static void print(const String& message)
-	{
+    }
+    
+    static void print(const String& message)
+    {
 #if JUCE_DEBUG
-		DBG(message);
+        DBG(message);
 #else
-		std::cout << message << std::endl;
+        std::cout << message << std::endl;
 #endif
-	}
-
-	static StringArray getCommandLineArgs(const String& commandLine)
-	{
-		auto argsString = commandLine.fromFirstOccurrenceOf(" ", false, false);
-		return StringArray::fromTokens(argsString, true);
-	}
-
+    }
+    
+    static StringArray getCommandLineArgs(const String& commandLine)
+    {
+        auto argsString = commandLine.fromFirstOccurrenceOf(" ", false, false);
+        return StringArray::fromTokens(argsString, true);
+    }
+    
+    
+    
 	static String getArgument(const StringArray& args, const String& prefix)
 	{
 		for (auto arg : args)
@@ -106,6 +108,8 @@ public:
 		print(" - always use VisualStudio 2017 on Windows" );
 		print(" - don't copy the plugins to the plugin folders" );
 		print(" - use a relative path for the project file" );
+		print(" - ignore the global HISE path and use the HISE repository folder from the");
+		print("   current HISE executable");
 		print("Arguments: " );
 		print("FILE      The path to the project file (either .xml or .hip you want to export)." );
 		print("          In CI mode, this will be the relative path from the current project folder");
@@ -114,8 +118,15 @@ public:
 		print("-ipp      enables Intel Performance Primitives for fast convolution." );
 		print("-l        This can be used to compile a version that runs on legacy CPU models.");
 		print("-t:{TEXT} sets the project type ('standalone' | 'instrument' | 'effect' | 'midi')" );
-		print("-p:{TEXT} sets the plugin type ('VST' | 'AU' | 'VST_AU' | 'AAX' | 'ALL')" );
-		print("          (Leave empty for standalone export)" );
+		print("-p:{TEXT} sets the plugin type ('VST'  | 'AU'   | 'VST_AU' | 'AAX' |)" );
+		print("                                'ALL'  | 'VST2' | 'VST3'   | 'VST23AU' )");
+		print("          (Leave empty for standalone export). Note that if you use the VST2, VST3,");
+		print("           VST23AU it will override the project settings so you can export both versions).");
+		print("           Note: The VST23AU flag will skip AU on Windows and build only VST2 and VST3.");
+        print("-nolto    deactivates link time optimisation. The resulting binary is not as optimized");
+        print("          but the build time is much shorter");
+        print("-D:NAME=VALUE Adds a temporary preprocessor definition to the extra definitions.");
+        print("              You can use multiple definitions by using this flag multiple times.");
 		print("--test [PLUGIN_FILE]" );
 		print("Tests the given plugin" );
 		print("");
@@ -134,9 +145,11 @@ public:
 		print("Cleans the Binaries folder of the given project.");
 		print("-p:PATH - the path to the project folder.");
 		print("");
-        print("create-win-installer [-a:x64|x86] [-noaax] [-rlottie]" );
+        print("create-win-installer [-a:x64|x86] [-noaax] [-vst2] [-vst3]" );
 		print("Creates a template install script for Inno Setup for the project" );
 		print("Add the -noaax flag to not include the AAX build");
+		print("If you want to include VST2 and or VST3 plugins, specify the version.");
+		print("If no VST flag is set, then the VST2 plugin is included as default");
         print("");
         print("create-docs -p:PATH");
         print("Creates the HISE documentation files from the markdown files in the given directory.");
@@ -148,6 +161,9 @@ public:
 		print("compile_networks -c:CONFIG");
 		print("Compiles the DSP networks in the given project folder. Use the -c flag to specify the build");
 		print("configuration ('Debug' or 'Release')");
+		print("");
+		print("run_unit_tests");
+		print("Runs the unit tests. In order for this to work, HISE must be built with the CI configuration");
 
 		exit(0);
 	}
@@ -164,7 +180,11 @@ public:
 		const bool include32 = false;
         const bool include64 = !args.contains("-a:x86");
 
-		auto content = BackendCommandTarget::Actions::createWindowsInstallerTemplate(mc, includeAAX, include32, include64);
+		const bool includeVST3 = args.contains("-vst3");
+
+		const bool includeVST2 = !includeVST3 || args.contains("-vst2");
+
+		auto content = BackendCommandTarget::Actions::createWindowsInstallerTemplate(mc, includeAAX, include32, include64, includeVST2, includeVST3);
 
 		auto root = GET_PROJECT_HANDLER(mc->getMainSynthChain()).getWorkDirectory();
 
@@ -181,6 +201,8 @@ public:
 		exit(0);
 	}
 
+    
+    
 	static void setProjectVersion(const String& commandLine)
 	{
 		auto args = getCommandLineArgs(commandLine);
@@ -238,6 +260,8 @@ public:
 
 		auto bp = dynamic_cast<BackendProcessor*>(processor->getCurrentProcessor());
 
+        dynamic_cast<GlobalSettingManager*>(bp)->getSettingsObject().addTemporaryDefinitions(CompileExporter::getTemporaryDefinitions(commandLine));
+        
 		ModulatorSynthChain* mainSynthChain = bp->getMainSynthChain();
 		File currentProjectFolder = GET_PROJECT_HANDLER(mainSynthChain).getWorkDirectory();
 
@@ -565,6 +589,38 @@ public:
 			CommandLineActions::getProjectFolder(commandLine);
 			quit();
 			return;
+		}
+		else if (commandLine.startsWith("run_unit_tests"))
+		{
+#if HI_RUN_UNIT_TESTS
+			UnitTestRunner runner;
+			runner.setAssertOnFailure(false);
+            
+            // If you're working on a unit test, just add the "Current" category
+            // and then uncomment this line.
+            if(UnitTest::getTestsInCategory("Current").isEmpty())
+                runner.runAllTests();
+            else
+                runner.runTestsInCategory("Current");
+
+			for (int i = 0; i < runner.getNumResults(); i++)
+			{
+				auto result = runner.getResult(i);
+
+				if (result->failures > 0)
+				{
+					std::cout << "Test Fails:\n";
+					std::cout << result->messages.joinIntoString("\n");
+					exit(1);
+				}
+			}
+            
+            quit();
+            return;
+#else
+			std::cout << "You need to build HISE with the CI configuration in order to run the unit tests";
+			exit(1);
+#endif
 		}
 		else if (commandLine.startsWith("set_version"))
 		{

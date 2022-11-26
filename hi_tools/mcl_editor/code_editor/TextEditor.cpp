@@ -86,7 +86,7 @@ mcl::TextEditor::TextEditor(TextDocument& codeDoc)
 		{ "Bracket", 0xffFFFFFF },
 		{ "Punctuation", 0xffCCCCCC },
 		{ "Preprocessor Text", 0xffCC7777 },
-		{ "Deactivated", 0xFF666666 }
+		{ "Deactivated", 0xFF666666 },
 	};
 
 	for (unsigned int i = 0; i < sizeof(types) / sizeof(types[0]); ++i)  // (NB: numElementsInArray doesn't work here in GCC4.2)
@@ -148,6 +148,8 @@ int TextEditor::getNumDisplayedRows() const
 	return roundToInt((float)getHeight() / viewScaleFactor / document.getRowHeight());
 }
 
+
+
 bool TextEditor::shouldSkipInactiveUpdate() const
 {
 	auto docHasMultipleEditors = document.getCodeDocument().getNumListeners() > 10;
@@ -164,6 +166,26 @@ bool TextEditor::shouldSkipInactiveUpdate() const
 		return true;
 
 	return false;
+}
+
+void TextEditor::focusLost(FocusChangeType t)
+{
+	tokenCollection.setEnabled(false);
+
+	if (onFocusChange)
+		onFocusChange(false, t);
+
+	auto newFocus = Component::getCurrentlyFocusedComponent();
+
+
+	// Do not close the autocomplete when the user clicks on the help popup
+	if (newFocus != nullptr && newFocus->findParentComponentOfClass<SimpleMarkdownDisplay>() != nullptr)
+		return;
+
+	closeAutocomplete(true, {}, {});
+
+	caret.stopTimer();
+	caret.repaint();
 }
 
 void TextEditor::scrollBarMoved(ScrollBar* scrollBarThatHasMoved, double newRangeStart)
@@ -389,10 +411,50 @@ void TextEditor::closeAutocomplete(bool async, const String& textToInsert, Array
 
 			if (textToInsert.isNotEmpty())
 			{
+                auto textWithoutScope = textToInsert;
+                Array<Range<int>> rangesWithScope = selectRanges;
+                
+                auto lr = document.getFoldableLineRangeHolder();
+                if(auto n = lr.getRangeContainingLine(autocompleteSelection.head.x))
+                {
+                    auto scopeId = n->getBookmark().name.replace("namespace ", "").upToFirstOccurrenceOf("(", false, false) + ".";
+                    
+                    if(textToInsert.startsWith(scopeId))
+                    {
+                        textWithoutScope = textToInsert.fromFirstOccurrenceOf(scopeId, false, false);
+                        
+                        auto lengthToSubtract = scopeId.length();
+                        
+                        rangesWithScope.clear();
+                        
+                        for(auto& sr: selectRanges)
+                            rangesWithScope.add(sr - (int)lengthToSubtract);
+                    }
+                }
+                
+                if(textWithoutScope.contains("\n"))
+                {
+                    // Intend
+                    auto start = autocompleteSelection.head;
+                    auto end = autocompleteSelection.head;
+                    document.navigate(start, TextDocument::Target::line, TextDocument::Direction::backwardCol);
+                    document.navigate(end, TextDocument::Target::firstnonwhitespace, TextDocument::Direction::backwardCol);
+
+                    Selection emptyBeforeText(end, start);
+
+                    auto ws = document.getSelectionContent(emptyBeforeText);
+                    
+                    if(ws.isNotEmpty())
+                    {
+                        rangesWithScope.clear();
+                        textWithoutScope = textWithoutScope.replace("\n", "\n" + ws);
+                    }
+                }
+                
 				ScopedValueSetter<bool> svs(skipTextUpdate, true);
 				document.setSelections({ autocompleteSelection }, false);
 
-				insert(textToInsert);
+				insert(textWithoutScope);
 
 				auto s = document.getSelection(0).oriented();
 				CodeDocument::Position insertStart(document.getCodeDocument(), s.tail.x, s.tail.y);
@@ -404,7 +466,7 @@ void TextEditor::closeAutocomplete(bool async, const String& textToInsert, Array
 				updateViewTransform();
 				translateView(0.0f, 0.0f);
 
-				auto l = textToInsert.length();
+				auto l = textWithoutScope.length();
 
 				if (currentParameterSelection.size() == 0)
 					setParameterSelectionInternal(currentParameterSelection, nullptr, true);
@@ -413,11 +475,11 @@ void TextEditor::closeAutocomplete(bool async, const String& textToInsert, Array
 				{
 					clearParameters(true);
 
-					if (!selectRanges.isEmpty())
+					if (!rangesWithScope.isEmpty())
 					{
 						Action::List newList;
 
-						for (auto sr : selectRanges)
+						for (auto sr : rangesWithScope)
 						{
 							auto copy = insertStart;
 
@@ -506,7 +568,19 @@ bool TextEditor::copy()
         }
     }
     
-	SystemClipboard::copyTextToClipboard(document.getSelectionContent(document.getSelections().getFirst()));
+	auto s = document.getSelections().getFirst();
+	
+	if (s.isSingular())
+	{
+		// expand to whole line
+		document.navigate(s.head, TextDocument::Target::line, TextDocument::Direction::backwardCol);
+		document.navigate(s.head, TextDocument::Target::character, TextDocument::Direction::backwardCol);
+		document.navigate(s.tail, TextDocument::Target::line, TextDocument::Direction::forwardCol);
+	}
+
+	auto content = document.getSelectionContent(s);
+
+	SystemClipboard::copyTextToClipboard(content);
 	return true;
 }
 
@@ -601,9 +675,10 @@ void TextEditor::setLanguageManager(LanguageManager* ownedLanguageManager)
 	{
 		tokenCollection.clearTokenProviders();
         tokenCollection.addTokenProvider(new SimpleDocumentTokenProvider(document.getCodeDocument()));
+        ownedLanguageManager->setupEditor(this);
 		ownedLanguageManager->addTokenProviders(&tokenCollection);
 		setCodeTokeniser(languageManager->createCodeTokeniser());
-		ownedLanguageManager->setupEditor(this);
+		
 		tokenCollection.signalRebuild();
         updateLineRanges();
 	}
@@ -921,6 +996,9 @@ void mcl::TextEditor::paintOverChildren (Graphics& g)
 
 void mcl::TextEditor::mouseDown (const MouseEvent& e)
 {
+	if (e.mods.isX1ButtonDown() || e.mods.isX2ButtonDown())
+		return;
+
     tokenSelection.clear();
     
 	if (readOnly)
@@ -1051,8 +1129,8 @@ void mcl::TextEditor::mouseDown (const MouseEvent& e)
 		menu.addSeparator();
 
 		menu.addSectionHeader("View options");
-		menu.addItem(Back, "Back", document.viewUndoManager.canUndo());
-		menu.addItem(Forward, "Forward", document.viewUndoManager.canRedo());
+		menu.addItem(Back, "Back", document.viewUndoManagerToUse->canUndo());
+		menu.addItem(Forward, "Forward", document.viewUndoManagerToUse->canRedo());
 		menu.addItem(FoldAll, "Fold all", true, false);
 		menu.addItem(UnfoldAll, "Unfold all", true, false);
 		menu.addItem(LineBreaks, "Enable line breaks", true, linebreakEnabled);
@@ -1076,8 +1154,8 @@ void mcl::TextEditor::mouseDown (const MouseEvent& e)
 			case Cut: cut(); break;
 			case Copy: copy(); break;
 			case Paste: paste(); break;
-			case Forward: document.viewUndoManager.redo(); break;
-			case Back:    document.viewUndoManager.undo(); break;
+			case Forward: document.viewUndoManagerToUse->redo(); break;
+			case Back:    document.viewUndoManagerToUse->undo(); break;
 			case SelectAll: expand(TextDocument::Target::document); break;
 			case Undo: document.getCodeDocument().getUndoManager().undo(); break;
 			case Redo: document.getCodeDocument().getUndoManager().redo(); break;
@@ -1141,6 +1219,15 @@ void mcl::TextEditor::mouseDrag (const MouseEvent& e)
 	if (readOnly)
 		return;
 
+	if (e.mods.isX1ButtonDown())
+		return;
+
+	if (e.mods.isX2ButtonDown())
+		return;
+
+	if (e.mods.isMiddleButtonDown())
+		return;
+
     if (e.mouseWasDraggedSinceMouseDown())
     {
 		if (e.mods.isAltDown())
@@ -1177,6 +1264,9 @@ void mcl::TextEditor::mouseDrag (const MouseEvent& e)
 
 void mcl::TextEditor::mouseDoubleClick (const MouseEvent& e)
 {
+	if (e.mods.isX1ButtonDown() || e.mods.isX2ButtonDown())
+		return;
+
 	if (readOnly)
 		return;
 
@@ -1297,6 +1387,77 @@ void mcl::TextEditor::mouseMagnify (const MouseEvent& e, float scaleFactor)
     scaleView (scaleFactor, e.position.y);
 }
 
+
+bool TextEditor::keyMatchesId(const KeyPress& k, const Identifier& id)
+{
+	return TopLevelWindowWithKeyMappings::matches(this, k, id);
+}
+
+void TextEditor::initKeyPresses(Component* root)
+{
+	String category = "Code Editor";
+
+	TopLevelWindowWithKeyMappings::addShortcut(root, category, TextEditorShortcuts::show_autocomplete, "Show Autocomplete", KeyPress(KeyPress::escapeKey));
+
+	TopLevelWindowWithKeyMappings::addShortcut(root, category, TextEditorShortcuts::goto_definition, "Goto definition", KeyPress(KeyPress::F12Key));
+
+	TopLevelWindowWithKeyMappings::addShortcut(root, category, TextEditorShortcuts::show_search, "Search in current file", 
+		KeyPress('f', ModifierKeys::ctrlModifier, 0));
+
+	TopLevelWindowWithKeyMappings::addShortcut(root, category, TextEditorShortcuts::select_token, "Select current token",
+		KeyPress('t', ModifierKeys::ctrlModifier, 0));
+}
+
+struct TextEditor::DeactivatedRange
+{
+    DeactivatedRange(CodeDocument& d, Range<int> lineRange):
+      start(d, lineRange.getStart(), 0),
+      end(d, lineRange.getEnd(), 0)
+    {
+        
+        
+        start.moveBy(-1);
+        end.moveBy(-1);
+        
+        auto c = end.getCharacter();
+        
+        while(c != 0 && CharacterFunctions::isWhitespace(c))
+        {
+            end.moveBy(-1);
+            c = end.getCharacter();
+        }
+               
+        start.setPositionMaintained(true);
+        end.setPositionMaintained(true);
+    }
+    
+    bool contains(int characterPos) const
+    {
+        return characterPos >= start.getPosition() &&
+               characterPos < end.getPosition();
+    }
+    
+    CodeDocument::Position start, end;
+    
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(DeactivatedRange);
+};
+
+void TextEditor::setDeactivatedLines(const SparseSet<int>& lines)
+{
+    if (enablePreprocessorParsing)
+    {
+        deactivatedLines.clear();
+        
+        for(int i = 0; i < lines.getNumRanges(); i++)
+        {
+            deactivatedLines.add(
+                new DeactivatedRange(document.getCodeDocument(),
+                                    lines.getRange(i)));
+        }
+        
+        repaint();
+    }
+}
 
 bool mcl::TextEditor::keyPressed (const KeyPress& key)
 {
@@ -1626,7 +1787,7 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
 	};
 
     // =======================================================================================
-    if (key.isKeyCode (KeyPress::escapeKey))
+    if (keyMatchesId(key, TextEditorShortcuts::show_autocomplete))
     {
 		clearParameters();
 
@@ -1658,8 +1819,6 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
 			{
 				document.setSelections(document.getSelections().getLast(), true);
 			}
-
-			
 		}
 			
         updateSelections();
@@ -1697,7 +1856,8 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
 			return insert("");
 		}
 
-        if (key.isKeyCode (KeyPress::backspaceKey)) return (   expandBack (Target::commandTokenNav, Direction::backwardCol)
+        if (key.isKeyCode (KeyPress::backspaceKey) && !key.getModifiers().isAnyModifierKeyDown())
+            return (expandBack (Target::commandTokenNav, Direction::backwardCol)
                                                             && insert (""));
 
 		if (key == KeyPress('e', ModifierKeys::ctrlModifier, 0) ||
@@ -1737,7 +1897,7 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
 
 		auto s = document.getSelections().getFirst();
 
-		if (!s.isSingular())
+		if (!s.isSingular() || key.getModifiers().isShiftDown())
 		{
 			CodeDocument::Position start(document.getCodeDocument(), s.head.x, s.head.y);
 			CodeDocument::Position end(document.getCodeDocument(), s.tail.x, s.tail.y);
@@ -1802,7 +1962,7 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
 		}
 	}
 
-	if (key.isKeyCode(KeyPress::F12Key))
+	if (keyMatchesId(key, TextEditorShortcuts::goto_definition))
 	{
 		return gotoDefinition();
 
@@ -1826,10 +1986,19 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
 		return nav(mods, Target::character, Direction::backwardRow);
 	}
 
+	if (key.isKeyCode(KeyPress::backspaceKey))
+	{
+		if (key.getModifiers().isAnyModifierKeyDown())
+			return false;
 
-
-	if (key.isKeyCode(KeyPress::backspaceKey)) return remove(Target::character, Direction::backwardCol);
-	if (key.isKeyCode(KeyPress::deleteKey))	   return remove(Target::character, Direction::forwardCol);
+		return remove(Target::character, Direction::backwardCol);
+	}        
+	if (key.isKeyCode(KeyPress::deleteKey))
+	{
+		// Deactivate double delete when pressing del key
+		lastInsertWasDouble = false;
+		return remove(Target::character, Direction::forwardCol);
+	}
 
 #if JUCE_WINDOWS || JUCE_LINUX
     // Home/End: End / start of line
@@ -1847,14 +2016,6 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
     if (key == KeyPress ('a', ModifierKeys::commandModifier, 0)) return expand (Target::document);
 	if (key == KeyPress('d', ModifierKeys::commandModifier, 0))  return addNextTokenToSelection();
     if (key == KeyPress ('l', ModifierKeys::commandModifier, 0)) return expand (Target::line);
-    if (key == KeyPress ('u', ModifierKeys::commandModifier, 0))
-    {
-        return document.viewUndoManager.undo();
-    }
-    if (key == KeyPress ('u', ModifierKeys::commandModifier | ModifierKeys::shiftModifier, 0))
-    {
-        return document.viewUndoManager.redo();
-    }
     if (key == KeyPress ('z', ModifierKeys::commandModifier, 0))
     {
         return document.getCodeDocument().getUndoManager().undo();
@@ -1863,7 +2024,7 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
     {
         return document.getCodeDocument().getUndoManager().redo();
     }
-    if (key == KeyPress ('t', ModifierKeys::commandModifier, 0))
+    if (keyMatchesId(key, TextEditorShortcuts::select_token))
     {
         document.navigateSelections (TextDocument::Target::subword, TextDocument::Direction::backwardCol, Selection::Part::head);
         document.navigateSelections (TextDocument::Target::subword, TextDocument::Direction::forwardCol,  Selection::Part::tail);
@@ -1872,7 +2033,7 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
         return true;
     }
     
-	if (key.isKeyCode(KeyPress::F4Key))
+	if ((key.getKeyCode() == 35) && key.getModifiers().isCommandDown()) // "Cmd + #"
 	{
 		auto isComment = [this](Selection s)
 		{
@@ -1937,7 +2098,7 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
 		return copy();
 	if (key == KeyPress('v', ModifierKeys::commandModifier, 0))
 		return paste();
-	if (key == KeyPress('f', ModifierKeys::ctrlModifier, 0))
+	if (keyMatchesId(key, TextEditorShortcuts::show_search))
 	{
 		currentSearchBox = new SearchBoxComponent(document, transform.getScaleFactor());
 		addAndMakeVisible(currentSearchBox);
@@ -1948,7 +2109,7 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
 		auto sel = document.getSelectionContent(s);
 
 		if(sel.isNotEmpty())
-			currentSearchBox->searchField.setText(sel, sendNotificationSync);
+			currentSearchBox->searchField.setText(sel, true);
 
 		currentSearchBox->grabKeyboardFocus();
 
@@ -2067,12 +2228,27 @@ void mcl::TextEditor::renderTextUsingGlyphArrangement (juce::Graphics& g)
 
 		while (it.getLine() < rows.getEnd() && !it.isEOF())
 		{
-			int tokenType;
+            int tokenType = -1;
 
-			if (tokeniser != nullptr)
-				tokenType = tokeniser->readNextToken(it);
-			else
-				tokenType = JavascriptTokeniserFunctions::readNextToken(it);
+            auto cpos = it.getPosition();
+            
+            for(auto dr: deactivatedLines)
+            {
+                if(dr->contains(cpos))
+                {
+                    tokenType = JavascriptTokeniser::tokenType_deactivated;
+                    JavascriptTokeniserFunctions::readNextToken(it);
+                    break;
+                }
+            }
+            
+            if(tokenType == -1)
+            {
+                if (tokeniser != nullptr)
+                    tokenType = tokeniser->readNextToken(it);
+                else
+                    tokenType = JavascriptTokeniserFunctions::readNextToken(it);
+            }
 
 			Point<int> now(it.getLine(), it.getIndexInLine());
 
@@ -2084,12 +2260,7 @@ void mcl::TextEditor::renderTextUsingGlyphArrangement (juce::Graphics& g)
 			previous = now;
 		}
 
-		for (auto& z : zones)
-		{
-			if (deactivatesLines.contains(z.tail.x + 1))
-				z.token = colourScheme.types.size() - 1;
-		}
-
+		
 		document.clearTokens(rows);
 		document.applyTokens(rows, zones);
 

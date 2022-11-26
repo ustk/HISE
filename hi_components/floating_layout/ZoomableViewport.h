@@ -168,6 +168,11 @@ struct ZoomableViewport : public Component,
 
 	void setZoomFactor(float newZoomFactor, Point<float> centerPositionInGraph);
 
+    void setMaxZoomFactor(float newMaxZoomFactor)
+    {
+        maxZoomFactor = newMaxZoomFactor;
+    }
+    
 	bool changeZoom(bool zoomIn);
 
 	void componentMovedOrResized(Component& component,
@@ -449,7 +454,7 @@ struct ZoomableViewport : public Component,
 private:
 	
 
-
+    float maxZoomFactor = 3.0f;
 	
 
 	bool dragToScroll = false;
@@ -525,6 +530,43 @@ struct WrapperWithMenuBarBase : public Component,
 			return changed;
 		}
 
+		void triggerClick(NotificationType sendNotification)
+		{
+			if (enabledFunction && !enabledFunction(*parent))
+				return;
+
+			if (actionFunction)
+				actionFunction(*parent);
+
+			SafeAsyncCall::repaint(this);
+		}
+
+		/** Call this function with a lambda that creates a component and it will be shown as Floating Tile popup. */
+		void setControlsPopup(const std::function<Component*()>& createFunc)
+		{
+			stateFunction = [this](ContentType&)
+			{
+				return this->currentPopup != nullptr;
+			};
+
+			actionFunction = [this, createFunc](ContentType&)
+			{
+				auto ft = findParentComponentOfClass<FloatingTile>();
+
+				if (this->currentPopup)
+				{
+					ft->showComponentInRootPopup(nullptr, this, {});
+				}
+				else
+				{
+					this->currentPopup = createFunc();
+					ft->showComponentInRootPopup(this->currentPopup, this, { getWidth() / 2, getHeight() });
+				}
+
+				return false;
+			};
+		}
+
 		void paint(Graphics& g) override
 		{
 			auto on = stateFunction ? stateFunction(*parent) : false;
@@ -555,10 +597,7 @@ struct WrapperWithMenuBarBase : public Component,
 
 		void mouseDown(const MouseEvent& e) override
 		{
-			if (actionFunction)
-				actionFunction(*parent);
-
-			repaint();
+			triggerClick(sendNotificationSync);
 		}
 
 		void resized() override
@@ -576,6 +615,10 @@ struct WrapperWithMenuBarBase : public Component,
 		Callback actionFunction;
 		bool lastState = false;
 		bool lastEnableState = false;
+
+		Component::SafePointer<Component> currentPopup;
+
+		bool isPopupShown = false;
 	};
 
 	constexpr static int MenuHeight = 24;
@@ -593,6 +636,7 @@ struct WrapperWithMenuBarBase : public Component,
 	{
 		addAndMakeVisible(canvas);
 		canvas.addZoomListener(this);
+        canvas.setMaxZoomFactor(1.5f);
 		startTimer(100);
 	}
 
@@ -601,6 +645,21 @@ struct WrapperWithMenuBarBase : public Component,
 
 	virtual bool isValid() const { return true; }
 
+	template <typename ComponentType> ComponentType* getComponentWithName(const String& id)
+	{
+		for (auto b : actionButtons)
+		{
+			if (b->getName() == id)
+			{
+				if (auto typed = dynamic_cast<ComponentType*>(b))
+					return typed;
+			}
+		}
+
+		jassertfalse;
+		return nullptr;
+	}
+	
 	void setContentComponent(Component* newContent)
 	{
 		actionButtons.clear();
@@ -640,19 +699,37 @@ struct WrapperWithMenuBarBase : public Component,
 			sa.add(b["ID"].toString());
 		}
 
+        sa.add("Add new bookmark");
+        
 		auto currentIdx = bookmarkBox->getSelectedId();
 		bookmarkBox->clear(dontSendNotification);
 		bookmarkBox->addItemList(sa, 1);
 		bookmarkBox->setSelectedId(currentIdx, dontSendNotification);
 	}
 
+    virtual int bookmarkAdded() { return -1; };
+    
 	virtual void zoomChanged(float newScalingFactor) {};
 
 	virtual void bookmarkUpdated(const StringArray& idsToShow) = 0;
 	virtual ValueTree getBookmarkValueTree() = 0;
 
-	void comboBoxChanged(ComboBox* comboBoxThatHasChanged) override
+	void comboBoxChanged(ComboBox* c) override
 	{
+        auto isLastEntry = c->getSelectedItemIndex() == c->getNumItems() - 1;
+        
+        if(isLastEntry)
+        {
+            auto idx = bookmarkAdded();
+            
+            if(idx == -1)
+                c->setSelectedId(0, dontSendNotification);
+            else
+                c->setSelectedItemIndex(idx, dontSendNotification);
+            
+            return;
+        }
+        
 		auto bm = bookmarkUpdater.getParentTree().getChildWithProperty("ID", bookmarkBox->getText());
 
 		if (bm.isValid())
@@ -674,6 +751,8 @@ struct WrapperWithMenuBarBase : public Component,
 		auto cTree = getBookmarkValueTree();
 
 		bookmarkUpdater.setCallback(cTree, valuetree::AsyncMode::Asynchronously, BIND_MEMBER_FUNCTION_2(WrapperWithMenuBarBase::updateBookmarks));
+        
+        updateBookmarks({}, true);
 		bookmarkBox->setSize(100, 24);
 		actionButtons.add(bookmarkBox);
 		addAndMakeVisible(bookmarkBox);
@@ -695,6 +774,11 @@ struct WrapperWithMenuBarBase : public Component,
 		actionButtons.add(c);
 	}
 
+	void setPostResizeFunction(const std::function<void(Component*)>& f)
+	{
+		resizeFunction = f;
+	}
+
 	void resized() override
 	{
 		auto b = getLocalBounds();
@@ -707,9 +791,12 @@ struct WrapperWithMenuBarBase : public Component,
 		}
 
 		canvas.setBounds(b);
+
+		if (resizeFunction)
+			resizeFunction(canvas.getContentComponent());
 	}
     
-    
+	std::function<void(Component*)> resizeFunction;
 
 	ZoomableViewport canvas;
 	OwnedArray<Component> actionButtons;

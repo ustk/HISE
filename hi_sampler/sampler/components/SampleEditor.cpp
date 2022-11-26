@@ -1730,10 +1730,10 @@ void SampleEditor::perform(SampleMapCommands c)
 
 #if JUCE_WINDOWS
         for(auto& f: editedFiles)
-            args << "\"" << f.getFullPathName() << "\" ";
+            args << "\"" << f.getFullPathName().replace(" ", "\\ ") << "\" ";
 #else
         for(auto& f: editedFiles)
-            args << f.getFullPathName() << " ";
+            args << f.getFullPathName().replace(" ", "\\ ") << " ";
 #endif
 
         externalWatcher = new ExternalFileChangeWatcher(sampler, editedFiles);
@@ -1783,6 +1783,15 @@ void SampleEditor::scrollBarMoved(ScrollBar* scrollBarThatHasMoved, double newRa
 	end /= (double)jmax(1, currentWaveForm->getWidth());
 
 	overview.setRange(start * overview.getWidth(), end * overview.getWidth());
+}
+
+bool SampleEditor::isInWorkspace() const
+{
+#if USE_BACKEND
+	return findParentComponentOfClass<ProcessorEditor>() == nullptr;
+#else
+	return false;
+#endif
 }
 
 void SampleEditor::samplePropertyWasChanged(ModulatorSamplerSound* s, const Identifier& id, const var& /*newValue*/)

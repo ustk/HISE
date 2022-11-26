@@ -41,6 +41,10 @@ namespace snex {
 #define std_ std
 #endif
     
+    /** This class holds all math functions available in SNEX.
+     
+        @ingroup snex_math
+    */
     struct hmath
     {
         
@@ -127,19 +131,38 @@ return b1; \
 #undef vOpBinary
 #undef vOpScalar
         
-        
+    /** A constant double precision value for PI */
     constexpr static double PI = 3.1415926535897932384626433832795;
+        
+    /** A constant double precision value for E */
     constexpr static double E = 2.7182818284590452353602874713527;
+        
+    /** A constant double precision value for sqrt(2) */
     constexpr static double SQRT2 = 1.4142135623730950488016887242097;
+        
+        
     constexpr static double FORTYTWO = 42.0; // just for unit test purposes, the other ones choke because of
     // String conversion imprecisions...
     
+    /** Calculates the sign of a number. */
 	static constexpr double sign(double value) { return (double)(value >= 0.0) * 2.0 - 1.0; };
+        
+    /** Calculates the absolute value of a number. */
 	static constexpr double abs(double value) { return value * sign(value); };
+        
+    /** Rounds the value to the next multiple of 1. */
 	static forcedinline double round(double value) { return roundf((float)value); };
+        
+    /** Clamps the value between a lower and upper limit. */
 	static forcedinline double range(double value, double lower, double upper) { return jlimit<double>(lower, upper, value); };
+        
+    /** Returns the smaller value. */
 	static constexpr double min(double value1, double value2) { return jmin<double>(value1, value2); };
+        
+    /** Returns the bigger value. */
 	static constexpr double max(double value1, double value2) { return jmax<double>(value1, value2); };
+        
+    /** Generates a double precision random number. */
 	static forcedinline double randomDouble() { return Random::getSystemRandom().nextDouble(); };
 
 	static constexpr float sign(float value) { return value > 0.0f ? 1.0f : -1.0f; };
@@ -194,6 +217,22 @@ return b1; \
 		auto t = range((input - lower) / (upper - lower), 0.0, 1.0);
 		return range(t * t * (3.0 - 2.0 * t), 0.0, 1.0);
 	}
+
+	static forcedinline double fastsin (double a) noexcept { return juce::dsp::FastMathApproximations::sin(a); }
+	static forcedinline double fastsinh(double a) noexcept { return juce::dsp::FastMathApproximations::sinh(a); }
+	static forcedinline double fastcos (double a) noexcept { return juce::dsp::FastMathApproximations::cos(a); }
+	static forcedinline double fastcosh(double a) noexcept { return juce::dsp::FastMathApproximations::cosh(a); }
+	static forcedinline double fasttanh(double a) noexcept { return juce::dsp::FastMathApproximations::tanh(a); }
+	static forcedinline double fasttan (double a) noexcept { return juce::dsp::FastMathApproximations::tan(a); }
+	static forcedinline double fastexp (double a) noexcept { return juce::dsp::FastMathApproximations::exp(a); }
+
+	static forcedinline float fastsin (float a) noexcept { return juce::dsp::FastMathApproximations::sin(a); }
+	static forcedinline float fastsinh(float a) noexcept { return juce::dsp::FastMathApproximations::sinh(a); }
+	static forcedinline float fastcos (float a) noexcept { return juce::dsp::FastMathApproximations::cos(a); }
+	static forcedinline float fastcosh(float a) noexcept { return juce::dsp::FastMathApproximations::cosh(a); }
+	static forcedinline float fasttanh(float a) noexcept { return juce::dsp::FastMathApproximations::tanh(a); }
+	static forcedinline float fasttan (float a) noexcept { return juce::dsp::FastMathApproximations::tan(a); }
+	static forcedinline float fastexp (float a) noexcept { return juce::dsp::FastMathApproximations::exp(a); }
 
 	static constexpr	double sig2mod(double v) { return v * 0.5 + 0.5; };
 	static constexpr	double mod2sig(double v) { return v * 2.0 - 1.0; };

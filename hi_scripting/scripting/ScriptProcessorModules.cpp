@@ -224,7 +224,7 @@ void JavascriptMidiProcessor::runScriptCallbacks()
 	breakpointWasHit(-1);
 #endif
 
-	scriptEngine->maximumExecutionTime = isDeferred() ? RelativeTime(0.5) : RelativeTime(0.03);
+	scriptEngine->maximumExecutionTime = HiseJavascriptEngine::getDefaultTimeOut();
 
 	synthObject->handleNoteCounter(*currentEvent);
 
@@ -330,7 +330,7 @@ void JavascriptMidiProcessor::runTimerCallback(int /*offsetInBuffer*//*=-1*/)
 {
 	if (isBypassed() || onTimerCallback->isSnippetEmpty()) return;
 
-	scriptEngine->maximumExecutionTime = isDeferred() ? RelativeTime(0.5) : RelativeTime(0.002);
+	scriptEngine->maximumExecutionTime = HiseJavascriptEngine::getDefaultTimeOut();
 
 	if (lastResult.failed()) return;
 
@@ -488,6 +488,8 @@ void JavascriptPolyphonicEffect::prepareToPlay(double sampleRate, int samplesPer
 	{
 		auto numChannels = dynamic_cast<RoutableProcessor*>(getParentProcessor(true))->getMatrix().getNumSourceChannels();
 
+        setVoiceKillerToUse(this);
+        
 		n->setNumChannels(numChannels);
 		n->prepareToPlay(sampleRate, (double)samplesPerBlock);
 	}
@@ -509,6 +511,8 @@ void JavascriptPolyphonicEffect::renderVoice(int voiceIndex, AudioSampleBuffer &
 
 		scriptnode::DspNetwork::VoiceSetter vs(*n, voiceIndex);
 		n->getRootNode()->process(d);
+        
+        isTailing = voiceData.containsVoiceIndex(voiceIndex);
 	}
 }
 
@@ -516,7 +520,7 @@ void JavascriptPolyphonicEffect::startVoice(int voiceIndex, const HiseEvent& e)
 {
 	if (auto n = getActiveNetwork())
 	{
-		voiceData.startVoice(n, voiceIndex, e);
+		voiceData.startVoice(*n, *n->getPolyHandler(), voiceIndex, e);
 		
 	}
 }
@@ -535,7 +539,7 @@ void JavascriptPolyphonicEffect::handleHiseEvent(const HiseEvent &m)
 
 	if (auto n = getActiveNetwork())
 	{
-		voiceData.handleHiseEvent(n, m);
+		voiceData.handleHiseEvent(*n, *n->getPolyHandler(), m);
 	}
 }
 
@@ -1249,7 +1253,7 @@ void JavascriptEnvelopeModulator::handleHiseEvent(const HiseEvent &m)
 
 	if (auto n = getActiveNetwork())
 	{
-		voiceData.handleHiseEvent(n, m);
+		voiceData.handleHiseEvent(*n, *n->getPolyHandler(), m);
 	}
 }
 
@@ -1299,7 +1303,7 @@ float JavascriptEnvelopeModulator::startVoice(int voiceIndex)
 
 	if (auto n = getActiveNetwork())
 	{
-		voiceData.startVoice(n, voiceIndex, lastNoteOn);
+		voiceData.startVoice(*n, *n->getPolyHandler(), voiceIndex, lastNoteOn);
 	}
 
     return 0.0f;
@@ -1510,20 +1514,7 @@ void JavascriptSynthesiser::preHiseEventCallback(HiseEvent &e)
 
 	if (auto n = getActiveNetwork())
 	{
-		voiceData.handleHiseEvent(n, e);
-
-#if 0
-		for (auto av : activeVoices)
-		{
-			if (e.isNoteOff() && av->getCurrentHiseEvent().getEventId() != e.getEventId())
-				continue;
-
-			scriptnode::DspNetwork::VoiceSetter vs(*n, av->getVoiceIndex());
-
-			HiseEvent copy(e);
-			n->getRootNode()->handleHiseEvent(copy);
-		}
-#endif
+		voiceData.handleHiseEvent(*n, *n->getPolyHandler(), e);
 	}
 }
 
@@ -1548,8 +1539,13 @@ void JavascriptSynthesiser::prepareToPlay(double newSampleRate, int samplesPerBl
 
 	if (auto n = getActiveNetwork())
 	{
+		if (auto vk = ProcessorHelpers::getFirstProcessorWithType<ScriptnodeVoiceKiller>(gainChain))
+			setVoiceKillerToUse(vk);
+
         n->prepareToPlay(newSampleRate, (double)samplesPerBlock);
         n->setNumChannels(getMatrix().getNumSourceChannels());
+		
+		
 	}
 }
 
@@ -1569,11 +1565,13 @@ void JavascriptSynthesiser::restoreFromValueTree(const ValueTree &v)
 
 void JavascriptSynthesiser::Voice::calculateBlock(int startSample, int numSamples)
 {
+	
 	if (auto n = synth->getActiveNetwork())
 	{
 		if (isVoiceStart)
 		{
-			synth->voiceData.startVoice(n, getVoiceIndex(), getCurrentHiseEvent());
+			n->setVoiceKiller(synth->vk);
+			synth->voiceData.startVoice(*n, *n->getPolyHandler(), getVoiceIndex(), getCurrentHiseEvent());
 			isVoiceStart = false;
 		}
 
@@ -1611,6 +1609,38 @@ void JavascriptSynthesiser::Voice::calculateBlock(int startSample, int numSample
 	}
 }
 
+void ScriptnodeVoiceKiller::initialiseNetworks(ScriptnodeVoiceKiller& v)
+{
+	if (!v.initialised)
+	{
+		auto parentSynth = v.getParentProcessor(true, false);
+		auto modParent = v.getParentProcessor(false, false);
+
+		if (parentSynth == nullptr)
+			return;
+
+		auto modParentIsGain = parentSynth->getChildProcessor(ModulatorSynth::GainModulation) == modParent;
+
+		if (!modParentIsGain)
+		{
+			// nothing to do here...
+			v.initialised = true;
+			return;
+		}
+
+		if (auto holder = dynamic_cast<DspNetwork::Holder*>(parentSynth))
+		{
+			holder->setVoiceKillerToUse(&v);
+			v.initialised = true;
+		}
+	}
+}
+
+float ScriptnodeVoiceKiller::startVoice(int voiceIndex)
+{
+	getState(voiceIndex)->active.store(true); return 1.0f;
+}
+
 hise::ProcessorEditorBody * ScriptnodeVoiceKiller::createEditor(ProcessorEditor *parentEditor)
 {
 #if USE_BACKEND
@@ -1631,56 +1661,6 @@ void VoiceDataStack::reset(int voiceIndex)
 			break;
 		}
 	}
-}
-
-void VoiceDataStack::handleHiseEvent(scriptnode::DspNetwork* n, const HiseEvent& m)
-{
-	if (m.isNoteOff())
-	{
-		for (auto vd : voiceNoteOns)
-		{
-			if (vd.noteOn.getEventId() == m.getEventId())
-			{
-				HiseEvent c(m);
-				scriptnode::DspNetwork::VoiceSetter vs(*n, vd.voiceIndex);
-				n->handleHiseEvent(c);
-			}
-		}
-	}
-	else if (m.isPitchWheel() || m.isAftertouch() || m.isControllerOfType(74))
-	{
-		for (auto vd : voiceNoteOns)
-		{
-			if (vd.noteOn.getChannel() == m.getChannel())
-			{
-				HiseEvent c(m);
-				scriptnode::DspNetwork::VoiceSetter vs(*n, vd.voiceIndex);
-				n->handleHiseEvent(c);
-			}
-		}
-	}
-	else if (!m.isNoteOn())
-	{
-		for (auto vd : voiceNoteOns)
-		{
-			HiseEvent c(m);
-			scriptnode::DspNetwork::VoiceSetter vs(*n, vd.voiceIndex);
-			n->handleHiseEvent(c);
-}
-	}
-}
-
-void VoiceDataStack::startVoice(scriptnode::DspNetwork* n, int voiceIndex, const HiseEvent& e)
-{
-	voiceNoteOns.insertWithoutSearch({ voiceIndex, e });
-	HiseEvent c(e);
-
-	scriptnode::DspNetwork::VoiceSetter vs(*n, voiceIndex);
-    
-    HiseEvent copy(e);
-    
-    n->reset();
-    n->handleHiseEvent(copy);
 }
 
 } // namespace hise

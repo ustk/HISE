@@ -49,8 +49,6 @@ void OpaqueNode::allocateObjectSize(int numBytes)
 	object.setSize(numBytes);
 }
 
-
-
 void OpaqueNode::prepare(PrepareSpecs ps)
 {
 	if (prepareFunc)
@@ -93,14 +91,8 @@ void OpaqueNode::setExternalData(const ExternalData& b, int index)
 
 void OpaqueNode::createParameters(ParameterDataList& l)
 {
-	for (int i = 0; i < numParameters; i++)
-	{
-		parameter::data d;
-		d.info = parameters[i];
-		d.callback.referTo(parameterObjects[i], parameterFunctions[i]);
-		d.parameterNames = parameterNames[i];
-		l.add(d);
-	}
+	for (const auto& p : ParameterIterator(*this))
+		l.add(p);
 }
 
 void OpaqueNode::initExternalData(ExternalDataHolder* externalDataHolder)
@@ -138,6 +130,7 @@ void OpaqueNode::callDestructor()
 		destructFunc(getObjectPtr());
 
 		object.free();
+		parameters.clear();
 		destructFunc = nullptr;
 	}
 }
@@ -147,17 +140,32 @@ bool OpaqueNode::handleModulation(double& d)
 	return modFunc(getObjectPtr(), &d) > 0;
 }
 
+
+
 void OpaqueNode::fillParameterList(ParameterDataList& pList)
 {
-	numParameters = pList.size();
-
-	for (int i = 0; i < numParameters; i++)
+	struct
 	{
-		parameters[i] = pList[i].info;
-		parameterFunctions[i] = pList[i].callback.getFunction();
-		parameterObjects[i] = pList[i].callback.getObjectPtr();
-		parameterNames[i] = pList[i].parameterNames;
-	}
+		static int compareElements(const parameter::data& first, const parameter::data& second)
+		{
+			jassert(first.info.index != -1);
+
+			if (first.info.index < second.info.index)
+				return -1;
+			if (first.info.index > second.info.index)
+				return 1;
+
+			// must never happen...
+			return first.info.getId().compare(second.info.getId());
+		}
+	} sorter;
+
+	pList.sort(sorter);
+
+	numParameters = pList.size();
+	parameters.clear();
+	parameters.ensureStorageAllocated(numParameters);	
+	parameters.addArray(pList);
 }
 
 namespace dll
@@ -182,8 +190,12 @@ bool StaticLibraryHostFactory::initOpaqueNode(scriptnode::OpaqueNode* n, int ind
 {
 	if (polyphonicIfPossible && items[index].pf)
 		items[index].pf(n);
-	else
+    else if (items[index].f)
 		items[index].f(n);
+    else
+    {
+        return false;
+    }
 
 	if (items[index].pf)
 		n->setCanBePolyphonic();
@@ -280,6 +292,17 @@ int DynamicLibraryHostFactory::getWrapperType(int index) const
 	return 0;
 }
 
+bool DynamicLibraryHostFactory::isThirdPartyNode(int index) const
+{
+	if (projectDll != nullptr)
+	{
+		if(isPositiveAndBelow(index, getNumNodes()))
+			return projectDll->isThirdPartyNode(index);
+	}
+		
+	return false;
+}
+
 void DynamicLibraryHostFactory::clearError() const
 {
 	if (projectDll != nullptr)
@@ -294,19 +317,27 @@ Error DynamicLibraryHostFactory::getError() const
 	return {};
 }
 
+void DynamicLibraryHostFactory::deinitOpaqueNode(scriptnode::OpaqueNode* n)
+{
+	if (projectDll != nullptr)
+		projectDll->deInitOpaqueNode(n);
+}
+
 String ProjectDll::getFuncName(ExportedFunction f)
 {
 	switch (f)
 	{
-	case ExportedFunction::GetHash:				return "getHash";
-	case ExportedFunction::GetWrapperType:		return "getWrapperType";
-	case ExportedFunction::GetNumNodes:			return "getNumNodes";
-	case ExportedFunction::GetNodeId:			return "getNodeId";
-	case ExportedFunction::InitOpaqueNode:		return "initOpaqueNode";
-	case ExportedFunction::DeInitOpaqueNode:	return "deInitOpaqueNode";
-	case ExportedFunction::GetNumDataObjects:	return "getNumDataObjects";
-	case ExportedFunction::GetError:			return "getError";
-	case ExportedFunction::ClearError:			return "clearError";
+	case ExportedFunction::GetHash:				 return "getHash";
+	case ExportedFunction::GetWrapperType:		 return "getWrapperType";
+	case ExportedFunction::GetNumNodes:			 return "getNumNodes";
+	case ExportedFunction::GetNodeId:			 return "getNodeId";
+	case ExportedFunction::InitOpaqueNode:		 return "initOpaqueNode";
+	case ExportedFunction::DeInitOpaqueNode:	 return "deInitOpaqueNode";
+	case ExportedFunction::GetNumDataObjects:	 return "getNumDataObjects";
+	case ExportedFunction::GetError:			 return "getError";
+	case ExportedFunction::ClearError:			 return "clearError";
+	case ExportedFunction::IsThirdPartyNode:	 return "isThirdPartyNode";
+	case ExportedFunction::GetDLLVersionCounter: return "getDllVersionCounter";
 	default: jassertfalse; return "";
 	}
 }
@@ -335,6 +366,14 @@ int ProjectDll::getNumDataObjects(int nodeIndex, int dataTypeAsInt) const
 		return DLL_FUNCTION(GetNumDataObjects)(nodeIndex, dataTypeAsInt);
 
 	return 0;
+}
+
+bool ProjectDll::isThirdPartyNode(int nodeIndex) const
+{
+	if (*this)
+		return DLL_FUNCTION(IsThirdPartyNode)(nodeIndex);
+
+	return false;
 }
 
 String ProjectDll::getNodeId(int index) const
@@ -398,7 +437,8 @@ int ProjectDll::getHash(int index) const
 #undef DLL_FUNCTION
 
 ProjectDll::ProjectDll(const File& f):
-	r(Result::fail("Can't find DLL file "  + f.getFullPathName()))
+	r(Result::fail("Can't find DLL file "  + f.getFullPathName())),
+    loadedFile(f)
 {
 	dll = new DynamicLibrary();
 
@@ -408,6 +448,16 @@ ProjectDll::ProjectDll(const File& f):
 
 		for (int i = 0; i < (int)ExportedFunction::numFunctions; i++)
 			functions[i] = getFromDll((ExportedFunction)i, f);
+
+		int dllVersion = -1;
+
+		if (auto gf = (GetDllVersionCounter)functions[(int)ExportedFunction::GetDLLVersionCounter])
+			dllVersion = gf();
+		
+		if (dllVersion != DllUpdateCounter)
+		{
+			r = Result::fail("DLL Version mismatch. The DLL API has changed Reexport your nodes in order to use the dll.");
+		}
 	}
 	else
 	{

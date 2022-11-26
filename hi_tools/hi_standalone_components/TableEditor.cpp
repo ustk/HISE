@@ -95,7 +95,7 @@ int TableEditor::snapXValueToGrid(int x) const
 	if (snapValues.size() == 0)
 		return x;
 
-	auto normalizedX = a.getX() / a.getWidth();
+	auto normalizedX = (x - a.getX()) / a.getWidth();
 
 	auto snapRangeHalfWidth = 10.0f / a.getWidth();
 
@@ -105,7 +105,7 @@ int TableEditor::snapXValueToGrid(int x) const
 		auto snapRange = Range<float>(snapValue - snapRangeHalfWidth, snapValue + snapRangeHalfWidth);
 
 		if (snapRange.contains(normalizedX))
-			return (int)(snapValue * a.getWidth());
+			return a.getX() + (int)(snapValue * a.getWidth());
 	}
 
 	return x;
@@ -113,7 +113,7 @@ int TableEditor::snapXValueToGrid(int x) const
 
 void TableEditor::mouseWheelMove(const MouseEvent &e, const MouseWheelDetails &wheel)
 {
-	return;
+#if HISE_USE_MOUSE_WHEEL_FOR_TABLE_CURVE
 
 	MouseEvent parentEvent = e.getEventRelativeTo(this);
 	int x = parentEvent.getMouseDownPosition().getX();
@@ -158,6 +158,7 @@ void TableEditor::mouseWheelMove(const MouseEvent &e, const MouseWheelDetails &w
 	}
 
 	else getParentComponent()->mouseWheelMove(e, wheel);
+#endif
 };
 
 
@@ -188,15 +189,6 @@ void TableEditor::updateCurve(int x, int y, float newCurveValue, bool useUndoMan
 
 
 
-
-bool TableEditor::isInMainPanel() const
-{
-#if HI_REMOVE_HISE_DEPENDENCY_FOR_TOOL_CLASSES
-	return false;
-#else
-	return isInMainPanelInternal();
-#endif
-}
 
 
 juce::String TableEditor::getPopupString(float x, float y)
@@ -293,8 +285,7 @@ void TableEditor::paint (Graphics& g)
 	}
 		
 
-#if !HISE_IOS
-    if (currently_dragged_point != nullptr && isInMainPanel())
+    if (currently_dragged_point != nullptr)
     {
 		auto a = getTableArea();
 
@@ -312,7 +303,6 @@ void TableEditor::paint (Graphics& g)
 		if (auto l = getTableLookAndFeel())
 			l->drawTableValueLabel(g, *this, fontToUse, text, area);
     }
-#endif
     
     g.setOpacity(isEnabled() ? 1.0f : 0.2f);
  
@@ -368,6 +358,20 @@ void TableEditor::setDomain(DomainType newDomainType, Range<int> newRange)
 	if( currentType == DomainType::scaled ) domainRange = newRange;
 	else jassert ( newRange.isEmpty() );
 };
+
+void TableEditor::setSnapValues(var snapArray)
+{
+	if (auto ar = snapArray.getArray())
+	{
+		snapValues.clear();
+
+		for (const auto& v : *ar)
+		{
+			DBG((float)v);
+			snapValues.add((float)v);
+		}
+	}
+}
 
 void TableEditor::mouseDown(const MouseEvent &e)
 {
@@ -949,6 +953,9 @@ void FileNameValuePropertyComponent::MyFunkyFilenameComponent::updateFromTextEdi
 
 void TableEditor::LookAndFeelMethods::drawTableValueLabel(Graphics& g, TableEditor& te, Font f, const String& text, Rectangle<int> textBox)
 {
+    if(!te.shouldDrawTableValueLabel())
+        return;
+    
 	g.setFont(f);
 	g.setColour(te.findColour(TableEditor::ColourIds::overlayBgColour));
 	g.fillRect(textBox);

@@ -77,7 +77,9 @@ struct templated_mode
 };
 
 /** Use this base class when you have a node that uses unnormalised modulation. This will cause the
-    C++ generator to ignore the parameter range. 
+    C++ generator to ignore the parameter range of the target parameter.
+
+	You can also specify a list of IDs of its own parameters that should be forwarded without scaling.
 */
 struct no_mod_normalisation
 {
@@ -85,10 +87,21 @@ struct no_mod_normalisation
 
 	static constexpr bool isNormalisedModulation() { return false; }
 
-	no_mod_normalisation(const Identifier& nodeId)
+	no_mod_normalisation(const Identifier& nodeId, const StringArray& unscaledInputParameterIds)
 	{
 		cppgen::CustomNodeProperties::addNodeIdManually(nodeId, PropertyIds::UseUnnormalisedModulation);
+
+		for (const auto& s : unscaledInputParameterIds)
+		{
+			cppgen::CustomNodeProperties::addUnscaledParameter(nodeId, s);
+		}
 	}
+};
+
+/** use this base class if you don't have a output parameter slot. */
+struct no_parameter
+{
+    virtual ~no_parameter() {};
 };
 
 /** Use this baseclass for nodes that do not process the signal. */

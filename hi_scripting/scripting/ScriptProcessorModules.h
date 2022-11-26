@@ -125,8 +125,8 @@ public:
 		return nullptr;
 	}
 
-	StringArray& getListOfModuleIds() {
-		return storedModuleIds;
+	MainController::UserPresetHandler::StoredModuleData::List& getListOfModuleIds() {
+		return getMainController()->getUserPresetHandler().getStoredModuleData();
 	}
 
 	ScriptingApi::Server::WeakPtr getServerObject() { return serverObject; }
@@ -211,7 +211,9 @@ private:
 
 	bool front, deferred, deferredUpdatePending;
 
-	StringArray storedModuleIds;
+	
+
+	
 
 	JUCE_DECLARE_WEAK_REFERENCEABLE(JavascriptMidiProcessor);
 };
@@ -414,7 +416,11 @@ public:
 		Modulation(Modulation::GainMode)
 	{
 		for (int i = 0; i < polyManager.getVoiceAmount(); i++) states.add(createSubclassedState(i));
+
+		SafeAsyncCall::callWithDelay<ScriptnodeVoiceKiller>(*this, initialiseNetworks, 300);
 	};
+
+	static void initialiseNetworks(ScriptnodeVoiceKiller& v);
 
 	void setInternalAttribute(int parameter_index, float newValue) override {}
 	float getDefaultValue(int parameterIndex) const override { return 0.0f; }
@@ -425,13 +431,15 @@ public:
 	Processor *getChildProcessor(int) override { return nullptr; };
 	const Processor *getChildProcessor(int) const override { return nullptr; };
 
-	float startVoice(int voiceIndex) final override { getState(voiceIndex)->active.store(true); return 1.0f; }
+	float startVoice(int voiceIndex) final override;
 	void stopVoice(int voiceIndex) override {}
 	void reset(int voiceIndex) final override { getState(voiceIndex)->active = false; }
 	bool isPlaying(int voiceIndex) const override { return getState(voiceIndex)->active; }
 
 	void calculateBlock(int startSample, int numSamples) override { FloatVectorOperations::fill(internalBuffer.getWritePointer(0, startSample), 1.0f, numSamples); }
 	void handleHiseEvent(const HiseEvent& m) override {}
+
+	
 
 	struct State : public ModulatorState
 	{
@@ -471,6 +479,8 @@ public:
 	ModulatorState *createSubclassedState(int voiceIndex) const override { return new State(voiceIndex); };
 
 	JUCE_DECLARE_WEAK_REFERENCEABLE(ScriptnodeVoiceKiller);
+
+	bool initialised = false;
 };
 
 struct VoiceDataStack
@@ -488,9 +498,79 @@ struct VoiceDataStack
 
 	void reset(int voiceIndex);
 
-	void handleHiseEvent(scriptnode::DspNetwork* n, const HiseEvent& m);
+	bool containsVoiceIndex(int voiceIndex) const
+	{
+		for (const auto& vd : voiceNoteOns)
+		{
+			if (voiceIndex == vd.voiceIndex)
+				return true;
+		}
 
-	void startVoice(scriptnode::DspNetwork* n, int voiceIndex, const HiseEvent& e);
+		return false;
+	}
+
+	template <typename T> void handleHiseEvent(T& n, PolyHandler& ph, const HiseEvent& m)
+	{
+		if (m.isNoteOff())
+		{
+			for (auto vd : voiceNoteOns)
+			{
+				if (vd.noteOn.getEventId() == m.getEventId())
+				{
+					HiseEvent c(m);
+					PolyHandler::ScopedVoiceSetter vs(ph, vd.voiceIndex);
+					n.handleHiseEvent(c);
+				}
+			}
+		}
+		else if (m.isPitchWheel() || m.isAftertouch() || m.isController())
+		{
+			if (voiceNoteOns.isEmpty())
+			{
+				HiseEvent c(m);
+				n.handleHiseEvent(c);
+			}
+			else
+			{
+				for (auto vd : voiceNoteOns)
+				{
+					if (vd.noteOn.getChannel() == m.getChannel())
+					{
+						HiseEvent c(m);
+						PolyHandler::ScopedVoiceSetter vs(ph, vd.voiceIndex);
+						n.handleHiseEvent(c);
+					}
+				}
+			}
+		}
+		else if (!m.isNoteOn())
+		{
+			for (auto vd : voiceNoteOns)
+			{
+				HiseEvent c(m);
+				PolyHandler::ScopedVoiceSetter vs(ph, vd.voiceIndex);
+				n.handleHiseEvent(c);
+			}
+		}
+	}
+
+	template <typename T> void startVoice(T& n, PolyHandler& ph, int voiceIndex, const HiseEvent& e)
+	{
+		voiceNoteOns.insertWithoutSearch({ voiceIndex, e });
+		HiseEvent c(e);
+
+		PolyHandler::ScopedVoiceSetter vs(ph, voiceIndex);
+
+		HiseEvent copy(e);
+
+		{
+			// Deactivate reset calls of envelopes killing the voice before it begins...
+			scriptnode::PolyHandler::ScopedNoReset vs(ph, voiceIndex);
+			n.reset();
+		}
+
+		n.handleHiseEvent(copy);
+	}
 
 	UnorderedStack<VoiceData, NUM_POLYPHONIC_VOICES> voiceNoteOns;
 };
@@ -758,7 +838,8 @@ private:
 
 class JavascriptPolyphonicEffect : public JavascriptProcessor,
 	public ProcessorWithScriptingContent,
-	public VoiceEffectProcessor
+	public VoiceEffectProcessor,
+    public VoiceResetter
 {
 public:
 
@@ -793,7 +874,15 @@ public:
 	void registerApiClasses() override;
 	void postCompileCallback() override;
 
-	bool hasTail() const override { return false; };
+	bool hasTail() const override
+    {
+        if (auto n = getActiveNetwork())
+        {
+            return n->hasTail();
+        }
+        
+        return false;        
+    };
 
 	Processor *getChildProcessor(int /*processorIndex*/) override { return nullptr; };
 	const Processor *getChildProcessor(int /*processorIndex*/) const override { return nullptr; };
@@ -843,6 +932,19 @@ public:
 
 	}
 
+    int getNumActiveVoices() const override
+    {
+        return voiceData.voiceNoteOns.size();
+    }
+
+    void onVoiceReset(bool allVoices, int voiceIndex) override
+    {
+        if (allVoices)
+            voiceData.voiceNoteOns.clear();
+        else
+            voiceData.reset(voiceIndex);
+    }
+    
 private:
 
 	VoiceDataStack voiceData;
