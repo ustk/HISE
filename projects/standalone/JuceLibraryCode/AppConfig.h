@@ -45,7 +45,7 @@
 
 #define JUCE_USE_DARK_SPLASH_SCREEN 1
 
-#define JUCE_PROJUCER_VERSION 0x60103
+#define JUCE_PROJUCER_VERSION 0x60104
 
 //==============================================================================
 #define JUCE_MODULE_AVAILABLE_hi_backend                  1
@@ -151,7 +151,7 @@
 #endif
 
 #ifndef    FORCE_INPUT_CHANNELS
- //#define FORCE_INPUT_CHANNELS 1
+ #define   FORCE_INPUT_CHANNELS 1
 #endif
 
 #ifndef    HISE_DEACTIVATE_OVERLAY
@@ -630,6 +630,13 @@
 
 #ifndef    JUCE_ENABLE_LIVE_CONSTANT_EDITOR
  //#define JUCE_ENABLE_LIVE_CONSTANT_EDITOR 0
+#endif
+
+//==============================================================================
+// juce_product_unlocking flags:
+
+#ifndef    JUCE_USE_BETTER_MACHINE_IDS
+ //#define JUCE_USE_BETTER_MACHINE_IDS 0
 #endif
 
 //==============================================================================

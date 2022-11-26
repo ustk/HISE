@@ -54,9 +54,9 @@
                        cppLanguageStandard="c++11" cppLibType="libc++" enablePluginBinaryCopyStep="1"
                        macOSDeploymentTarget="10.9" libraryPath="../../../../tools/faust/fakelib"/>
         <CONFIGURATION name="Release" osxCompatibility="10.9 SDK" osxArchitecture="64BitIntel"
-                       isDebug="0" optimisation="3" targetName="HISE Mono Audio Inputs" linkTimeOptimisation="1"
-                       cppLanguageStandard="c++11" cppLibType="libc++" enablePluginBinaryCopyStep="1"
-                       macOSDeploymentTarget="10.9" libraryPath="../../../../tools/faust/fakelib"/>
+                       isDebug="0" optimisation="3" targetName="HISE Mono Audio Inputs"
+                       linkTimeOptimisation="1" cppLanguageStandard="c++11" cppLibType="libc++"
+                       enablePluginBinaryCopyStep="1" macOSDeploymentTarget="10.9" libraryPath="../../../../tools/faust/fakelib"/>
         <CONFIGURATION name="CI" osxCompatibility="10.9 SDK" osxArchitecture="64BitIntel"
                        isDebug="0" optimisation="4" targetName="HISE" linkTimeOptimisation="0"
                        cppLanguageStandard="c++11" cppLibType="libc++" enablePluginBinaryCopyStep="1"
@@ -343,7 +343,7 @@
                ENABLE_ALL_PEAK_METERS="1" JUCE_ASIO="1" JUCE_DIRECTSOUND="1"
                JUCE_USE_DIRECTWRITE="1" JUCE_JACK="1" HISE_ENABLE_EXPANSIONS="1"
                HISE_ENABLE_MIDI_INPUT_FOR_FX="1" JUCE_STRICT_REFCOUNTEDPOINTER="1"
-               HISE_INCLUDE_RLOTTiE="1"/>
+               HISE_INCLUDE_RLOTTiE="1" FORCE_INPUT_CHANNELS="1"/>
   <LIVE_SETTINGS>
     <OSX/>
     <WINDOWS/>
