@@ -1884,13 +1884,10 @@ struct AudioRenderer : public Thread,
 			Thread::wait(400);
 		}
 
-		getMainController()->getKillStateHandler().addThreadIdToAudioThreadList();
-
 		jassert(!getMainController()->getKillStateHandler().isAudioRunning());
 
-		getMainController()->getKillStateHandler().setAudioExportThread(getCurrentThreadId());
+		getMainController()->getKillStateHandler().setCurrentExportThread(getCurrentThreadId());
 
-		getMainController()->getKillStateHandler().addThreadIdToAudioThreadList();
 		dynamic_cast<AudioProcessor*>(getMainController())->setNonRealtime(true);
 		getMainController()->getSampleManager().handleNonRealtimeState();
 		
@@ -1957,13 +1954,13 @@ struct AudioRenderer : public Thread,
 			}
 		}
 
-                                                                                                                                                      		for (int i = 0; i < numChannelsToRender; i++)
+        for (int i = 0; i < numChannelsToRender; i++)
 		{
 			VariantBuffer* b = channels[i].get();
 			b->size = numActualSamples;
 		}
 
-		getMainController()->getKillStateHandler().removeThreadIdFromAudioThreadList();
+        getMainController()->getKillStateHandler().setCurrentExportThread(nullptr);
 		dynamic_cast<AudioProcessor*>(getMainController())->setNonRealtime(false);
 		getMainController()->getSampleManager().handleNonRealtimeState();
 		return true;
@@ -1984,7 +1981,7 @@ struct AudioRenderer : public Thread,
 
 	void cleanup()
 	{
-		getMainController()->getKillStateHandler().setAudioExportThread(nullptr);
+        getMainController()->getKillStateHandler().setCurrentExportThread(nullptr);
 		channels.clear();
 		memset(splitData, 0, sizeof(float*) * NUM_MAX_CHANNELS);
 		events.clear();
@@ -7006,6 +7003,7 @@ void ScriptingApi::TransportHandler::Callback::callSync()
 
 struct ScriptingApi::TransportHandler::Wrapper
 {
+    API_VOID_METHOD_WRAPPER_1(TransportHandler, stopInternalClockOnExternalStop);
 	API_VOID_METHOD_WRAPPER_2(TransportHandler, setOnTempoChange);
 	API_VOID_METHOD_WRAPPER_2(TransportHandler, setOnBeatChange);
 	API_VOID_METHOD_WRAPPER_2(TransportHandler, setOnGridChange);
@@ -7041,6 +7039,7 @@ ScriptingApi::TransportHandler::TransportHandler(ProcessorWithScriptingContent* 
 	ADD_API_METHOD_1(stopInternalClock);
 	ADD_API_METHOD_2(setEnableGrid);
 	ADD_API_METHOD_0(sendGridSyncOnNextCallback);
+    ADD_API_METHOD_1(stopInternalClockOnExternalStop);
 }
 
 ScriptingApi::TransportHandler::~TransportHandler()
@@ -7088,6 +7087,11 @@ void ScriptingApi::TransportHandler::setOnTransportChange(var sync, var f)
 		transportChangeCallbackAsync->call(play, {}, {}, true);
 	}
 	
+}
+
+void ScriptingApi::TransportHandler::stopInternalClockOnExternalStop(bool shouldStop)
+{
+    getMainController()->getMasterClock().setStopInternalClockOnExternalStop(shouldStop);
 }
 
 void ScriptingApi::TransportHandler::setOnSignatureChange(var sync, var f)

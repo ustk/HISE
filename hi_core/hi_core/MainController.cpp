@@ -796,7 +796,7 @@ void MainController::processBlockCommon(AudioSampleBuffer &buffer, MidiBuffer &m
 
 	getDebugLogger().checkPriorityInversion(processLock);
 
-	numSamplesThisBlock = buffer.getNumSamples();
+	
 
 #if !FRONTEND_IS_PLUGIN
 	if (!getKillStateHandler().handleKillState())
@@ -815,8 +815,9 @@ void MainController::processBlockCommon(AudioSampleBuffer &buffer, MidiBuffer &m
 
 		midiMessages.clear();
 
-		if (processingSampleRate > 0.0)
-			uptime += double(numSamplesThisBlock) / getOriginalSamplerate() ;
+        // only bump the uptime when not exporting
+		if (processingSampleRate > 0.0 && !getKillStateHandler().isCurrentlyExporting())
+			uptime += double(buffer.getNumSamples()) / getOriginalSamplerate() ;
 
 		return;
 	}
@@ -826,6 +827,22 @@ void MainController::processBlockCommon(AudioSampleBuffer &buffer, MidiBuffer &m
 
 	if (!getKillStateHandler().handleBufferDuringSuspension(buffer))
 		return;
+#endif
+
+    numSamplesThisBlock = buffer.getNumSamples();
+    
+#if USE_BACKEND || USE_SCRIPT_COPY_PROTECTION
+	if (auto ul = dynamic_cast<ScriptUnlocker*>(getLicenseUnlocker()))
+	{
+		if (ul->currentObject != nullptr && !ul->isUnlocked())
+		{
+			getMainSynthChain()->resetAllVoices();
+			buffer.clear();
+			midiMessages.clear();
+			usagePercent.store(0.0);
+			return;
+		}
+	}
 #endif
 
 	ScopedTryLock sl(processLock);
@@ -893,7 +910,9 @@ void MainController::processBlockCommon(AudioSampleBuffer &buffer, MidiBuffer &m
 
 	if (getMasterClock().allowExternalSync() && thisAsProcessor->getPlayHead() != nullptr)
 	{
-		useTime = thisAsProcessor->getPlayHead()->getCurrentPosition(newTime);
+        // use the time only if we're in a realtime proessing context
+		useTime = !thisAsProcessor->isNonRealtime() &&
+                  thisAsProcessor->getPlayHead()->getCurrentPosition(newTime);
 
 		// the time creation failed (probably because we're exporting
 		// so we use the time info from the internal clock...
@@ -902,7 +921,7 @@ void MainController::processBlockCommon(AudioSampleBuffer &buffer, MidiBuffer &m
 
 	}
 
-	if (getMasterClock().shouldCreateInternalInfo(newTime))
+	if (getMasterClock().shouldCreateInternalInfo(newTime) || thisAsProcessor->isNonRealtime())
 	{
 		gridInfo = getMasterClock().processAndCheckGrid(buffer.getNumSamples(), newTime);
 		newTime = getMasterClock().createInternalPlayHead();

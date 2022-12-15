@@ -795,6 +795,13 @@ void ScriptCreatedComponentWrapper::wantsToLoseFocus()
 	}
 }
 
+void ScriptCreatedComponentWrapper::wantsToGrabFocus()
+{
+    if (auto c = getComponent())
+        c->grabKeyboardFocusAsync();
+}
+
+
 bool ScriptCreatedComponentWrapper::keyPressed(const KeyPress& key, Component* originatingComponent)
 {
 	return getScriptComponent()->handleKeyPress(key);
@@ -1170,6 +1177,7 @@ void ScriptCreatedComponentWrappers::ButtonWrapper::updateComponent(int property
 		PROPERTY_CASE::ScriptButton::scaleFactor :		updateFilmstrip(b, sc); break;
 		PROPERTY_CASE::ScriptButton::radioGroup:		b->setRadioGroupId(getScriptComponent()->getScriptObjectProperty(ScriptingApi::Content::ScriptButton::radioGroup)); break;
 		PROPERTY_CASE::ScriptButton::isMomentary :		b->setIsMomentary(getScriptComponent()->getScriptObjectProperty(ScriptingApi::Content::ScriptButton::isMomentary)); break;
+            PROPERTY_CASE::ScriptButton::setValueOnClick: b->setTriggeredOnMouseDown(getScriptComponent()->getScriptObjectProperty(ScriptingApi::Content::ScriptButton::setValueOnClick)); break;
 			PROPERTY_CASE::ScriptSlider::numProperties :
 	default:
 		break;
@@ -1265,6 +1273,23 @@ void ScriptCreatedComponentWrappers::LabelWrapper::updateEditability(ScriptingAp
 	l->setInterceptsMouseClicks(editable, editable);
 	l->setEditable(editable);
 	l->setMultiline(multiline);
+}
+
+void ScriptCreatedComponentWrappers::LabelWrapper::wantsToGrabFocus()
+{
+    bool editable = getScriptComponent()->getScriptObjectProperty(ScriptingApi::Content::ScriptLabel::Editable);
+    
+    if(!editable)
+        return;
+    
+    if(auto l = dynamic_cast<MultilineLabel*>(component.get()))
+    {
+        SafeAsyncCall::call<MultilineLabel>(*l, [](MultilineLabel& lb)
+        {
+            lb.showEditor();
+            lb.grabKeyboardFocusAsync();
+        });
+    }
 }
 
 void ScriptCreatedComponentWrappers::LabelWrapper::updateFont(ScriptingApi::Content::ScriptLabel * sl, MultilineLabel * l)

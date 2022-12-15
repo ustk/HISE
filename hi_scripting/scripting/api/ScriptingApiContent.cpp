@@ -132,6 +132,7 @@ struct ScriptingApi::Content::ScriptComponent::Wrapper
 	API_METHOD_WRAPPER_0(ScriptComponent, getAllProperties);
 	API_VOID_METHOD_WRAPPER_1(ScriptComponent, setKeyPressCallback);
 	API_VOID_METHOD_WRAPPER_0(ScriptComponent, loseFocus);
+    API_VOID_METHOD_WRAPPER_0(ScriptComponent, grabFocus);
 	API_VOID_METHOD_WRAPPER_1(ScriptComponent, setZLevel);
 	API_VOID_METHOD_WRAPPER_1(ScriptComponent, setLocalLookAndFeel);
 	API_VOID_METHOD_WRAPPER_0(ScriptComponent, sendRepaintMessage);
@@ -322,6 +323,7 @@ ScriptingApi::Content::ScriptComponent::ScriptComponent(ProcessorWithScriptingCo
 	ADD_API_METHOD_1(setZLevel);
 	ADD_API_METHOD_1(setKeyPressCallback);
 	ADD_API_METHOD_0(loseFocus);
+    ADD_API_METHOD_0(grabFocus);
 	ADD_API_METHOD_1(setLocalLookAndFeel);
 	ADD_API_METHOD_0(sendRepaintMessage);
 	ADD_API_METHOD_2(fadeComponent);
@@ -1466,6 +1468,20 @@ void ScriptingApi::Content::ScriptComponent::loseFocus()
 	}
 }
 
+void ScriptingApi::Content::ScriptComponent::grabFocus()
+{
+    for (auto l : zLevelListeners)
+    {
+        if (l != nullptr)
+        {
+            l->wantsToGrabFocus();
+            
+            return; // this is a exclusive operation so we don't
+                    // need to continue the loop
+        }
+    }
+}
+
 juce::LookAndFeel* ScriptingApi::Content::ScriptComponent::createLocalLookAndFeel()
 {
 	if (auto l = dynamic_cast<ScriptingObjects::ScriptedLookAndFeel*>(localLookAndFeel.getObject()))
@@ -2077,6 +2093,7 @@ ScriptComponent(base, name)
 	ADD_NUMBER_PROPERTY(i05, "radioGroup");
 	ADD_SCRIPT_PROPERTY(i04, "isMomentary");	ADD_TO_TYPE_SELECTOR(SelectorTypes::ToggleSelector);
 	ADD_SCRIPT_PROPERTY(i06, "enableMidiLearn"); ADD_TO_TYPE_SELECTOR(SelectorTypes::ToggleSelector);
+    ADD_SCRIPT_PROPERTY(i07, "setValueOnClick"); ADD_TO_TYPE_SELECTOR(SelectorTypes::ToggleSelector);
 
 	handleDefaultDeactivatedProperties();
 
@@ -2091,6 +2108,7 @@ ScriptComponent(base, name)
 	setDefaultValue(ScriptButton::Properties::radioGroup, 0);
 	setDefaultValue(ScriptButton::Properties::isMomentary, 0);
 	setDefaultValue(ScriptButton::Properties::enableMidiLearn, true);
+    setDefaultValue(ScriptButton::Properties::setValueOnClick, false);
 
 	initInternalPropertyFromValueTreeOrDefault(filmstripImage);
 

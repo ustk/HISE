@@ -184,6 +184,13 @@ namespace ScriptingObjects
 
 		/** Returns an array with the min and max value in the given range. */
 		var getPeakRange(int startSample, int numSamples);
+        
+        /** Trims a buffer at the start and end and returns a copy of it. */
+        var trim(int trimFromStart, int trimFromEnd)
+        {
+            jassertfalse;
+            return {};
+        }
 
 	};
 
@@ -902,14 +909,15 @@ namespace ScriptingObjects
 
 		void onComplexDataEvent(ComplexDataUIUpdaterBase::EventType t, var data)
 		{
-			if (t == ComplexDataUIUpdaterBase::EventType::DisplayIndex &&
-				displayCallback)
-			{
-				displayCallback.call1(data);
+			if (t == ComplexDataUIUpdaterBase::EventType::DisplayIndex)
+            {
+                if(displayCallback)
+                    displayCallback.call1(data);
 			}
-			else if (contentCallback)
+			else
 			{
-				contentCallback.call1(data);
+                if(contentCallback)
+                    contentCallback.call1(data);
 			}
 		}
 
@@ -1045,6 +1053,9 @@ namespace ScriptingObjects
 
 		/** Sets the ring buffer properties from an object (Use the JSON from the Edit Properties popup). */
 		void setRingBufferProperties(var propertyData);
+
+		/** Copies the read buffer into a preallocated target buffer. The target buffer must have the same size. */
+		void copyReadBuffer(var targetBuffer);
 
         /** Enables or disables the ring buffer. */
         void setActive(bool shouldBeActive);
