@@ -1223,7 +1223,7 @@ var HiseSettings::Data::getDefaultSetting(const Identifier& id) const
 	}
 	else if (id == Audio::Input)
 	{
-		auto device = dynamic_cast<AudioProcessorDriver*>(mc)->deviceManager->getCurrentAudioDevice();
+		auto currentDevice = dynamic_cast<AudioProcessorDriver*>(mc)->deviceManager->getCurrentAudioDevice();
 
 		return currentDevice->getInputChannelNames();
 	}

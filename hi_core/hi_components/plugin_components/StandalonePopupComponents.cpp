@@ -496,7 +496,7 @@ void CustomSettingsWindow::flipInputEnablement(AudioDeviceManager* manager, cons
 	manager->setAudioDeviceSetup(config, true);
 }
 
-void CustomSettingsWindow::flipOutEnablement(AudioDeviceManager* manager, const int row)
+void CustomSettingsWindow::flipOutputEnablement(AudioDeviceManager* manager, const int row)
 {
 	AudioDeviceManager::AudioDeviceSetup config;
 	manager->getAudioDeviceSetup(config);
