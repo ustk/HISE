@@ -360,9 +360,7 @@ void BackendProcessor::processBlock(AudioSampleBuffer& buffer, MidiBuffer& midiM
 		return;
 	}
 
-	
-	
-#if !HISE_BACKEND_AS_FX
+#if !HISE_BACKEND_AS_FX && !FORCE_INPUT_CHANNELS
 	buffer.clear();
 #endif
 

@@ -80,6 +80,19 @@ void AudioProcessorDriver::setCurrentBlockSize(int newBlockSize)
 	deviceManager->setAudioDeviceSetup(currentSetup, true);
 }
 
+void AudioProcessorDriver::setInputChannelName(const int channelIndex)
+{
+	AudioDeviceManager::AudioDeviceSetup currentSetup;
+
+	deviceManager->getAudioDeviceSetup(currentSetup);
+
+	BigInteger thisChannels = 0;
+	thisChannels.setBit(channelIndex);
+	currentSetup.inputChannels = thisChannels;
+
+	deviceManager->setAudioDeviceSetup(currentSetup, true);
+}
+
 void AudioProcessorDriver::setOutputChannelName(const int channelIndex)
 {
 	AudioDeviceManager::AudioDeviceSetup currentSetup;
@@ -98,6 +111,7 @@ void AudioProcessorDriver::setAudioDevice(const String& deviceName)
 	AudioDeviceManager::AudioDeviceSetup currentSetup;
 
 	deviceManager->getAudioDeviceSetup(currentSetup);
+	currentSetup.inputDeviceName = deviceName;
 	currentSetup.outputDeviceName = deviceName;
 	deviceManager->setAudioDeviceSetup(currentSetup, true);
 }
@@ -152,7 +166,7 @@ void AudioProcessorDriver::resetToDefault()
 	auto prevState = getMidiInputState();
 	auto names = MidiInput::getDevices();
 
-	deviceManager->initialiseWithDefaultDevices(0, 2);
+	deviceManager->initialiseWithDefaultDevices(1, 2);
 
 	for (int i = 0; i < prevState.getHighestBit() + 1; i++)
 	{
@@ -291,7 +305,7 @@ void AudioProcessorDriver::initialiseAudioDriver(XmlElement *deviceData)
 
 	if (deviceData != nullptr && deviceData->hasTagName("DEVICESETUP"))
 	{
-		String errorMessage = deviceManager->initialise(0, 2, deviceData, true);
+		String errorMessage = deviceManager->initialise(1, 2, deviceData, true);
 
 		if (errorMessage.isNotEmpty() || deviceManager->getCurrentAudioDevice() == nullptr)
 		{
@@ -299,7 +313,7 @@ void AudioProcessorDriver::initialiseAudioDriver(XmlElement *deviceData)
 
 			logger.logMessage("Audio Driver Default Initialisation");
 
-			const String error = deviceManager->initialiseWithDefaultDevices(0, 2);
+			const String error = deviceManager->initialiseWithDefaultDevices(1, 2);
 
 			if (error.isNotEmpty())
 				logger.logMessage("Error initialising with default settings: " + error);
@@ -309,7 +323,7 @@ void AudioProcessorDriver::initialiseAudioDriver(XmlElement *deviceData)
 	{
 		logger.logMessage("Audio Driver Default Initialisation");
 
-		const String error = deviceManager->initialiseWithDefaultDevices(0, 2);
+		const String error = deviceManager->initialiseWithDefaultDevices(1, 2);
 
 		if (error.isNotEmpty())
 			logger.logMessage("Error initialising with default settings: " + error);

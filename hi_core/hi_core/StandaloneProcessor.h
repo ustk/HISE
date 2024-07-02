@@ -131,6 +131,8 @@ public:
 
 	void resetToDefault();
 
+	void setInputChannelName(const int channelIndex);
+
 	void setOutputChannelName(const int channelIndex);
 
 	void setAudioDevice(const String &deviceName);
