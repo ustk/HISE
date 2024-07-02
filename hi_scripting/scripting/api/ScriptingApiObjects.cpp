@@ -66,10 +66,10 @@ void ScriptingObjects::Studio427Audio::correlateBuffers(var reference, var selec
 
 	int n = reference.getBuffer()->size;
 	int maxdelay = (int)Math.ceil((float)n/2.0f);
-    int maxCallForProgress = (int)Math.ceil((float)n/200.0f);
+    int numMaxCalls = (int)Math.ceil((float)n/200.0f);
 
-    auto ref = reference.getBuffer();
-    auto sel = selection.getBuffer();
+    auto ref = reference.getBuffer()->buffer.getReadPointer(0);
+    auto sel = selection.getBuffer()->buffer.getReadPointer(0);
 	auto cor = new VariantBuffer(maxdelay*2);
 
 	double mx   = 0.0;
@@ -82,22 +82,22 @@ void ScriptingObjects::Studio427Audio::correlateBuffers(var reference, var selec
 	// Sum
 	for (int i = 0; i < n; i++)
 	{
-        mx += (double)ref->getSample(i);
-	    my += (double)sel->getSample(i);
+		mx += ref[i];
+		my += sel[i];
 	}
 
 	// mean
-	mx /= (float)n;
-	my /= (float)n;
+	mx /= (double)n;
+	my /= (double)n;
 
 	// Calculate the denominator
 	for (int i = 0; i < n; i++)
 	{
-	    sx += Math.sqr((double)ref->getSample(i) - mx);
-	    sy += Math.sqr((double)sel->getSample(i) - my);
+	    sx += hmath::sqr(ref[i] - mx);
+	    sy += hmath::sqr(sel[i] - my);
 	}
 
-	double denom = Math.sqrt(sx * sy);
+	float denom = sqrt(sx * sy);
     int j = 0;
 
     // Calculate the correlation series
@@ -117,14 +117,14 @@ void ScriptingObjects::Studio427Audio::correlateBuffers(var reference, var selec
 
             j %= n;
 
-            sxy += ((double)ref->getSample(i) - mx) * ((double)sel->getSample(j) - my);
+            sxy += (ref[i] - mx) * (sel[j] - my);
         }
 
         // correlation buffer at "delay"
         cor->setSample(delay + maxdelay, sxy / denom);
 
         // limit the number of callback calls
-        if ((delay + maxdelay) % maxCallForProgress == 0)
+        if ((delay + maxdelay) % numMaxCalls == 0)
         {
             progress = (float)(delay + maxdelay) / (float)(2*maxdelay - 1);
             obj->setProperty("progress", progress);
