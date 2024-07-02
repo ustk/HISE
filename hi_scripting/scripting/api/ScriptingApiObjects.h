@@ -146,6 +146,44 @@ class HotswappableProcessor;
 */
 namespace ScriptingObjects
 {
+	class Studio427Audio : public ConstScriptingObject
+	{
+	public:
+
+		// ============================================================================================================
+
+		Studio427Audio(ProcessorWithScriptingContent* p);
+		~Studio427Audio() {};
+
+		Identifier getObjectName() const override { RETURN_STATIC_IDENTIFIER("Studio427Audio"); }
+		static Identifier getClassName() { RETURN_STATIC_IDENTIFIER("Studio427Audio"); }
+
+		// =============================================================== API Methods
+
+		/** Sets a function with two arguments (double progress, var result) that will be
+            notified during correlation. 
+		*/
+		void setCorrelationCallback(var correlationCallback);
+
+		/** Start the correlation process between two buffers. */
+		void correlateBuffers(var reference, var selection, int measureIndex);
+
+		/** Send abort signal to the current correlation process. */
+		void abortCorrelation();
+
+		// =============================================================== API Methods
+
+	private:
+
+		struct Wrapper;
+
+		WeakCallbackHolder callback;
+
+		var args[2];
+		DynamicObject::Ptr obj = new DynamicObject();
+
+	};
+
 	class ScriptBuffer : public ConstScriptingObject
 	{
 	public:

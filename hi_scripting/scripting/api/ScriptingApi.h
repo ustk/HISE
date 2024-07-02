@@ -671,6 +671,9 @@ public:
         
 		/** Returns a fully described string of this date and time in ISO-8601 format (using the local timezone) with or without divider characters. */
 		String getSystemTime(bool includeDividerCharacters);
+
+		/** Creates a correlation handler that reacts on buffer correlation. */
+		var createCorrelationHandler();
 		
 		// ============================================================================================================
 
