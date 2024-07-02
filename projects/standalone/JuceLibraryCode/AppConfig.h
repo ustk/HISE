@@ -45,7 +45,7 @@
 
 #define JUCE_USE_DARK_SPLASH_SCREEN 1
 
-#define JUCE_PROJUCER_VERSION 0x60103
+#define JUCE_PROJUCER_VERSION 0x60104
 
 //==============================================================================
 #define JUCE_MODULE_AVAILABLE_hi_backend                  1
@@ -114,7 +114,7 @@
 #endif
 
 #ifndef    DONT_CREATE_EXPANSIONS_FOLDER
- //#define DONT_CREATE_EXPANSIONS_FOLDER 0
+ #define   DONT_CREATE_EXPANSIONS_FOLDER 1
 #endif
 
 #ifndef    HISE_OVERWRITE_OLD_USER_PRESETS
@@ -150,7 +150,7 @@
 #endif
 
 #ifndef    FORCE_INPUT_CHANNELS
- #define FORCE_INPUT_CHANNELS 1
+ #define   FORCE_INPUT_CHANNELS 1
 #endif
 
 #ifndef    HI_DONT_SEND_ATTRIBUTE_UPDATES
@@ -226,7 +226,7 @@
 #endif
 
 #ifndef    CONFIRM_PRESET_OVERWRITE
- //#define CONFIRM_PRESET_OVERWRITE 1
+ #define   CONFIRM_PRESET_OVERWRITE 0
 #endif
 
 #ifndef    ENABLE_CONSOLE_OUTPUT
@@ -681,7 +681,7 @@
 // juce_product_unlocking flags:
 
 #ifndef    JUCE_USE_BETTER_MACHINE_IDS
- //#define JUCE_USE_BETTER_MACHINE_IDS 0
+ #define   JUCE_USE_BETTER_MACHINE_IDS 1
 #endif
 
 //==============================================================================
