@@ -209,7 +209,7 @@ This can be used to simulate an audio effect routing setup (when the appropriate
 
 */
 #ifndef FORCE_INPUT_CHANNELS
-#define FORCE_INPUT_CHANNELS 1
+#define FORCE_INPUT_CHANNELS USE_BACKEND
 #endif
 
 /** Config: HI_DONT_SEND_ATTRIBUTE_UPDATES
