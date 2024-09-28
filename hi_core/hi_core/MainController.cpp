@@ -1579,7 +1579,7 @@ void MainController::prepareToPlay(double sampleRate_, int samplesPerBlock)
 	
 
 #if IS_STANDALONE_APP || IS_STANDALONE_FRONTEND
-	getMainSynthChain()->getMatrix().setNumDestinationChannels(2);
+	getMainSynthChain()->getMatrix().setNumDestinationChannels(HISE_NUM_STANDALONE_OUTPUTS);
 #else
     
 #if HISE_IOS
@@ -1991,7 +1991,23 @@ void MainController::insertStringAtLastActiveEditor(const String &string, bool s
 	{
 		auto ed = dynamic_cast<PopupIncludeEditor::EditorType*>(lastActiveEditor.getComponent());
 
-#if !HISE_USE_NEW_CODE_EDITOR
+#if HISE_USE_NEW_CODE_EDITOR
+
+		auto selection = mcl::TokenCollection::getSelectionFromFunctionArgs(string);
+
+		auto firstDot = string.indexOfChar('.');
+
+		auto className = string.substring(0, firstDot);
+
+		StringArray fullClasses = { "Console", "Message", "Content", "Colours", "Engine", "Synth", "Server", "FileSystem", "Settings" };
+
+		if(!fullClasses.contains(className))
+			selection.insert(0, {0, firstDot });
+
+        ed->editor.prepareExternalInsert();
+		ed->editor.insertCodeSnippet(string, selection);
+
+#else
 
 		ed->getDocument().deleteSection(ed->getSelectionStart(), ed->getSelectionEnd());
         ed->moveCaretTo(CodeDocument::Position(ed->getDocument(), lastCharacterPositionOfSelectedEditor), false);
@@ -2139,6 +2155,10 @@ void MainController::updateMultiChannelBuffer(int numNewChannels)
 {
     if(processingBufferSize.get() == -1)
         return;
+    
+#if IS_STANDALONE_APP || IS_STANDALONE_FRONTEND
+    numNewChannels = jmax(HISE_NUM_STANDALONE_OUTPUTS, numNewChannels);
+#endif
     
 	ScopedLock sl(processLock);
 
