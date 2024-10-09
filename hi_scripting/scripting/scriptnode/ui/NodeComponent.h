@@ -57,6 +57,7 @@ public:
 		CreateScreenShot,
 		EditProperties,
 		UnfreezeNode,
+		ExplodeLocalCables,
 		FreezeNode,
 		WrapIntoDspNetwork,
 		WrapIntoChain,
@@ -88,6 +89,7 @@ public:
 		String getPowerButtonId(bool getOff) const;
 
 		void updatePowerButtonState(Identifier id, var newValue);
+		void updateConnectionButton(Identifier id, var newValue);
 
 		void paint(Graphics& g) override;
 		void resized() override;
@@ -151,6 +153,7 @@ public:
 		valuetree::RecursiveTypedChildListener dynamicPowerUpdater;
 
 		valuetree::PropertyListener powerButtonUpdater;
+		valuetree::PropertyListener parameterUpdater;
 		valuetree::PropertyListener colourUpdater;
 		HiseShapeButton powerButton;
 		HiseShapeButton deleteButton;

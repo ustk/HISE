@@ -232,6 +232,8 @@ public:
 	ScopedPointer<OneLiner> oneLiner;
 	ScopedPointer<ImagePreviewCreator> currentPreview;
 
+	bool parentIsViewport = true;
+
 	KeyboardPopup(NodeBase* container, int addPosition_):
 		node(container),
 		network(node->getRootNetwork()),
@@ -730,22 +732,7 @@ public:
             return Actions::addBookMark(n.get());
         }
         
-		virtual void bookmarkUpdated(const StringArray& idsToShow)
-		{
-			n->deselectAll();
-
-			NodeBase::List newSelection;
-
-			for (const auto& s : idsToShow)
-			{
-				auto nv = n->get(s);
-
-				if (auto no = dynamic_cast<NodeBase*>(nv.getObject()))
-					n->addToSelection(no, ModifierKeys::shiftModifier);
-			}
-
-			Actions::foldUnselectedNodes(*canvas.getContent<DspNetworkGraph>());
-		}
+		virtual void bookmarkUpdated(const StringArray& idsToShow);
 
 		virtual ValueTree getBookmarkValueTree()
 		{
@@ -782,6 +769,7 @@ public:
         
 		static bool copyToClipboard(DspNetworkGraph& g);
 		static bool toggleCableDisplay(DspNetworkGraph& g);
+		static bool toggleComments(DspNetworkGraph& g);
 		static bool toggleCpuProfiling(DspNetworkGraph& g);
 		static bool editNodeProperty(DspNetworkGraph& g);
 		static bool foldSelection(DspNetworkGraph& g);
@@ -916,7 +904,7 @@ public:
 		{
 			float width = 6.0f;
 			float height = 6.0f;
-			float y = getKnobCircle ? 66.0f : (c->getHeight());
+			float y = getKnobCircle ? 64.0f : (c->getHeight());
 
 			float offsetY = (float)c->getProperties()["circleOffsetY"];
 			float offsetX = (float)c->getProperties()["circleOffsetX"];
@@ -1014,12 +1002,14 @@ public:
 
 	bool showParameters = false;
 
+	Point<float> lastMousePos;
 	valuetree::RecursivePropertyListener cableRepainter;
 	valuetree::ChildListener rebuildListener;
 	valuetree::RecursivePropertyListener resizeListener;
 
 	valuetree::RecursiveTypedChildListener macroListener;
 
+	Component* externalDragComponent = nullptr;
 	ScopedPointer<NodeComponent> root;
 
 	ScopedPointer<PeriodicRepainter> periodicRepainter;

@@ -369,7 +369,7 @@ juce::Point<int> ContainerComponent::getStartPosition() const
 	y += UIValues::PinHeight;
 
 	if (dataReference[PropertyIds::ShowParameters])
-		y += UIValues::ParameterHeight;
+		y += UIValues::ParameterHeight + UIValues::MacroDragHeight;
 
 	return { UIValues::NodeMargin, y};
 }
@@ -515,32 +515,36 @@ void ContainerComponent::rebuildNodes()
 	duplicateDisplay = nullptr;
 	childNodeComponents.clear();
 
-	if (auto container = dynamic_cast<NodeContainer*>(node.get()))
+	if(!node->getValueTree()[PropertyIds::Folded])
 	{
-		int index = 0;
-		int numHidden = 0;
-
-		for (auto n : container->nodes)
+		if (auto container = dynamic_cast<NodeContainer*>(node.get()))
 		{
-			if (auto cn = dynamic_cast<CloneNode*>(container))
+			int index = 0;
+			int numHidden = 0;
+
+			for (auto n : container->nodes)
 			{
-				if (!cn->shouldCloneBeDisplayed(index++))
+				if (auto cn = dynamic_cast<CloneNode*>(container))
 				{
-					numHidden++;
-					continue;
+					if (!cn->shouldCloneBeDisplayed(index++))
+					{
+						numHidden++;
+						continue;
+					}
 				}
+				
+				auto newNode = n->createComponent();
+
+				n->getHelpManager().addHelpListener(this);
+				n->getHelpManager().initCommentButton(this);
+				addAndMakeVisible(newNode);
+				childNodeComponents.add(newNode);
 			}
 
-			auto newNode = n->createComponent();
-
-			n->getHelpManager().addHelpListener(this);
-			addAndMakeVisible(newNode);
-			childNodeComponents.add(newNode);
-		}
-
-		if (numHidden > 0 || (!node->getValueTree()[PropertyIds::ShowClones] && node->getValueTree().hasProperty(PropertyIds::DisplayedClones)))
-		{
-			addAndMakeVisible(duplicateDisplay = new DuplicateComponent(node.get(), numHidden));
+			if (numHidden > 0 || (!node->getValueTree()[PropertyIds::ShowClones] && node->getValueTree().hasProperty(PropertyIds::DisplayedClones)))
+			{
+				addAndMakeVisible(duplicateDisplay = new DuplicateComponent(node.get(), numHidden));
+			}
 		}
 	}
 
@@ -616,8 +620,18 @@ void SerialNodeComponent::resized()
 
 		auto helpBounds = nc->node->getHelpManager().getHelpSize().toNearestInt();
 
-		auto widthWithHelp = bounds.getWidth() + helpBounds.getWidth();
-		auto heightWithHelp = jmax(bounds.getHeight(), helpBounds.getHeight());
+		int heightWithHelp, widthWithHelp;
+
+		if(nc->node->getHelpManager().isHelpBelow())
+		{
+			widthWithHelp = jmax<int>(bounds.getWidth(), helpBounds.getWidth());
+			heightWithHelp = bounds.getHeight() + helpBounds.getHeight();
+		}
+		else
+		{
+			widthWithHelp = bounds.getWidth() + helpBounds.getWidth();
+			heightWithHelp = jmax(bounds.getHeight(), helpBounds.getHeight());
+		}
 
 		auto x = (getWidth() - widthWithHelp) / 2;
 		nc->setTopLeftPosition(x, bounds.getY());
@@ -668,7 +682,7 @@ void SerialNodeComponent::paintSerialCable(Graphics& g, int cableIndex)
 	b2.removeFromTop(UIValues::HeaderHeight);
 
 	if (dataReference[PropertyIds::ShowParameters])
-		b2.removeFromTop(UIValues::ParameterHeight);
+		b2.removeFromTop(UIValues::ParameterHeight + UIValues::MacroDragHeight);
 
 	auto top = b2.removeFromTop(UIValues::PinHeight);
 	auto start = top.getCentre().toFloat().translated(xOffset, 0.0f);
@@ -905,7 +919,12 @@ void ParallelNodeComponent::resized()
 
 		nc->setBounds(bounds);
 
-		startPos = startPos.withX(bounds.getRight() + helpBounds.getWidth() + UIValues::NodeMargin);
+		auto x = bounds.getRight() + UIValues::NodeMargin;
+
+		if(!nc->node->getHelpManager().isHelpBelow())
+			x += helpBounds.getWidth();
+
+		startPos = startPos.withX(x);
 	}
 
 	if (duplicateDisplay != nullptr)
@@ -1000,7 +1019,7 @@ void ParallelNodeComponent::paintCable(Graphics& g, int cableIndex)
 	b2.removeFromTop(UIValues::HeaderHeight);
 
 	if (dataReference[PropertyIds::ShowParameters])
-		b2.removeFromTop(UIValues::ParameterHeight);
+		b2.removeFromTop(UIValues::ParameterHeight + UIValues::MacroDragHeight);
 
 	b2.removeFromTop(UIValues::NodeMargin / 2);
 	b2.removeFromBottom(UIValues::NodeMargin / 2);
@@ -1215,7 +1234,7 @@ void MacroPropertyEditor::ConnectionEditor::buttonClicked(Button* b)
 
 		MessageManager::callAsync(func);
 	}
-	else
+	else if (b == &gotoButton)
 	{
 		if (auto targetNode = node->getRootNetwork()->getNodeWithId(data[PropertyIds::NodeId].toString()))
 		{

@@ -38,34 +38,6 @@ using namespace hise;
 juce::String NodeComponent::Header::getPowerButtonId(bool getOff) const
 {
     return "on";
-    
-	auto path = parent.node->getValueTree()[PropertyIds::FactoryPath].toString();
-
-	if (path.startsWith("container."))
-	{
-		path = path.fromFirstOccurrenceOf("container.", false, false);
-
-		if (getOff)
-		{
-			if (path.contains("frame") ||
-				path.contains("oversample") ||
-				path.contains("midi") ||
-				path.startsWith("fix")) 
-				return "chain";
-			else
-				return "on";
-		}
-		else
-		{
-			if (path == "soft_bypass" ||
-				path == "offline")
-				return "on";
-
-			return path;
-		}
-	}
-		
-	return "on";
 }
 
 
@@ -73,7 +45,7 @@ juce::String NodeComponent::Header::getPowerButtonId(bool getOff) const
 NodeComponent::Header::Header(NodeComponent& parent_) :
 	parent(parent_),
 	powerButton(getPowerButtonId(false), this, f, getPowerButtonId(true)),
-	deleteButton("delete", this, f),
+	deleteButton("close", this, f),
 	parameterButton("parameter", this, f),
 	freezeButton("freeze", this, f)
 {
@@ -124,9 +96,16 @@ NodeComponent::Header::Header(NodeComponent& parent_) :
 
 	freezeButton.setToggleModeWithColourChange(true);
 
+	auto isContainer = dynamic_cast<NodeContainer*>(parent.node.get()) != nullptr;
+
 	parameterButton.setToggleModeWithColourChange(true);
 	parameterButton.setToggleStateAndUpdateIcon(parent.dataReference[PropertyIds::ShowParameters]);
-	parameterButton.setVisible(dynamic_cast<NodeContainer*>(parent.node.get()) != nullptr);
+	parameterButton.setVisible(isContainer);
+
+	if(isContainer)
+	{
+		parameterUpdater.setCallback(parent.node->getValueTree(), {PropertyIds::ShowParameters}, valuetree::AsyncMode::Asynchronously, BIND_MEMBER_FUNCTION_2(Header::updateConnectionButton));
+	}
 
 	freezeButton.setEnabled(parent.node->getRootNetwork()->canBeFrozen());
 
@@ -170,6 +149,11 @@ void NodeComponent::Header::updatePowerButtonState(Identifier id, var newValue)
 	repaint();
 }
 
+void NodeComponent::Header::updateConnectionButton(Identifier id, var newValue)
+{
+	parameterButton.setToggleStateAndUpdateIcon((bool)newValue);
+}
+
 void NodeComponent::Header::mouseDoubleClick(const MouseEvent& e)
 {
 	if (powerButton.getBoundsInParent().expanded(2).contains(e.getPosition()))
@@ -179,7 +163,7 @@ void NodeComponent::Header::mouseDoubleClick(const MouseEvent& e)
 		return;
 	}
 
-	parent.dataReference.setProperty(PropertyIds::Folded, !parent.isFolded(), nullptr);
+	parent.dataReference.setProperty(PropertyIds::Folded, !parent.isFolded(), parent.node->getUndoManager());
 	parent.getParentComponent()->repaint();
 }
 
@@ -437,7 +421,7 @@ void NodeComponent::paintOverChildren(Graphics& g)
 		b.removeFromTop(header.getHeight());
 
 		if (header.parameterButton.getToggleState())
-			b.removeFromTop(UIValues::ParameterHeight);
+			b.removeFromTop(UIValues::ParameterHeight + UIValues::MacroDragHeight);
 
 		auto hashMatches = node->getRootNetwork()->hashMatches();
 
@@ -640,6 +624,10 @@ void NodeComponent::handlePopupMenuResult(int result)
 	if (result == (int)MenuActions::UnfreezeNode)
 	{
 		DspNetworkGraph::Actions::unfreezeNode(node.get());
+	}
+	if( result == (int)MenuActions::ExplodeLocalCables)
+	{
+		routing::local_cable::Helpers::explode(node->getValueTree(), node->getUndoManager());
 	}
 	if (result == (int)MenuActions::FreezeNode)
 	{
@@ -949,7 +937,8 @@ juce::Path NodeComponentFactory::createPath(const String& id) const
 
 	LOAD_EPATH_IF_URL("on", HiBinaryData::ProcessorEditorHeaderIcons::bypassShape);
 	LOAD_EPATH_IF_URL("fold", HiBinaryData::ProcessorEditorHeaderIcons::foldedIcon);
-	LOAD_EPATH_IF_URL("delete", HiBinaryData::ProcessorEditorHeaderIcons::closeIcon);
+	LOAD_EPATH_IF_URL("close", HiBinaryData::ProcessorEditorHeaderIcons::closeIcon);
+	LOAD_EPATH_IF_URL("delete", SampleMapIcons::deleteSamples);
 	LOAD_PATH_IF_URL("move", ColumnIcons::moveIcon);
 	LOAD_PATH_IF_URL("goto", ColumnIcons::targetIcon);
 	LOAD_EPATH_IF_URL("parameter", HiBinaryData::SpecialSymbols::macros);
@@ -967,6 +956,8 @@ juce::Path NodeComponentFactory::createPath(const String& id) const
 	LOAD_EPATH_IF_URL("newnode", HiBinaryData::ProcessorEditorHeaderIcons::addIcon);
 	LOAD_EPATH_IF_URL("oldnode", EditorIcons::swapIcon);
 	LOAD_EPATH_IF_URL("clone", SampleMapIcons::copySamples);
+	LOAD_PATH_IF_URL("local", ColumnIcons::localIcon);
+	LOAD_PATH_IF_URL("drag", ColumnIcons::targetIcon);
 
 	if (url.startsWith("fix"))
 		p.loadPathFromData(ScriptnodeIcons::fixIcon, ScriptnodeIcons::fixIcon_Size);

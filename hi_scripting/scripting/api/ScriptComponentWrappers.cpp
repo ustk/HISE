@@ -1169,9 +1169,8 @@ void ScriptCreatedComponentWrappers::ComboBoxWrapper::updateFont(ScriptComponent
 void ScriptCreatedComponentWrappers::ComboBoxWrapper::updateItems(HiComboBox * cb)
 {
 	cb->clear(dontSendNotification);
-    cb->rebuildPopupMenu();
-    
 	cb->addItemList(dynamic_cast<ScriptingApi::Content::ScriptComboBox*>(getScriptComponent())->getItemList(), 1);
+    cb->rebuildPopupMenu();
     
     auto currentValue = (int)getScriptComponent()->getValue();
     cb->setSelectedId(currentValue, dontSendNotification);
@@ -1443,10 +1442,10 @@ void ScriptCreatedComponentWrappers::LabelWrapper::updateFont(ScriptingApi::Cont
 			l->setFont(font);
 		}
 	}
-
+	
 	l->setUsePasswordCharacter(fontStyle == "Password");
 
-	l->setJustificationType(sl->getJustification());
+	l->setJustificationForLabelAndTextEditor(sl->getJustification());
 }
 
 void ScriptCreatedComponentWrappers::LabelWrapper::updateColours(MultilineLabel * l)
@@ -3297,11 +3296,7 @@ void ScriptCreatedComponentWrappers::ViewportWrapper::ColumnListBoxModel::paintL
 		if(auto laf = dynamic_cast<simple_css::StyleSheetLookAndFeel*>(&c->getLookAndFeel()))
 		{
 			auto lb = dynamic_cast<ListBox*>(c);
-
 			auto rc = lb->getComponentForRowNumber(rowNumber);
-
-			auto pos = lb->getMouseXYRelative();
-
 			auto rowIsHovered = currentHoverRow == rowNumber;
 			
 			if(laf->drawListBoxRow(rowNumber, g, text, rc, width, height, rowIsSelected, rowIsHovered))
@@ -3331,10 +3326,6 @@ void ScriptCreatedComponentWrappers::ViewportWrapper::ColumnListBoxModel::return
 void ScriptCreatedComponentWrapper::ValuePopup::updateText()
 {
 	auto thisText = parent.getTextForValuePopup();
-
-	auto sf = UnblurryGraphics::getScaleFactorForComponent(parent.getComponent(), false);
-
-	//setTransform(AffineTransform::scale(sf));
 
 	if(auto laf = dynamic_cast<ScriptingObjects::ScriptedLookAndFeel::CSSLaf*>(&parent.getComponent()->getLookAndFeel()))
 	{
