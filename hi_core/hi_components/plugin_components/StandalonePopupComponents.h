@@ -113,7 +113,7 @@ public:
 	{
 		Driver = 7, ///< The audio driver (ASIO, CoreAudio etc)
 		Device, ///< the audio device (your soundcard)
-		Input, ///< the output (normally a stereo channel pair)
+		Input, ///< the input (mono channel)
 		Output, ///< the output (normally a stereo channel pair)
 		BufferSize, ///< the buffer size
 		SampleRate, ///< the sample rate

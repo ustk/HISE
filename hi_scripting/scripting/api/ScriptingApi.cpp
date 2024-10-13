@@ -2875,7 +2875,7 @@ var ScriptingApi::Settings::getAvailableInputChannels()
 
 	if (currentDevice != nullptr) 
 	{
-		StringArray inputs = currentDevice->getInputChannelNames();
+		StringArray inputs = HiseSettings::ConversionHelpers::getInputChannelMono(currentDevice);
 
 		for (auto x : inputs)
 			result.add(x);

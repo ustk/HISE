@@ -320,7 +320,7 @@ void CustomSettingsWindow::rebuildMenus(bool rebuildDeviceTypes, bool rebuildDev
 				bufferSelector->addItem(String(bufferSizes[i]) + String(" Samples"), i + 1);
 			}
 
-            inputSelector->addItemList(currentDevice->getInputChannelNames(), 1);
+            inputSelector->addItemList(HiseSettings::ConversionHelpers::getInputChannelMono(currentDevice), 1);
             const int thisInputName = (currentDevice->getActiveInputChannels().getHighestBit());
             inputSelector->setSelectedItemIndex(thisInputName, dontSendNotification);
 

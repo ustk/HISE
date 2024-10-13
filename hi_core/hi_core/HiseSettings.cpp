@@ -718,7 +718,7 @@ Array<juce::Identifier> HiseSettings::SnexWorkbench::getAllIds()
 		P_();
 
 		P(HiseSettings::Audio::Input);
-		D("The input channel if your audio interface has multiple outputs");
+		D("The input channel if your audio interface has multiple inputs");
 		P_();
 
 		P(HiseSettings::Audio::Output);
@@ -1069,7 +1069,7 @@ juce::StringArray HiseSettings::Data::getOptionsFor(const Identifier& id)
 		else if (id == Audio::Input)
 		{
 			const auto currentDevice = manager->getCurrentAudioDevice();
-			return ConversionHelpers::getInputChannelPairs(currentDevice);
+			return ConversionHelpers::getInputChannelMono(currentDevice);
 		}
 		else if (id == Audio::Output)
 		{
@@ -1255,9 +1255,9 @@ var HiseSettings::Data::getDefaultSetting(const Identifier& id) const
 	}
 	else if (id == Audio::Input)
 	{
-		auto currentDevice = dynamic_cast<AudioProcessorDriver*>(mc)->deviceManager->getCurrentAudioDevice();
+		auto device = dynamic_cast<AudioProcessorDriver*>(mc)->deviceManager->getCurrentAudioDevice();
 
-		return currentDevice->getInputChannelNames();
+		return ConversionHelpers::getCurrentInputName(device);
 	}
 	else if (id == Audio::Output)
 	{
@@ -1415,7 +1415,7 @@ void HiseSettings::Data::settingWasChanged(const Identifier& id, const var& newV
 		{
 			auto driver = dynamic_cast<AudioProcessorDriver*>(mc);
 			auto device = driver->deviceManager->getCurrentAudioDevice();
-			auto list = device->getInputChannelNames();
+			auto list = ConversionHelpers::getInputChannelMono(device);
 			auto inputIndex = list.indexOf(newValue.toString());
 
 			if (inputIndex != -1)
@@ -1560,6 +1560,27 @@ juce::String HiseSettings::ConversionHelpers::getUncamelcasedId(const Identifier
 	return pretty;
 }
 
+juce::StringArray HiseSettings::ConversionHelpers::getInputChannelMono(AudioIODevice* currentDevice)
+{
+	if (currentDevice != nullptr)
+	{
+		StringArray items = currentDevice->getInputChannelNames();
+
+		StringArray channel;
+
+		for (int i = 0; i < items.size(); i++)
+		{
+			const String& name = items[i];
+
+			channel.add(name);
+		}
+
+		return channel;
+	}
+
+	return StringArray();
+}
+
 juce::StringArray HiseSettings::ConversionHelpers::getInputChannelPairs(AudioIODevice* currentDevice)
 {
 	if (currentDevice != nullptr)
@@ -1628,7 +1649,7 @@ juce::String HiseSettings::ConversionHelpers::getCurrentInputName(AudioIODevice*
 {
 	if(currentDevice != nullptr)
 	{
-		auto list = currentDevice->getInputChannelNames();
+		auto list = getInputChannelMono(currentDevice);
 		const int thisInputName = (currentDevice->getActiveInputChannels().getHighestBit());
 
 		return list[thisInputName];
