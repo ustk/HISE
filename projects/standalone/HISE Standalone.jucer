@@ -29,17 +29,20 @@
   <EXPORTFORMATS>
     <XCODE_MAC targetFolder="Builds/MacOSX" smallIcon="ho3qQy" bigIcon="ho3qQy"
                customPList="&lt;?xml version=&quot;1.0&quot; encoding=&quot;UTF-8&quot;?&gt;&#10;&lt;!DOCTYPE plist PUBLIC &quot;-//Apple//DTD PLIST 1.0//EN&quot; &quot;http://www.apple.com/DTDs/PropertyList-1.0.dtd&quot;&gt;&#10;&lt;plist version=&quot;1.0&quot;&gt;&#10;&lt;dict&gt;&#10;&lt;key&gt;NSAppTransportSecurity&lt;/key&gt; &#10;&lt;dict&gt; &#10;&lt;key&gt;NSAllowsArbitraryLoads&lt;/key&gt;&lt;true/&gt;&#10;&lt;/dict&gt;&#10;&lt;/dict&gt;&#10;&lt;/plist&gt;"
-               extraDefs="USE_IPP=0&#10;HI_ENABLE_EXPANSION_EDITING=1&#10;HISE_ENABLE_EXPANSIONS=1&#10;HISE_SCRIPT_SERVER_TIMEOUT=20000&#10;"
+               extraDefs="USE_IPP=0&#10;HI_ENABLE_EXPANSION_EDITING=1&#10;HISE_ENABLE_EXPANSIONS=1&#10;HISE_SCRIPT_SERVER_TIMEOUT=20000&#10;FORCE_INPUT_CHANNELS=1"
                extraCompilerFlags="-Wno-reorder -Wno-inconsistent-missing-override -faligned-allocation -Wno-switch"
                xcodeValidArchs="arm64,arm64e,x86_64" extraLinkerFlags="-rpath $(SRCROOT)/../../../../tools/faust/lib "
-               externalLibraries="faust" iosDevelopmentTeamID="">
+               externalLibraries="faust" iosDevelopmentTeamID="" hardenedRuntime="1"
+               hardenedRuntimeOptions="com.apple.security.cs.allow-jit,com.apple.security.cs.allow-unsigned-executable-memory,com.apple.security.device.audio-input"
+               microphonePermissionNeeded="1">
       <CONFIGURATIONS>
         <CONFIGURATION name="Debug" osxCompatibility="10.13 SDK" isDebug="1" optimisation="1"
-                       targetName="HISE Debug" linkTimeOptimisation="0" cppLanguageStandard="c++11"
-                       cppLibType="libc++" enablePluginBinaryCopyStep="1" macOSDeploymentTarget="10.13"
-                       libraryPath="../../../../tools/faust/fakelib" defines="PERFETTO=1"/>
+                       targetName="HISE Audio Input Debug" linkTimeOptimisation="0"
+                       cppLanguageStandard="c++11" cppLibType="libc++" enablePluginBinaryCopyStep="1"
+                       macOSDeploymentTarget="10.13" libraryPath="../../../../tools/faust/fakelib"
+                       defines="PERFETTO=1"/>
         <CONFIGURATION name="Release" osxCompatibility="11.0 SDK" isDebug="0" optimisation="3"
-                       targetName="HISE" linkTimeOptimisation="1" cppLibType="libc++"
+                       targetName="HISE Audio Input" linkTimeOptimisation="1" cppLibType="libc++"
                        enablePluginBinaryCopyStep="1" macOSDeploymentTarget="11.0" libraryPath="../../../../tools/faust/fakelib"
                        defines="PERFETTO=1"/>
         <CONFIGURATION name="CI" osxCompatibility="10.13 SDK" isDebug="0" optimisation="4"
@@ -258,7 +261,8 @@
                JUCE_USE_DIRECTWRITE="1" JUCE_JACK="1" HISE_ENABLE_EXPANSIONS="1"
                HISE_ENABLE_MIDI_INPUT_FOR_FX="1" JUCE_STRICT_REFCOUNTEDPOINTER="1"
                HISE_INCLUDE_RLOTTiE="1" HISE_INCLUDE_SNEX="1" HISE_INCLUDE_LORIS="1"
-               HISE_USE_LORIS_DLL="0"/>
+               HISE_USE_LORIS_DLL="0" JUCE_USE_BETTER_MACHINE_IDS="1" FORCE_INPUT_CHANNELS="1"
+               HISE_DEACTIVATE_OVERLAY="1" CONFIRM_PRESET_OVERWRITE="0"/>
   <LIVE_SETTINGS>
     <OSX/>
     <WINDOWS/>
