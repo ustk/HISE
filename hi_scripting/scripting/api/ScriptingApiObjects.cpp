@@ -33,6 +33,149 @@
 namespace hise { using namespace juce;
 
 
+// Studio427Audio =====================================================================================================================
+
+struct ScriptingObjects::Studio427Audio::Wrapper
+{
+	API_VOID_METHOD_WRAPPER_3(Studio427Audio, correlateBuffers);
+	API_VOID_METHOD_WRAPPER_1(Studio427Audio, setCorrelationCallback);
+	API_VOID_METHOD_WRAPPER_0(Studio427Audio, abortCorrelation);
+};
+
+ScriptingObjects::Studio427Audio::Studio427Audio(ProcessorWithScriptingContent *p) :
+	ConstScriptingObject(p, 0),
+	callback(p, this, var(), 2)
+{
+	ADD_API_METHOD_3(correlateBuffers);
+	ADD_API_METHOD_1(setCorrelationCallback);
+	ADD_API_METHOD_0(abortCorrelation);
+}
+
+
+void ScriptingObjects::Studio427Audio::correlateBuffers(var reference, var selection, int measureIndex)
+{
+    jassert(reference.getBuffer()->size == selection.getBuffer()->size);
+
+    float progress = 0.0;
+	args[1] = -1;
+
+    obj->setProperty("index", measureIndex);
+    obj->setProperty("progress", progress);
+    obj->setProperty("finished", false);
+    obj->setProperty("aborted", false);
+
+	int n = reference.getBuffer()->size;
+	int maxdelay = (int)Math.ceil((float)n/2.0f);
+    int numMaxCalls = (int)Math.ceil((float)n/200.0f);
+
+    auto ref = reference.getBuffer()->buffer.getReadPointer(0);
+    auto sel = selection.getBuffer()->buffer.getReadPointer(0);
+	auto cor = new VariantBuffer(maxdelay*2);
+
+	double mx   = 0.0;
+	double my   = 0.0;
+	double sx   = 0.0;
+	double sy   = 0.0;
+	double sxy  = 0.0;
+
+	// Calculate the mean of the two series x[], y[] (ref & sel)
+	// Sum
+	for (int i = 0; i < n; i++)
+	{
+		mx += ref[i];
+		my += sel[i];
+	}
+
+	// mean
+	mx /= (double)n;
+	my /= (double)n;
+
+	// Calculate the denominator
+	for (int i = 0; i < n; i++)
+	{
+	    sx += hmath::sqr(ref[i] - mx);
+	    sy += hmath::sqr(sel[i] - my);
+	}
+
+	float denom = sqrt(sx * sy);
+    int j = 0;
+
+    // Calculate the correlation series
+    for (int delay = -maxdelay; delay < maxdelay; delay++)
+    {
+        sxy = 0.0;
+
+        for (int i = 0; i < n; i++)
+        {
+            j = i + delay;
+
+            // Treat as Circular source
+            while (j < 0)
+            {
+                j += n;
+            }
+
+            j %= n;
+
+            sxy += (ref[i] - mx) * (sel[j] - my);
+        }
+
+        // correlation buffer at "delay"
+        cor->setSample(delay + maxdelay, sxy / denom);
+
+        // limit the number of callback calls
+        if ((delay + maxdelay) % numMaxCalls == 0)
+        {
+            progress = (float)(delay + maxdelay) / (float)(2*maxdelay - 1);
+            obj->setProperty("progress", progress);
+
+            if (progress < 1.0 && callback)
+            {
+                if (obj->getProperty("aborted"))
+                {
+                    args[0] = var(obj.get());
+                	callback.call(args, 2);
+
+                    // break the whole loop
+                	break;
+                }
+
+                args[0] = var(obj.get());
+                callback.call(args, 2);
+            }
+        }
+    }
+
+	if (callback && !obj->getProperty("aborted"))
+	{
+		obj->setProperty("finished", true);
+
+        args[0] = var(obj.get());
+		args[1] = cor;
+		callback.call(args, 2);
+	}
+
+//    debugToConsole(getProcessor(), "whatever");
+}
+
+void ScriptingObjects::Studio427Audio::setCorrelationCallback(var correlationCallback)
+{
+	if (HiseJavascriptEngine::isJavascriptFunction(correlationCallback))
+	{
+		callback = WeakCallbackHolder(getScriptProcessor(), this, correlationCallback, 2);
+		callback.incRefCount();
+		callback.addAsSource(this, "onCorrelationCallback");
+		callback.setThisObject(this);
+		// callback.setHighPriority();
+	}
+}
+
+void ScriptingObjects::Studio427Audio::abortCorrelation()
+{
+	obj->setProperty("aborted", true);
+}
+
+
 
 // MidiList =====================================================================================================================
 

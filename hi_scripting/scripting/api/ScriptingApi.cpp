@@ -1298,6 +1298,7 @@ struct ScriptingApi::Engine::Wrapper
 	API_METHOD_WRAPPER_1(Engine, decodeBase64ValueTree);
 	API_VOID_METHOD_WRAPPER_2(Engine, renderAudio);
 	API_VOID_METHOD_WRAPPER_3(Engine, playBuffer);
+	API_METHOD_WRAPPER_0(Engine, createCorrelationHandler);
 	
 	
 };
@@ -1455,6 +1456,7 @@ parentMidiProcessor(dynamic_cast<ScriptBaseMidiProcessor*>(p))
 	ADD_API_METHOD_3(playBuffer);
 	ADD_API_METHOD_1(compressJSON);
 	ADD_API_METHOD_1(uncompressJSON);
+	ADD_API_METHOD_0(createCorrelationHandler);
 }
 
 
@@ -2680,6 +2682,11 @@ void ScriptingApi::Engine::saveUserPreset(var presetName)
 	{
 		getProcessor()->getMainController()->getUserPresetHandler().savePreset(presetName);
 	}
+}
+
+juce::var ScriptingApi::Engine::createCorrelationHandler()
+{
+	return new ScriptingObjects::Studio427Audio(getScriptProcessor());
 }
 
 struct ScriptingApi::Settings::Wrapper
