@@ -106,6 +106,7 @@ CustomSettingsWindow::CustomSettingsWindow(MainController* mc_, bool buildMenus)
 	ADD(Driver);
 	ADD(Device);
 	ADD(Output);
+	ADD(Input);
 	ADD(BufferSize);
 	ADD(SampleRate);
 	ADD(GlobalBPM);
@@ -136,6 +137,7 @@ CustomSettingsWindow::CustomSettingsWindow(MainController* mc_, bool buildMenus)
     addAndMakeVisible(deviceSelector = new ComboBox("Driver"));
     addAndMakeVisible(soundCardSelector = new ComboBox("Device"));
     addAndMakeVisible(outputSelector = new ComboBox("Output"));
+    addAndMakeVisible(inputSelector = new ComboBox("Input"));
     addAndMakeVisible(sampleRateSelector = new ComboBox("Sample Rate"));
     addAndMakeVisible(bufferSelector = new ComboBox("Buffer Sizes"));
     addAndMakeVisible(sampleRateSelector = new ComboBox("Sample Rate"));
@@ -143,12 +145,14 @@ CustomSettingsWindow::CustomSettingsWindow(MainController* mc_, bool buildMenus)
     deviceSelector->addListener(this);
     soundCardSelector->addListener(this);
     outputSelector->addListener(this);
+    inputSelector->addListener(this);
     bufferSelector->addListener(this);
     sampleRateSelector->addListener(this);
         
     deviceSelector->setLookAndFeel(&plaf);
     soundCardSelector->setLookAndFeel(&plaf);
     outputSelector->setLookAndFeel(&plaf);
+    inputSelector->setLookAndFeel(&plaf);
     bufferSelector->setLookAndFeel(&plaf);
     sampleRateSelector->setLookAndFeel(&plaf);
     
@@ -231,6 +235,7 @@ CustomSettingsWindow::~CustomSettingsWindow()
 	bufferSelector->removeListener(this);
 	soundCardSelector->removeListener(this);
 	outputSelector->removeListener(this);
+	inputSelector->removeListener(this);
 	bpmSelector->removeListener(this);
 	openGLSelector->removeListener(this);
 
@@ -246,6 +251,7 @@ CustomSettingsWindow::~CustomSettingsWindow()
 	deviceSelector = nullptr;
 	bufferSelector = nullptr;
 	sampleRateSelector = nullptr;
+	inputSelector = nullptr;
 	diskModeSelector = nullptr;
 	clearMidiLearn = nullptr;
 	relocateButton = nullptr;
@@ -273,6 +279,7 @@ void CustomSettingsWindow::rebuildMenus(bool rebuildDeviceTypes, bool rebuildDev
         bufferSelector->clear(dontSendNotification);
         sampleRateSelector->clear(dontSendNotification);
         outputSelector->clear(dontSendNotification);
+        inputSelector->clear(dontSendNotification);
 		
         
 		bpmSelector->clear(dontSendNotification);
@@ -317,7 +324,10 @@ void CustomSettingsWindow::rebuildMenus(bool rebuildDeviceTypes, bool rebuildDev
             outputSelector->addItemList(HiseSettings::ConversionHelpers::getChannelPairs(currentDevice), 1);
             const int thisOutputName = (currentDevice->getActiveOutputChannels().getHighestBit() - 1) / 2;
             outputSelector->setSelectedItemIndex(thisOutputName, dontSendNotification);
-            
+
+            inputSelector->addItemList(HiseSettings::ConversionHelpers::getInputChannelList(currentDevice), 1);
+            inputSelector->setSelectedItemIndex(driver->getActiveInputChannel() + 1, dontSendNotification);
+
             if (rebuildDevices)
             {
                 soundCardSelector->clear(dontSendNotification);
@@ -352,7 +362,7 @@ void CustomSettingsWindow::rebuildMenus(bool rebuildDeviceTypes, bool rebuildDev
 			PresetHandler::showMessageWindow("Audio Driver Initialisation Error", message, PresetHandler::IconType::Error);
 #endif
             
-            driver->deviceManager->initialiseWithDefaultDevices(0, 2);
+            driver->deviceManager->initialiseWithDefaultDevices(1, 2);
             
             if(!loopProtection)
             {
@@ -522,6 +532,11 @@ void CustomSettingsWindow::comboBoxChanged(ComboBox* comboBoxThatHasChanged)
 
 		//DBG(outputName);
 	}
+	else if (comboBoxThatHasChanged == inputSelector)
+	{
+		// Index 0 = "None" -> channel -1 (disabled), index 1 = first input -> channel 0, etc.
+		driver->setInputChannel(inputSelector->getSelectedItemIndex() - 1);
+	}
 	else if (comboBoxThatHasChanged == bufferSelector)
 	{
 		const int bufferSize = bufferSelector->getText().getIntValue();
@@ -595,6 +610,7 @@ void CustomSettingsWindow::paint(Graphics& g)
 
 				drawLabel(Properties::Driver, "Driver");
 				drawLabel(Properties::Device, "Audio Device");
+				drawLabel(Properties::Input, "Input");
 				drawLabel(Properties::Output, "Output");
 				drawLabel(Properties::BufferSize, "Buffer Size");
 				drawLabel(Properties::SampleRate, "Sample Rate");
@@ -626,6 +642,7 @@ void CustomSettingsWindow::paint(Graphics& g)
 
 	drawLabel(Properties::Driver, "Driver");
 	drawLabel(Properties::Device, "Audio Device");
+	drawLabel(Properties::Input, "Input");
 	drawLabel(Properties::Output, "Output");
 	drawLabel(Properties::BufferSize, "Buffer Size");
 	drawLabel(Properties::SampleRate, "Sample Rate");
@@ -665,6 +682,7 @@ void CustomSettingsWindow::resized()
     
 	POSITION_COMBOBOX(Properties::Driver, deviceSelector);
 	POSITION_COMBOBOX(Properties::Device, soundCardSelector);
+	POSITION_COMBOBOX(Properties::Input, inputSelector);
 	POSITION_COMBOBOX(Properties::Output, outputSelector);
 	POSITION_COMBOBOX(Properties::BufferSize, bufferSelector);
 	POSITION_COMBOBOX(Properties::SampleRate, sampleRateSelector);

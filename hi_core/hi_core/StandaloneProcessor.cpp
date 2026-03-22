@@ -102,6 +102,34 @@ void AudioProcessorDriver::setAudioDevice(const String& deviceName)
 	deviceManager->setAudioDeviceSetup(currentSetup, true);
 }
 
+void AudioProcessorDriver::setInputChannel(int monoChannelIndex)
+{
+	activeInputChannel = monoChannelIndex;
+
+	AudioDeviceManager::AudioDeviceSetup config;
+	deviceManager->getAudioDeviceSetup(config);
+
+	config.inputChannels.clear();
+
+	if (monoChannelIndex >= 0)
+	{
+		config.inputChannels.setBit(monoChannelIndex, true);
+
+		// For non-ASIO drivers (DirectSound, WASAPI), the input device name
+		// must be set explicitly. Use the same device as the output.
+		if (config.inputDeviceName.isEmpty())
+			config.inputDeviceName = config.outputDeviceName;
+	}
+
+	config.useDefaultInputChannels = false;
+	deviceManager->setAudioDeviceSetup(config, true);
+}
+
+int AudioProcessorDriver::getActiveInputChannel() const
+{
+	return activeInputChannel;
+}
+
 void AudioProcessorDriver::toggleMidiInput(const String& midiInputName, bool enableInput)
 {
 	if (midiInputName.isNotEmpty())
@@ -152,7 +180,8 @@ void AudioProcessorDriver::resetToDefault()
 	auto prevState = getMidiInputState();
 	auto names = MidiInput::getDevices();
 
-	deviceManager->initialiseWithDefaultDevices(0, 2);
+	deviceManager->initialiseWithDefaultDevices(1, 2);
+	activeInputChannel = -1;
 
 	for (int i = 0; i < prevState.getHighestBit() + 1; i++)
 	{
@@ -310,9 +339,12 @@ void AudioProcessorDriver::initialiseAudioDriver(XmlElement *deviceData)
     
 	DebugLogger& logger = dynamic_cast<MainController*>(this)->getDebugLogger();
 
+	// Request up to 1 input channel to support mono audio input
+	const int numInputChannels = 1;
+
 	if (deviceData != nullptr && deviceData->hasTagName("DEVICESETUP"))
 	{
-		String errorMessage = deviceManager->initialise(0, HISE_NUM_STANDALONE_OUTPUTS, deviceData, true);
+		String errorMessage = deviceManager->initialise(numInputChannels, HISE_NUM_STANDALONE_OUTPUTS, deviceData, true);
 
 		if (errorMessage.isNotEmpty() || deviceManager->getCurrentAudioDevice() == nullptr)
 		{
@@ -320,7 +352,7 @@ void AudioProcessorDriver::initialiseAudioDriver(XmlElement *deviceData)
 
 			logger.logMessage("Audio Driver Default Initialisation");
 
-			const String error = deviceManager->initialiseWithDefaultDevices(0, HISE_NUM_STANDALONE_OUTPUTS);
+			const String error = deviceManager->initialiseWithDefaultDevices(numInputChannels, HISE_NUM_STANDALONE_OUTPUTS);
 
 			if (error.isNotEmpty())
 				logger.logMessage("Error initialising with default settings: " + error);
@@ -330,7 +362,7 @@ void AudioProcessorDriver::initialiseAudioDriver(XmlElement *deviceData)
 	{
 		logger.logMessage("Audio Driver Default Initialisation");
 
-		const String error = deviceManager->initialiseWithDefaultDevices(0, HISE_NUM_STANDALONE_OUTPUTS);
+		const String error = deviceManager->initialiseWithDefaultDevices(numInputChannels, HISE_NUM_STANDALONE_OUTPUTS);
 
 		if (error.isNotEmpty())
 			logger.logMessage("Error initialising with default settings: " + error);
@@ -340,6 +372,17 @@ void AudioProcessorDriver::initialiseAudioDriver(XmlElement *deviceData)
 
 	deviceManager->addAudioCallback(callback);
 	deviceManager->addMidiInputCallback(String(), callback);
+
+	// Restore activeInputChannel from the device setup that was just loaded from XML
+	{
+		AudioDeviceManager::AudioDeviceSetup config;
+		deviceManager->getAudioDeviceSetup(config);
+
+		if (config.inputChannels.isZero())
+			activeInputChannel = -1;
+		else
+			activeInputChannel = config.inputChannels.findNextSetBit(0);
+	}
 
 	getSettingsObject().initialiseAudioDriverData();
 

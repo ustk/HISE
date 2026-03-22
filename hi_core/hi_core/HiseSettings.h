@@ -196,6 +196,7 @@ namespace Audio
 {
 DECLARE_ID(Driver);
 DECLARE_ID(Device);
+DECLARE_ID(Input);
 DECLARE_ID(Output);
 DECLARE_ID(Samplerate);
 DECLARE_ID(BufferSize);
@@ -302,6 +303,8 @@ struct ConversionHelpers
 	static String getNameForChannelPair(const String& name1, const String& name2);
 
 	static String getCurrentOutputName(AudioIODevice* currentDevice);
+
+	static StringArray getInputChannelList(AudioIODevice* currentDevice);
 
 	static StringArray getChannelList();
 };

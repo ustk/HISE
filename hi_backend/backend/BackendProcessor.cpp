@@ -745,7 +745,21 @@ void BackendProcessor::processBlock(AudioSampleBuffer& buffer, MidiBuffer& midiM
 	}
 	
 #if !HISE_BACKEND_AS_FX
-	buffer.clear();
+	if (activeInputChannel >= 0 && buffer.getNumChannels() >= 2)
+	{
+		// Mono input is in channel 0 — copy it to channel 1 so both L+R
+		// carry the input signal, then the processing chain sees it like
+		// an FX plugin input.
+		buffer.copyFrom(1, 0, buffer, 0, 0, buffer.getNumSamples());
+
+		// Clear any additional channels beyond the stereo pair
+		for (int i = 2; i < buffer.getNumChannels(); i++)
+			buffer.clear(i, 0, buffer.getNumSamples());
+	}
+	else
+	{
+		buffer.clear();
+	}
 #endif
 
 

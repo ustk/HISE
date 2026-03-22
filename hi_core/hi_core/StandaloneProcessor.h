@@ -135,6 +135,12 @@ public:
 
 	void setAudioDevice(const String &deviceName);
 
+	/** Sets the active mono input channel. Use -1 to disable audio input. */
+	void setInputChannel(int monoChannelIndex);
+
+	/** Returns the active mono input channel index, or -1 if disabled. */
+	int getActiveInputChannel() const;
+
 	void toggleMidiInput(const String &midiInputName, bool enableInput);
 
 	static void updateMidiToggleList(MainController* mc, ToggleButtonList* listToUpdate);
@@ -148,6 +154,8 @@ public:
 
 	AudioDeviceManager *deviceManager;
 	AudioProcessorPlayer *callback;
+
+	int activeInputChannel = -1;
 };
 
 class AudioDeviceDialog : public Component,

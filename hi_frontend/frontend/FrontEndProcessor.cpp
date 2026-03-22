@@ -128,6 +128,21 @@ void FrontendProcessor::processBlock (AudioSampleBuffer& buffer, MidiBuffer& mid
 		getDelayedRenderer().processWrapped(buffer, midiMessages);
 	}
 
+#elif IS_STANDALONE_FRONTEND
+	if (activeInputChannel >= 0 && buffer.getNumChannels() >= 2)
+	{
+		// Mono input: copy channel 0 to channel 1 so both L+R have input
+		buffer.copyFrom(1, 0, buffer, 0, 0, buffer.getNumSamples());
+
+		for (int i = 2; i < buffer.getNumChannels(); i++)
+			buffer.clear(i, 0, buffer.getNumSamples());
+	}
+	else
+	{
+		buffer.clear();
+	}
+
+	getDelayedRenderer().processWrapped(buffer, midiMessages);
 #else
 	getDelayedRenderer().processWrapped(buffer, midiMessages);
 #endif

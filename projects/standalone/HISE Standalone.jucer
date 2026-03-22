@@ -35,11 +35,12 @@
                externalLibraries="faust" iosDevelopmentTeamID="">
       <CONFIGURATIONS>
         <CONFIGURATION name="Debug" osxCompatibility="10.13 SDK" isDebug="1" optimisation="1"
-                       targetName="HISE Debug" linkTimeOptimisation="0" cppLanguageStandard="c++11"
-                       cppLibType="libc++" enablePluginBinaryCopyStep="1" macOSDeploymentTarget="10.13"
-                       libraryPath="../../../../tools/faust/fakelib" defines="PERFETTO=0"/>
+                       targetName="HISE Audio Inputs Debug" linkTimeOptimisation="0"
+                       cppLanguageStandard="c++11" cppLibType="libc++" enablePluginBinaryCopyStep="1"
+                       macOSDeploymentTarget="10.13" libraryPath="../../../../tools/faust/fakelib"
+                       defines="PERFETTO=0"/>
         <CONFIGURATION name="Release" osxCompatibility="11.0 SDK" isDebug="0" optimisation="3"
-                       targetName="HISE" linkTimeOptimisation="1" cppLibType="libc++"
+                       targetName="HISE Audio Inputs" linkTimeOptimisation="1" cppLibType="libc++"
                        enablePluginBinaryCopyStep="1" macOSDeploymentTarget="11.0" libraryPath="../../../../tools/faust/fakelib"
                        defines="PERFETTO=0"/>
         <CONFIGURATION name="CI" osxCompatibility="10.13 SDK" isDebug="0" optimisation="4"
@@ -47,12 +48,12 @@
                        enablePluginBinaryCopyStep="1" stripLocalSymbols="1" defines="HISE_CI=1&#10;HI_RUN_UNIT_TESTS=1&#10;PERFETTO=0"
                        macOSDeploymentTarget="10.13" libraryPath="../../../../tools/faust/fakelib&#10;"/>
         <CONFIGURATION name="Release with Faust" osxCompatibility="10.13 SDK" isDebug="0"
-                       optimisation="3" targetName="HISE" linkTimeOptimisation="1" cppLibType="libc++"
-                       enablePluginBinaryCopyStep="1" macOSDeploymentTarget="10.13"
+                       optimisation="3" targetName="HISE Faust" linkTimeOptimisation="1"
+                       cppLibType="libc++" enablePluginBinaryCopyStep="1" macOSDeploymentTarget="10.13"
                        libraryPath="../../../../tools/faust/lib" binaryPath="Builds/MacOSX/build/Release"
                        headerPath="../../../../tools/faust/include" defines="HISE_INCLUDE_FAUST=1&#10;HISE_FAUST_USE_LLVM_JIT=1&#10;HISE_INCLUDE_FAUST_JIT=1&#10;PERFETTO=0"/>
         <CONFIGURATION name="Debug with Faust" osxCompatibility="10.13 SDK" isDebug="1"
-                       optimisation="1" targetName="HISE Debug" linkTimeOptimisation="0"
+                       optimisation="1" targetName="HISE Faust Debug" linkTimeOptimisation="0"
                        cppLibType="libc++" enablePluginBinaryCopyStep="1" macOSDeploymentTarget="10.13"
                        headerPath="../../../../tools/faust/include" libraryPath="../../../../tools/faust/lib"
                        defines="HISE_INCLUDE_FAUST=1&#10;HISE_FAUST_USE_LLVM_JIT=1&#10;HISE_INCLUDE_FAUST_JIT=1&#10;PERFETTO=0"
@@ -273,7 +274,8 @@
                JUCE_DIRECTSOUND="1" JUCE_USE_DIRECTWRITE="1" JUCE_JACK="1" HISE_ENABLE_EXPANSIONS="1"
                HISE_ENABLE_MIDI_INPUT_FOR_FX="1" JUCE_STRICT_REFCOUNTEDPOINTER="1"
                HISE_INCLUDE_RLOTTIE="1" HISE_INCLUDE_SNEX="1" HISE_INCLUDE_LORIS="1"
-               HISE_USE_LORIS_DLL="0"/>
+               HISE_USE_LORIS_DLL="0" JUCE_USE_BETTER_MACHINE_IDS="1" DONT_CREATE_EXPANSIONS_FOLDER="1"
+               HISE_DEACTIVATE_OVERLAY="1" CONFIRM_PRESET_OVERWRITE="0"/>
   <LIVE_SETTINGS>
     <OSX/>
     <WINDOWS/>

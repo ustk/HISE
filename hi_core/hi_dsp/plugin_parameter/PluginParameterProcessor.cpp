@@ -633,6 +633,8 @@ AudioProcessor::BusesProperties PluginParameterAudioProcessor::getHiseBusPropert
 		busProp = busProp.withInput("Input", AudioChannelSet::stereo());
 		
 #if IS_STANDALONE_FRONTEND || IS_STANDALONE_APP
+	// Support mono audio input for standalone apps
+	busProp = busProp.withInput("Input", AudioChannelSet::mono());
     constexpr int numChannels = HISE_NUM_STANDALONE_OUTPUTS;
 #else
 	constexpr int numChannels = HISE_NUM_PLUGIN_CHANNELS;
@@ -672,7 +674,7 @@ bool PluginParameterAudioProcessor::isBusesLayoutSupported(const BusesLayout& la
 #else
     
 #if IS_STANDALONE_FRONTEND || IS_STANDALONE_APP
-    return outputs == 2 || outputs == HISE_NUM_STANDALONE_OUTPUTS;
+    return (inputs == 0 || inputs == 1) && (outputs == 2 || outputs == HISE_NUM_STANDALONE_OUTPUTS);
 #else
 	bool isStereo = (inputs == 2 || inputs == 0) && outputs == 2;
 	bool isMultiChannel = (inputs == HISE_NUM_PLUGIN_CHANNELS || inputs == 0) && (outputs == HISE_NUM_PLUGIN_CHANNELS);

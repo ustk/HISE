@@ -113,6 +113,7 @@ public:
 	{
 		Driver = 7, ///< The audio driver (ASIO, CoreAudio etc)
 		Device, ///< the audio device (your soundcard)
+		Input, ///< the mono input channel
 		Output, ///< the output (normally a stereo channel pair)
 		BufferSize, ///< the buffer size
 		SampleRate, ///< the sample rate
@@ -182,6 +183,7 @@ private:
 	ScopedPointer<ComboBox> deviceSelector;
 	ScopedPointer<ComboBox> soundCardSelector;
 	ScopedPointer<ComboBox> outputSelector;
+	ScopedPointer<ComboBox> inputSelector;
 	ScopedPointer<ComboBox> bufferSelector;
 	ScopedPointer<ComboBox> sampleRateSelector;
 	ScopedPointer<ComboBox> bpmSelector;

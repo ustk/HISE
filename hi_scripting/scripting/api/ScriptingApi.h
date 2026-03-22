@@ -794,6 +794,15 @@ public:
 		
 		/** Sets the output channel pair */
 		void setOutputChannel(int index);
+
+		/** Returns array of available mono input channel names. The first entry is always "None". */
+		var getAvailableInputChannels();
+
+		/** Returns the current mono input channel index (-1 if disabled). */
+		int getCurrentInputChannel();
+
+		/** Sets the mono input channel. Use -1 to disable audio input. The selected channel will be copied to both L and R. */
+		void setInputChannel(int index);
 		
 		/** Returns available buffer sizes for the selected audio device. */
 		var getAvailableBufferSizes();

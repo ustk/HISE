@@ -117,7 +117,7 @@
 #endif
 
 #ifndef    DONT_CREATE_EXPANSIONS_FOLDER
- //#define DONT_CREATE_EXPANSIONS_FOLDER 0
+ #define   DONT_CREATE_EXPANSIONS_FOLDER 1
 #endif
 
 #ifndef    HISE_OVERWRITE_OLD_USER_PRESETS
@@ -161,7 +161,7 @@
 #endif
 
 #ifndef    HISE_DEACTIVATE_OVERLAY
- //#define HISE_DEACTIVATE_OVERLAY 0
+ #define   HISE_DEACTIVATE_OVERLAY 1
 #endif
 
 #ifndef    HISE_MIDIFX_PLUGIN
@@ -229,7 +229,7 @@
 #endif
 
 #ifndef    CONFIRM_PRESET_OVERWRITE
- //#define CONFIRM_PRESET_OVERWRITE 1
+ #define   CONFIRM_PRESET_OVERWRITE 0
 #endif
 
 #ifndef    ENABLE_CONSOLE_OUTPUT
@@ -456,6 +456,10 @@
 
 #ifndef    HISE_INCLUDE_PITCH_DETECTION
  //#define HISE_INCLUDE_PITCH_DETECTION 1
+#endif
+
+#ifndef    HISE_INCLUDE_XSIMD
+ //#define HISE_INCLUDE_XSIMD 0
 #endif
 
 #ifndef    HISE_INCLUDE_RT_NEURAL
@@ -723,7 +727,7 @@
 // juce_product_unlocking flags:
 
 #ifndef    JUCE_USE_BETTER_MACHINE_IDS
- //#define JUCE_USE_BETTER_MACHINE_IDS 0
+ #define   JUCE_USE_BETTER_MACHINE_IDS 1
 #endif
 
 //==============================================================================
