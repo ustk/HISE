@@ -102,6 +102,7 @@ public:
 		MenuFileExtractEmbeddeSnippetFiles,
 		MenuFileCreateRecoveryXml,
 		MenuSnippetClose,
+		MenuFileOpenAssetManager,
 		// --------------------------------
 		MenuFileSettings,
 		MenuToolsEditShortcuts,
@@ -113,6 +114,7 @@ public:
         
 		// Export Menu
 		MenuExportSetupWizard,
+		MenuExportCompileProject,
 		MenuExportFileAsPlugin,
 		MenuExportFileAsEffectPlugin,
 		MenuExportFileAsMidiFXPlugin,
@@ -132,6 +134,7 @@ public:
 		MenuExportCleanBuildDirectory,
 		MenuExportCleanDspNetworkFiles,
 		// --------------------------------------
+		MenuExportCreateAssetPayload,
 		MenuExportSampleDataForInstaller,
 		MenuExportCompileFilesInPool,
 		MenuExportCompileNetworksAsDll,
@@ -158,6 +161,7 @@ public:
 		MenuViewToggleSnippetBrowser,
 		MenuViewRotate,
 		MenuViewEnableGlobalLayoutMode,
+		MenuViewShowPluginPreview,
 		// -----------------------------
 		WorkspaceScript,
 		WorkspaceSampler,
@@ -192,11 +196,13 @@ public:
 		// DSP Tools
 		MenuToolsEnableDebugLogging,
 		MenuToolsShowDspNetworkDllInfo,
+		MenuToolsReplaceScriptFXWithHardcodedFX,
 		MenuToolsRecordOneSecond,
 		MenuToolsSimulateChangingBufferSize,
         MenuToolsCreateRnboTemplate,
 		MenuToolsCreateThirdPartyNode,
 		MenuToolsCreateGlobalCableCppCode,
+		MenuToolsCheckLatency,
 		// ----------------------------------
 		// License Management
 		MenuToolsCreateRSAKeys,
@@ -205,9 +211,9 @@ public:
 		// HELP Menu
 		MenuHelpShowDocumentation  = 0x70000,
 		MenuFileBrowseExamples,
-		MenuHelpCheckVersion,
 		MenuHelpShowAboutPage,
-        
+		MenuHelpUpdateHise,
+
 		numCommands
 	};
 
@@ -259,13 +265,8 @@ public:
 
    
     
-	void setCommandTarget(ApplicationCommandInfo &result, const String &name, bool active, bool ticked, char shortcut, bool useShortCut=true, ModifierKeys mod=ModifierKeys::commandModifier) {
-		result.setInfo(name, name, "Unused", 0);
-		result.setActive(active); 
-		result.setTicked(ticked);
-
-		if (useShortCut) result.addDefaultKeypress(shortcut, mod);
-	};
+	void setCommandTarget(ApplicationCommandInfo &result, const String &name, bool active, bool ticked, char shortcut, bool useShortCut=true, ModifierKeys mod=ModifierKeys::commandModifier);
+	;
 
 	bool clipBoardNotEmpty() const { return SystemClipboard::getTextFromClipboard().isNotEmpty(); }
     
@@ -277,13 +278,7 @@ public:
 
 	bool perform(const InvocationInfo &info) override;
 	
-	void updateCommands()
-	{
-		mainCommandManager->commandStatusChanged();
-		createMenuBarNames();
-
-		menuItemsChanged();
-	}
+	void updateCommands();
 
 	void setCopyPasteTarget(CopyPasteTarget *newTarget);
 
@@ -315,15 +310,15 @@ public:
 		static void closeAllChains(BackendRootWindow *bpe);
 		
 		static void showAboutPage(BackendRootWindow * bpe);
-		static void checkVersion(BackendRootWindow *bpe);
 		static void plotModulator(CopyPasteTarget *currentCopyPasteTarget);
 		static void resolveMissingSamples(BackendRootWindow *bpe);
 		static void setCompileTimeOut(BackendRootWindow * bpe);
-		static void toggleUseBackgroundThreadsForCompiling(BackendRootWindow * bpe);
 		static void toggleCompileScriptsOnPresetLoad(BackendRootWindow * bpe);
 		static void createNewProject(BackendRootWindow *bpe);
 		static void loadProject(BackendRootWindow *bpe);
 		static DialogWindowWithBackgroundThread* importProject(BackendRootWindow* bpe);
+
+		static void compileProject(BackendRootWindow* bpe);
 
 		static void extractProject(BackendRootWindow* bpe, const File& newProjectRoot, const File& sourceFile);
 
@@ -358,7 +353,6 @@ public:
 		static Result exportInstrumentExpansion(BackendProcessor* bp);
 		static Result createSampleArchive(BackendProcessor* bp);
 
-
 		static void compileNetworksToDll(BackendRootWindow* bpe);
 		static void cleanBuildDirectory(BackendRootWindow * bpe);
 		static void convertAllSamplesToMonolith(BackendRootWindow * bpe);
@@ -392,6 +386,8 @@ public:
 		static void showDocWindow(BackendRootWindow * bpe);
 		static void showNetworkDllInfo(BackendRootWindow * bpe);
 
+		static void copyUpdateInfo(BackendRootWindow* bpe);
+
 		static void createThirdPartyNode(BackendRootWindow* bpe);
 		static void restoreToDefault(BackendRootWindow * bpe);
 
@@ -406,6 +402,13 @@ public:
 		static void cleanDspNetworkFiles(BackendRootWindow* bpe);
 
 		static void createGlobalCableCppCode(BackendRootWindow* bpe);
+
+		static void exportAudio(BackendRootWindow* bpe);
+
+		static void replaceScriptModules(BackendRootWindow* bpe);
+		static void checkLatency(BackendRootWindow* bpe);
+		static void showHiseAssetManager(BackendRootWindow* bpe);
+		static void createAssetPayload(BackendRootWindow* bpe);
 	};
 
 private:
@@ -437,6 +440,8 @@ struct XmlBackupFunctions
 	static void removeEditorStatesFromXml(XmlElement &xml);
 
 	static XmlElement* getFirstChildElementWithAttribute(XmlElement* parent, const String& attributeName, const String& value);
+
+	static void normalizePositionProperties(ValueTree& v);
 
 	static void addContentFromSubdirectory(XmlElement& xml, const File& fileToLoad);
 

@@ -36,7 +36,7 @@ BEGIN_JUCE_MODULE_DECLARATION
 
   ID:               hi_streaming
   vendor:           Hart Instruments
-  version:          4.0.0
+  version:          4.1.0
   name:             HISE Streaming module
   description:      The streaming sampler classes for HISE
   website:          http://hise.audio
@@ -68,12 +68,6 @@ END_JUCE_MODULE_DECLARATION
 #else
 #define HISE_DEFAULT_STACK_SIZE 0
 #endif
-
-
-#if USE_IPP
-#include "ipp.h"
-#endif
-
 
 //=============================================================================
 /** Config: STANDALONE_STREAMING

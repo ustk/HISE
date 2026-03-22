@@ -393,37 +393,21 @@ public:
 	};
 
 	struct ParameterItem: public SearchableListComponent::Item,
-						  public PathFactory 
-						  
+						  public PathFactory,
+						  public PooledUIUpdater::SimpleTimer
 	{
-		ParameterItem(DspNetwork* parent, int parameterIndex):
-		  Item(parent->getCurrentParameterHandler()->getParameterId(parameterIndex).toString()),
-		  ptree(parent->getRootNode()->getParameterTree().getChild(parameterIndex)),
-		  dragButton("drag", nullptr, *this),
-		  dragListener(&dragButton, [parameterIndex](DspNetworkGraph* g){ return DspNetworkListeners::MacroParameterDragListener::findSliderComponent(g, parameterIndex); })
+		enum class GroupState
 		{
-			pname.getTextValue().referTo(ptree.getPropertyAsValue(PropertyIds::ID, parent->getUndoManager()));
-			valueSlider.getValueObject().referTo(ptree.getPropertyAsValue(PropertyIds::Value, parent->getUndoManager()));
+			None,
+			PartOfGroup,
+			LastInGroup
+		};
 
-			addAndMakeVisible(valueSlider);
-			addAndMakeVisible(dragButton);
-			addAndMakeVisible(pname);
+		GroupState groupState = GroupState::None;
 
-			valueSlider.setSliderStyle(juce::Slider::SliderStyle::LinearHorizontal);
-			valueSlider.setTextBoxStyle(juce::Slider::TextEntryBoxPosition::NoTextBox, false, 0, 0);
+		ParameterItem(DspNetwork* parent, int parameterIndex);
 
-			valueSlider.setLookAndFeel(&laf);
-			valueSlider.setValue(ptree[PropertyIds::Value], dontSendNotification);
-
-			pname.setFont(GLOBAL_BOLD_FONT());
-			pname.setEditable(false, true);
-			pname.setColour(Label::textColourId, Colours::white.withAlpha(0.8f));
-			pname.setColour(TextEditor::ColourIds::textColourId, Colours::white.withAlpha(0.8f));
-
-			rangeUpdater.setCallback(ptree, RangeHelpers::getRangeIds(false), valuetree::AsyncMode::Asynchronously, BIND_MEMBER_FUNCTION_2(ParameterItem::updateRange));
-		}
-
-		
+		void timerCallback();
 
 		struct SliderLookAndFeel: public LookAndFeel_V4
 		{
@@ -459,13 +443,96 @@ public:
 
 		void paint(Graphics& g) override
 		{
+			auto b = getLocalBounds().toFloat();
+
+			if (groupState != GroupState::None)
+			{
+				auto ga = b.removeFromLeft(GroupWidth).reduced(2.0f);
+
+				if(groupState == GroupState::LastInGroup)
+					ga.removeFromBottom(ga.getHeight() / 2);
+
+				ga.removeFromRight(2);
+
+				Path l;
+				l.startNewSubPath(ga.getTopLeft());
+				l.lineTo(ga.getBottomLeft());
+
+				if(groupState == GroupState::LastInGroup)
+					l.lineTo(ga.getBottomRight());
+
+				g.setColour(Colours::white.withAlpha(0.2f));
+				g.strokePath(l, PathStrokeType(2.0f));
+			}
+				
 			g.setColour(Colours::white.withAlpha(0.03f));
-			g.fillRoundedRectangle(getLocalBounds().toFloat().reduced(1.0f), 3.0f);
+			g.fillRoundedRectangle(b.reduced(1.0f), 3.0f);
+		}
+
+		static constexpr int GroupWidth = 10;
+
+		void fillPopupMenu(PopupMenu& m) override
+		{
+			auto hasPage = ptree[PropertyIds::Page].toString().isNotEmpty();
+			auto hasGroup = ptree[PropertyIds::SubGroup].toString().isNotEmpty();
+
+			m.addSectionHeader("Edit parameter layout");
+			m.addItem(1, "Add parameter page", !hasPage);
+			m.addItem(2, "Add parameter group", !hasGroup);
+			m.addSeparator();
+			m.addItem(3, "Remove page", hasPage);
+			m.addItem(4, "Remove group", hasGroup);
+			m.addSeparator();
+			m.addItem(5, "Clear all pages & groups");
+		}
+
+		void popupCallback(int result) override
+		{
+			if(result == 1)
+			{
+				auto n = PresetHandler::getCustomName("page", "Please enter the page name");
+
+				if(n.isNotEmpty())
+				{
+					ptree.setProperty(PropertyIds::Page, n, network->getUndoManager());
+				}
+			}
+			if(result == 2)
+			{
+				auto n = PresetHandler::getCustomName("page", "Please enter the group name");
+
+				if (n.isNotEmpty())
+				{
+					ptree.setProperty(PropertyIds::SubGroup, n, network->getUndoManager());
+				}
+			}
+			if(result == 3)
+			{
+				ptree.setProperty(PropertyIds::Page, "", network->getUndoManager());
+			}
+			if(result == 4)
+			{
+				ptree.setProperty(PropertyIds::SubGroup, "", network->getUndoManager());
+			}
+			if(result == 5)
+			{
+				auto parent = ptree.getParent();
+
+				for(auto p: parent)
+				{
+					p.setProperty(PropertyIds::Page, "", network->getUndoManager());
+					p.setProperty(PropertyIds::SubGroup, "", network->getUndoManager());
+				}
+			}
 		}
 
 		void resized() override
 		{
 			auto b = getLocalBounds();
+
+			if(groupState != GroupState::None)
+				b.removeFromLeft(GroupWidth);
+
 			dragButton.setBounds(b.removeFromRight(b.getHeight()).reduced(1));
 			valueSlider.setBounds(b.removeFromRight(64).reduced(3, 5));
 			pname.setBounds(b);
@@ -474,7 +541,7 @@ public:
 		Path createPath(const String& url) const override
 		{
 			Path p;
-			LOAD_PATH_IF_URL("drag", ColumnIcons::targetIcon);
+			LOAD_EPATH_IF_URL("drag", ColumnIcons::targetIcon);
 			return p;
 		}
 
@@ -490,14 +557,17 @@ public:
 
 		ValueTree ptree;
 
+		int pIndex;
 		Slider valueSlider;
 		HiseShapeButton dragButton;
 		Label pname;
-
+		
 		DspNetworkGraph* ng;
+		DspNetwork* network;
 
 		DspNetworkListeners::MacroParameterDragListener dragListener;
 		
+		JUCE_DECLARE_WEAK_REFERENCEABLE(ParameterItem);
 	};
 
 	struct CableItem: public SearchableListComponent::Item
@@ -554,6 +624,9 @@ public:
 
 		void mouseUp(const MouseEvent& event) override
 		{
+			if(!isEnabled())
+				return;
+
             if(event.mods.isShiftDown())
                 label.showEditor();
 			else if (node != nullptr)
@@ -572,6 +645,8 @@ public:
 		NiceLabel label;
 		HiseShapeButton powerButton;
 		HiseShapeButton dragButton;
+
+		bool currentlyVisible = true;
 
         Rectangle<int> area;
 
@@ -614,6 +689,196 @@ public:
 		}
 	};
 
+	struct ParameterGroupItem: public SearchableListComponent::Item
+	{
+		ParameterGroupItem(const String& group):
+		  SearchableListComponent::Item(group),
+		  name(group)
+		{
+			setUsePopupMenu(true);
+		};
+
+		void add(ParameterItem* item)
+		{
+			item->groupState = ParameterItem::GroupState::LastInGroup;
+
+			if(auto l = parameters.getLast())
+				l->groupState = ParameterItem::GroupState::PartOfGroup;
+
+			parameters.addIfNotAlreadyThere(item);
+		}
+
+		virtual void fillPopupMenu(PopupMenu& m) override
+		{
+			m.addItem(1, "Remove group");
+		}
+
+		void popupCallback(int i) override
+		{
+			if(i == 0)
+				return;
+
+			if (auto p = parameters.getFirst())
+				p->ptree.setProperty(PropertyIds::SubGroup, {}, p->network->getUndoManager());
+		}
+
+		void paint(Graphics& g) override
+		{
+			g.setColour(Colours::white.withAlpha(0.3f));
+			g.setFont(GLOBAL_BOLD_FONT());
+
+
+
+			auto b = getLocalBounds().toFloat();
+
+			auto ga = b.removeFromLeft(ParameterItem::GroupWidth).reduced(2.0f);
+			ga.removeFromRight(2);
+			ga.removeFromTop(ga.getHeight() / 2);
+
+			Path l;
+			l.startNewSubPath(ga.getTopRight());
+			l.lineTo(ga.getTopLeft());
+			l.lineTo(ga.getBottomLeft());
+
+			g.setColour(Colours::white.withAlpha(0.2f));
+			g.strokePath(l, PathStrokeType(2.0f));
+
+			g.drawText(name, b, Justification::centredLeft);
+		}
+
+		String name;
+
+		Array<WeakReference<ParameterItem>> parameters;
+		JUCE_DECLARE_WEAK_REFERENCEABLE(ParameterGroupItem);
+	};
+
+	struct ParameterPageItem: public SearchableListComponent::Item
+	{
+		ParameterPageItem(const String& page):
+			SearchableListComponent::Item(page),
+			name(page)
+		{
+			setUsePopupMenu(true);
+		}
+
+		void mouseDown(const MouseEvent& e) override
+		{
+			Item::mouseDown(e);
+
+			if(!e.mods.isRightButtonDown())
+				toggle();
+		}
+
+		virtual void fillPopupMenu(PopupMenu& m) override
+		{
+			m.addItem(1, "Remove page");
+		}
+
+		void popupCallback(int i) override
+		{
+			if (i == 0)
+				return;
+
+			if(auto p = parameters.getFirst())
+			{
+				p->ptree.setProperty(PropertyIds::Page, {}, p->network->getUndoManager());
+			}
+		}
+
+		void toggle()
+		{
+			if(state == State::Solo)
+			{
+				state = ShowAll;
+			}
+			else if(state == State::ShowAll || state == State::Hidden)
+			{
+				state = State::Solo;
+			}
+
+			auto parent = findParentComponentOfClass<Parameters>();
+
+			Component::callRecursive<Item>(parent, [&](Item* i)
+			{
+				auto visible = (parameters.contains(dynamic_cast<ParameterItem*>(i)));
+				visible |= (groups.contains(dynamic_cast<ParameterGroupItem*>(i)));
+
+				if(auto p = dynamic_cast<ParameterPageItem*>(i))
+				{
+					if(p != this)
+					{
+						if(state == State::Solo)
+							p->state = State::Hidden;
+						else
+							p->state = State::ShowAll;
+					}
+
+					visible |= true;
+				}
+				
+				if(state == State::ShowAll)
+					visible |= true;
+
+				i->setManualInclude(visible);
+				return false;
+			});
+
+			findParentComponentOfClass<SearchableListComponent>()->refreshDisplayedItems();
+		}
+
+		enum State
+		{
+			ShowAll,
+			Solo,
+			Hidden
+		};
+
+		State state = State::ShowAll;
+
+		void paint(Graphics& g) override
+		{
+			g.setFont(GLOBAL_BOLD_FONT());
+			
+
+			auto b = getLocalBounds().toFloat().reduced(1);
+
+			g.setColour(Colours::white.withAlpha(0.03f));
+			g.fillRect(b.reduced(2.0));
+
+			g.setColour(Colours::white.withAlpha(state == State::Solo ? 0.9f : 0.5f));
+
+			auto icon = b.removeFromLeft(b.getHeight()).reduced(4);
+
+			Path p;
+			p.addTriangle(icon.getTopLeft(), icon.getTopRight(), { icon.getCentreX(),  icon.getBottom() });
+
+			if(state == State::Hidden)
+				p.applyTransform(AffineTransform::rotation(-1.0f * float_Pi / 2.0f, icon.getCentreX(), icon.getCentreY()));
+
+			g.fillPath(p);
+			
+			g.drawText(name, b, Justification::centred);
+		}
+
+		void add(ParameterGroupItem* item)
+		{
+			groups.addIfNotAlreadyThere(item);
+
+			for(auto& p: item->parameters)
+				parameters.addIfNotAlreadyThere(p);
+		}
+
+		void add(ParameterItem* item)
+		{
+			parameters.addIfNotAlreadyThere(item);
+		}
+
+		String name;
+
+		Array<WeakReference<ParameterGroupItem>> groups;
+		Array<WeakReference<ParameterItem>> parameters;
+	};
+
 	struct Parameters: public NodeCollection
 	{
 		Parameters(DspNetwork* network):
@@ -624,11 +889,44 @@ public:
 
 			auto numParameters = parameterTree.getNumChildren();
 
-			for(int i = 0; i < numParameters; i++)
+			auto tree = PageInfo::createPageTree(parameterTree);
+
+			if(tree->hasPageLayout())
 			{
-				auto ni = new ParameterItem(network, i);
-				items.add(ni);
-				addAndMakeVisible(ni);
+				for(const auto& page: tree->getPageNames())
+				{
+					auto pi = new ParameterPageItem(page);
+					addAndMakeVisible(pi);
+					items.add(pi);
+
+					for(auto& group: tree->getGroups(page))
+					{
+						auto gi = new ParameterGroupItem(group);
+						items.add(gi);
+						addAndMakeVisible(gi);
+						pi->add(gi);
+
+						for(auto& p: tree->getList(page, group))
+						{
+							auto ni = new ParameterItem(network, p.info.index);
+							items.add(ni);
+							addAndMakeVisible(ni);
+							pi->add(ni);
+							gi->add(ni);
+							numParameterItems++;
+						}
+					}
+				}
+			}
+			else
+			{
+				for (int i = 0; i < numParameters; i++)
+				{
+					auto ni = new ParameterItem(network, i);
+					items.add(ni);
+					addAndMakeVisible(ni);
+					numParameterItems++;
+				}
 			}
 
 			auto ni = new AddParameterItem(network);
@@ -636,14 +934,28 @@ public:
 			addAndMakeVisible(ni);
 
 			parameterListener.setCallback(parameterTree, valuetree::AsyncMode::Asynchronously, BIND_MEMBER_FUNCTION_2(Parameters::update));
+
+			pageListener.setCallback(parameterTree, { PropertyIds::Page, PropertyIds::SubGroup }, valuetree::AsyncMode::Asynchronously,
+				VT_BIND_RECURSIVE_PROPERTY_LISTENER(onPageUpdate));
+		}
+
+		void onPageUpdate(const ValueTree&, const Identifier&)
+		{
+			if (auto b = findParentComponentOfClass<SearchableListComponent>())
+			{
+				MessageManager::callAsync([b]()
+				{
+					b->rebuildModuleList(true);
+				});
+			}
 		}
 
 		void update(ValueTree v, bool wasAdded)
 		{
 			auto numParameters = parameterTree.getNumChildren();
-			auto numItems =  getNumChildComponents() - 1;
+			//auto numItems =  getNumChildComponents() - 1;
 
-			if(numParameters == numItems)
+			if(numParameters == numParameterItems)
 				return;
 
 			if(auto b = findParentComponentOfClass<SearchableListComponent>())
@@ -657,8 +969,10 @@ public:
 
 		String getSearchTermForCollection() const override { return "Parameters"; }
 
+		int numParameterItems = 0;
 		ValueTree parameterTree;
 		valuetree::ChildListener parameterListener;
+		valuetree::RecursivePropertyListener pageListener;
 	};
 
 	struct LocalCables: public NodeCollection
@@ -674,16 +988,96 @@ public:
 		String getSearchTermForCollection() const override { return "LocalCables"; }
 	};
 
-	struct UsedNodes : public NodeCollection
+	struct UsedNodes : public NodeCollection,
+					   public DspNetworkListeners::DspNetworkGraphRootListener	
 	{
 		UsedNodes(DspNetwork* network) :
 			NodeCollection(network, 1)
 		{
 			setName("Used Nodes");
 			addItems(network->getListOfUsedNodeIds(), false);
+			currentRoot = network->getRootNode();
+			refreshAlpha(false);
+
+			lockListener.setCallback(network->getValueTree(), { PropertyIds::Locked }, valuetree::AsyncMode::Asynchronously, [this](ValueTree v, const Identifier&)
+			{
+				this->refreshAlpha(true);
+			});
 		}
 
+		void refreshAlpha(bool fade)
+		{
+			auto vt = currentRoot->getValueTree();
+
+			callRecursive<NodeItem>(this, [vt, fade](NodeItem* ni)
+			{
+				auto nt = ni->node->getValueTree();
+				auto isVisible = nt == vt || nt.isAChildOf(vt);
+
+				ValueTree lockedParent;
+
+				valuetree::Helpers::forEachParent(nt, [&](const ValueTree& v)
+				{
+					if(v.getType() == PropertyIds::Node)
+					{
+						if(v[PropertyIds::Locked])
+						{
+							lockedParent = v;
+							return true;
+						}
+					}
+
+					return false;
+				});
+
+				if(lockedParent.isValid() && lockedParent != nt)
+					isVisible &= (vt == lockedParent || vt.isAChildOf(lockedParent));
+
+				auto alpha = isVisible ? 1.0f : 0.2f;
+
+				if(fade)
+					Desktop::getInstance().getAnimator().animateComponent(ni, ni->getBoundsInParent(), alpha, 500.0, false, 1.5, 1.0);
+				else
+					ni->setAlpha(alpha);
+
+				ni->setEnabled(alpha > 0.5f);
+
+				return false;
+			});
+		}
+
+		WeakReference<NodeBase> currentRoot;
+
+		void onRootChange(NodeBase* newRoot) override
+		{
+			if(currentRoot != newRoot)
+			{
+				currentRoot = newRoot;
+				refreshAlpha(true);
+			}
+		}
+
+		static void onRootChange(Component& c, NodeBase* n)
+		{
+			jassertfalse;
+		}
+
+		void resized() override
+		{
+			NodeCollection::resized();
+
+			if(!initialised)
+			{
+				DspNetworkListeners::initRootListener(this);
+				initialised = true;
+			}
+		}
+
+		bool initialised = false;
+
 		String getSearchTermForCollection() const override { return "UsedNodes"; }
+
+		valuetree::RecursivePropertyListener lockListener;
 	};
 
 	struct UnusedNodes : public NodeCollection

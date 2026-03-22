@@ -171,6 +171,20 @@ void SampleLoader::reset()
 		clearLoader();
 }
 
+NotificationType SampleLoader::waitForTimestretchSeek(StreamingSamplerVoice* v)
+{
+	voiceToSeekTimestretchStart = v;
+
+	if(v != nullptr)
+	{
+		requestNewData();
+		auto isSynchronous = isNonRealtime();
+		return isSynchronous ? dontSendNotification : sendNotificationAsync;
+	}
+
+	return dontSendNotification;
+}
+
 void SampleLoader::clearLoader()
 {
 	sound = nullptr;
@@ -411,7 +425,7 @@ bool SampleLoader::requestNewData()
 	}
 
 #if KILL_VOICES_WHEN_STREAMING_IS_BLOCKED
-	if (this->isQueued())
+	if (this->isQueued() && !isWaitingForTimestretchSeek())
 	{
 		writeBuffer.get()->clear();
 
@@ -433,6 +447,22 @@ bool SampleLoader::requestNewData()
 
 SampleThreadPoolJob::JobStatus SampleLoader::runJob()
 {
+	if(isWaitingForTimestretchSeek())
+	{
+		voiceToSeekTimestretchStart->skipTimestretchSilenceAtStart();
+
+		const auto& f = voiceToSeekTimestretchStart->delayedStartFunction;
+
+		if(f)
+			f(false, voiceToSeekTimestretchStart->voiceIndexForDelayedStart);
+
+		voiceToSeekTimestretchStart = nullptr;
+
+		
+
+		return SampleThreadPoolJob::jobHasFinished;
+	}
+
 	if (cancelled)
 	{
 		return SampleThreadPoolJob::jobHasFinished;
@@ -633,40 +663,33 @@ void StreamingSamplerVoice::startNote(int /*midiNoteNumber*/,
 
 		isActive = true;
 
-		if (stretcher.isEnabled())
-		{
-			stretcher.configure(sound->isStereo() ? 2 : 1, sound->getSampleRate());
-			stretcher.setResampleBuffer(1.0, nullptr, 0);
-
-			if(skipLatency)
-			{
-				auto numBeforeOutput = stretcher.getLatency(stretchRatio);
-
-				StereoChannelData data = loader.fillVoiceBuffer(*getTemporaryVoiceBuffer(), numBeforeOutput);
-
-				auto outL = (float*)alloca(sizeof(float*) * numBeforeOutput);
-				auto outR = (float*)alloca(sizeof(float*) * numBeforeOutput);
-
-				interpolateFromStereoData(0, outL, outR, numBeforeOutput, nullptr, 1.0, 0.0, data, numBeforeOutput);
-
-				float* inp[2] = { outL, outR };
-
-				voiceUptime += stretcher.skipLatency(inp, stretchRatio);
-
-				if (!loader.advanceReadIndex(voiceUptime))
-				{
-					jassertfalse;
-					resetVoice();
-				}
-			}
-			else
-			{
-				stretcher.reset();
-			}
-		}
+		if(stretcher.isEnabled())
+			stretcherNeedsInitialisation = true;
 	}
 	else
 	{
+		resetVoice();
+	}
+}
+
+void StreamingSamplerVoice::skipTimestretchSilenceAtStart()
+{
+	auto numBeforeOutput = stretcher.getLatency(stretchRatio);
+
+	StereoChannelData data = loader.fillVoiceBuffer(*getTemporaryVoiceBuffer(), numBeforeOutput);
+
+	auto outL = (float*)alloca(sizeof(float*) * numBeforeOutput);
+	auto outR = (float*)alloca(sizeof(float*) * numBeforeOutput);
+
+	interpolateFromStereoData(0, outL, outR, numBeforeOutput, nullptr, 1.0, 0.0, data, numBeforeOutput);
+
+	float* inp[2] = { outL, outR };
+
+	voiceUptime += stretcher.skipLatency(inp, stretchRatio);
+
+	if (!loader.advanceReadIndex(voiceUptime))
+	{
+		jassertfalse;
 		resetVoice();
 	}
 }
@@ -908,6 +931,29 @@ void StreamingSamplerVoice::interpolateFromStereoData(int startSample, float* ou
 
 void StreamingSamplerVoice::renderNextBlock(AudioSampleBuffer &outputBuffer, int startSample, int numSamples)
 {
+	if(voiceUptime < 0.0)
+	{
+		if(voiceUptime + pitchCounter > 0.0)
+		{
+			auto remainingUptime = pitchCounter - (-1.0) * voiceUptime;
+
+			pitchCounter -= remainingUptime;
+
+			auto bufferRatio = remainingUptime / (double)numSamples;
+
+			auto numSamplesToSkip = roundToInt(bufferRatio * (double)numSamples);
+
+			startSample += numSamplesToSkip;
+			numSamples -= numSamplesToSkip;
+			voiceUptime = 0.0;
+		}
+		else
+		{
+			voiceUptime += pitchCounter;
+			return;
+		}
+	}
+
 	const StreamingSamplerSound *sound = loader.getLoadedSound();
 
 #if USE_SAMPLE_DEBUG_COUNTER
@@ -938,8 +984,30 @@ void StreamingSamplerVoice::renderNextBlock(AudioSampleBuffer &outputBuffer, int
 				thisUptimeDelta *= pitchData[0];
 
 			auto pitchSt = std::log2(thisUptimeDelta) * 12.0;
-			stretcher.setTransposeSemitones(pitchSt, timestretchTonality);
-			
+
+			if(stretcherNeedsInitialisation)
+			{
+				auto isDelayed = initStretcher(pitchSt);
+
+                jassert(delayedStartFunction);
+                
+				if(delayedStartFunction && isDelayed == sendNotificationAsync)
+				{
+					delayedStartFunction(true, voiceIndexForDelayedStart);
+				}
+
+				stretcherNeedsInitialisation = false;
+			}
+			else
+				stretcher.setTransposeSemitones(pitchSt, timestretchTonality);
+
+
+			if(loader.isWaitingForTimestretchSeek())
+			{
+				DBG("WAIT UNTIL SEEK");
+				return;
+			}
+
 			pitchDataToUse = nullptr;
 			thisUptimeDelta = 1.0;
 			
@@ -1212,6 +1280,34 @@ void StreamingSamplerVoice::initTemporaryVoiceBuffer(hlac::HiseSampleBuffer* buf
 void StreamingSamplerVoice::setStreamingBufferDataType(bool shouldBeFloat)
 {
 	loader.setStreamingBufferDataType(shouldBeFloat);
+}
+
+NotificationType StreamingSamplerVoice::initStretcher(float pitchSt)
+{
+	jassert(stretcher.isEnabled());
+
+	auto sound = const_cast<StreamingSamplerSound*>(loader.getLoadedSound());
+	stretcher.configure(sound->isStereo() ? 2 : 1, sound->getSampleRate());
+	stretcher.setResampleBuffer(1.0, nullptr, 0);
+	stretcher.setTransposeSemitones(pitchSt, timestretchTonality);
+
+	if(skipLatency == NotificationType::sendNotificationSync || loader.isNonRealtime())
+	{
+		loader.waitForTimestretchSeek(nullptr);
+		skipTimestretchSilenceAtStart();
+		return dontSendNotification;
+	}
+	else if (skipLatency == NotificationType::sendNotificationAsync)
+	{
+		return loader.waitForTimestretchSeek(this);
+	}
+	else
+	{
+		stretcher.reset();
+	}
+		
+	stretcherNeedsInitialisation = false;
+	return dontSendNotification;
 }
 
 void SampleLoader::Unmapper::setLoader(SampleLoader *loader_)

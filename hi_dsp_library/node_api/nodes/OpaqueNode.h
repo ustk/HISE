@@ -181,6 +181,10 @@ struct OpaqueNode
 		else
 			modFunc = prototypes::noop::handleModulation;
 
+		if constexpr (prototypes::check::createExternalModulationInfo<T>::value)
+			t->createExternalModulationInfo(mp);
+		
+
 		ParameterDataList pList;
 
 		t->createParameters(pList);
@@ -200,7 +204,7 @@ struct OpaqueNode
 		return *static_cast<T*>(this->getObjectPtr());
 	}
 
-	void initialise(NodeBase* n)
+	void initialise(ObjectWithValueTree* n)
 	{
 		if (initFunc)
 			initFunc(this->getObjectPtr(), n);
@@ -233,8 +237,6 @@ struct OpaqueNode
 	}
 
 	void initExternalData(ExternalDataHolder* externalDataHolder);
-
-	void setExternalPtr(void* externPtr);
 
 	void callDestructor();
 
@@ -279,7 +281,13 @@ struct OpaqueNode
 
 	bool isSuspendedOnSilence() const { return canBeSuspended_; }
 
+	using ModulationProperties = modulation::ParameterProperties;
+
+	const ModulationProperties& getModulationProperties() const;
+
 private:
+
+	ModulationProperties mp;
 
 	String description;
 
@@ -452,7 +460,7 @@ namespace dll
 	{
 		// This is just used to check whether the dll is deprecated and needs to be recompiled...
 		// (It will be bumped whenever a breaking change into the DLL API is introduced)...
-		static constexpr int DllUpdateCounter = 3;
+		static constexpr int DllUpdateCounter = 8;
 
 		using Ptr = ReferenceCountedObjectPtr<ProjectDll>;
 

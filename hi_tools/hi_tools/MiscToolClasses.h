@@ -413,6 +413,14 @@ private:
 	juce::KeyPressMappingSet keyMap;
 };
 
+struct TooltipClientWithCustomPosition: public TooltipClient
+{
+	virtual ~TooltipClientWithCustomPosition() {};
+
+	/** Override this method and apply the custom (global position). */
+	virtual void applyPosition(const Rectangle<int>& screenBoundsOfTooltipClient, Rectangle<int>& tooltipRectangleAtOrigin) = 0;
+};
+
 /** A small helper interface class that allows you to find the topmost component
 	that might have a OpenGL context attached.
 
@@ -496,6 +504,13 @@ private:
 	int lastTimerInterval = -1;
 };
 
+class DebugSession;
+
+// Set this to 1 to find out the timer children that take the most time so you can add profile infos to it.
+#ifndef MEASURE_TIMER_CHILDREN
+#define MEASURE_TIMER_CHILDREN 0
+#endif
+
 /** Coallescates timer updates.
 	@ingroup event_handling
 	
@@ -536,7 +551,13 @@ public:
 
 		virtual void timerCallback() = 0;
 
+		template <typename T> T* getProfileDataSource() { return dynamic_cast<T*>(profileData.get()); }
+
+		void setEnableProfiling(const String& profileName);
+
 	private:
+
+		ReferenceCountedObjectPtr<ReferenceCountedObject> profileData;
 
 		void startOrStop(bool shouldStart);
 
@@ -577,7 +598,19 @@ public:
 
 	void timerCallback() override;
 
+	void setDebugSession(hise::DebugSession* s) { debugSession = s;	 }
+
+	DebugSession* getDebugSession() { return debugSession; }
+
 private:
+
+
+#if MEASURE_TIMER_CHILDREN
+	double lastDuration = 0.0;
+#endif
+
+	hise::DebugSession* debugSession = nullptr;
+	ReferenceCountedObjectPtr<ReferenceCountedObject> timerSession;
 
 	Array<WeakReference<SimpleTimer>, CriticalSection> simpleTimers;
 	LockfreeQueue<WeakReference<Broadcaster>> pendingHandlers;
@@ -638,9 +671,18 @@ public:
 
 	float getLastDisplayValue() const;
 
-private:
+	void setEnableProfiling(const String& profileName_)
+	{
+		if(profileName_ != profileName)
+		{
+			profileName = profileName_;
 
-	
+			if(currentUpdater != nullptr)
+				currentUpdater->setEnableProfiling(profileName);
+		}
+	}
+
+private:
 
 	void updateUpdater();
 
@@ -663,6 +705,8 @@ private:
 	mutable float lastDisplayValue = 1.0f;
 	mutable EventType lastChange = EventType::Idle;
 	mutable var lastValue;
+
+	String profileName;
 
 	static constexpr int NumListenerSlots = 128;
 	hise::UnorderedStack<WeakReference<EventListener>, NumListenerSlots> listeners;
@@ -721,10 +765,7 @@ public:
 		name(name_)
 	{};
 
-	virtual ~SafeChangeBroadcaster()
-	{
-		dispatcher.cancelPendingUpdate();
-	};
+	virtual ~SafeChangeBroadcaster();;
 
 	/** Sends a synchronous change message to all the registered listeners.
 	*
@@ -1064,17 +1105,37 @@ struct SimpleReadWriteLock
 	{
 		if (enabled && std::this_thread::get_id() != writer)
 		{
-			return mutex.try_lock_shared();
+			auto ok = mutex.try_lock_shared();
+
+#if JUCE_DEBUG
+			if(ok)
+				reader = std::this_thread::get_id();
+#endif
+
+			return ok;
 		}
 
 		return false;
 	}
+
+#if JUCE_DEBUG
+	bool isReadLocked() const
+	{
+		auto tid = std::this_thread::get_id();
+		return reader == tid;
+	}
+#endif
 
 	bool enterReadLock()
 	{
 		if (enabled && std::this_thread::get_id() != writer)
 		{
 			mutex.lock_shared();
+
+#if JUCE_DEBUG
+			reader = std::this_thread::get_id();
+#endif
+
 			return true;
 		}
 
@@ -1086,7 +1147,13 @@ struct SimpleReadWriteLock
 		if (holdsLock)
 		{
 			mutex.unlock_shared();
+
+#if JUCE_DEBUG
+			reader.store(std::thread::id());
+#endif
+
 			holdsLock = false;
+			
 		}
 	}
 
@@ -1137,6 +1204,13 @@ struct SimpleReadWriteLock
 			lock(l)
 		{
 			holdsLock = lock.mutex.try_lock_shared();
+
+#if JUCE_DEBUG
+			if(holdsLock)
+			{
+				lock.reader = std::this_thread::get_id();
+			}
+#endif
 		}
 
 		~ScopedTryReadLock()
@@ -1155,6 +1229,11 @@ struct SimpleReadWriteLock
 			if (holdsLock)
 			{
 				lock.mutex.unlock_shared();
+				
+#if JUCE_DEBUG
+				lock.reader.store(std::thread::id());
+#endif
+
 				holdsLock = false;
 			}
 		}
@@ -1181,6 +1260,11 @@ struct SimpleReadWriteLock
 	LockType mutex;
 
     std::atomic<std::thread::id> writer = {};
+
+#if JUCE_DEBUG
+	std::atomic<std::thread::id> reader = {};
+#endif
+
 	bool enabled = true;
 	bool fakeWriteLock = false;
 };
@@ -1446,6 +1530,17 @@ template <typename...Ps> struct LambdaBroadcaster final
 		return std::get<P>(lastValue);
 	}
 
+	void shutdown()
+	{
+		if(lockfreeUpdater != nullptr)
+		{
+			lockfreeUpdater->stop();
+		}
+
+		updater.cancelPendingUpdate();
+		removeAllListeners();
+	}
+
 private:
     
 	void sendMessageInternal(NotificationType n, const std::tuple<Ps...>& value)
@@ -1629,9 +1724,18 @@ struct ComplexDataUIBase : public ReferenceCountedObject
 
 		virtual void setSpecialLookAndFeel(LookAndFeel* l, bool shouldOwn = false);
 
-		template <typename T> T* getSpecialLookAndFeel()
+		template <typename T> T* getSpecialLookAndFeel(Component* c)
         {
-            return dynamic_cast<T*>(laf);
+			if(auto typed = dynamic_cast<T*>(laf))
+				return typed;
+
+			if(c != nullptr)
+			{
+				if(auto typed = dynamic_cast<T*>(&c->getLookAndFeel()))
+					return typed;
+			}
+
+			return nullptr;
         }
 
 	private:
@@ -1658,7 +1762,7 @@ struct ComplexDataUIBase : public ReferenceCountedObject
 
 	virtual ~ComplexDataUIBase();;
 
-	void setGlobalUIUpdater(PooledUIUpdater* updater);
+	virtual void setGlobalUIUpdater(PooledUIUpdater* updater);
 
     void sendDisplayIndexMessage(float n);
 
@@ -1673,6 +1777,11 @@ struct ComplexDataUIBase : public ReferenceCountedObject
     UndoManager* getUndoManager(bool useUndoManager = true);;
 
 	hise::SimpleReadWriteLock& getDataLock() const;
+
+	void setEnableProfiling(const String& profileName)
+	{
+		getUpdater().setEnableProfiling(profileName);
+	}
 
 protected:
 
@@ -1701,6 +1810,8 @@ public:
 
 	/** Returns a index array with the results for the given wordlist. */
 	static Array<int> searchForIndexes(const String &word, const StringArray &wordList, double fuzzyness);
+
+	static String suggestCorrection(const juce::String& wrongToken, const juce::StringArray& availableTokens, double fuzzyness = 0.3);
 
 private:
 
@@ -2056,7 +2167,15 @@ struct MasterClock
 
 	void reset();
 
+	/** This is required by Logic to detect the beat 1 position with a latency-compensated track. */
+	void setClockTolerance(double tolerance)
+	{
+		clockTolerance = tolerance;
+	}
+
 private:
+
+	double clockTolerance = 0.0;
 
 	void updateGridDelta();
 
@@ -2190,7 +2309,7 @@ struct FFTHelpers
 
     static String getWindowType(WindowType w);
 
-    static void applyWindow(WindowType t, AudioSampleBuffer& b, bool normalise=true);
+    static void applyWindow(WindowType t, AudioSampleBuffer& b, bool normalise=true, int channelIndex=0);
     
     static void applyWindow(WindowType t, float* d, int size, bool normalise=true);
     
@@ -2198,13 +2317,13 @@ struct FFTHelpers
 
 	static float getPixelValueForLogXAxis(float freq, float width);
 
-	static void toComplexArray(const AudioSampleBuffer& phaseBuffer, const AudioSampleBuffer& magBuffer, AudioSampleBuffer& out);
+	static void toComplexArray(const AudioSampleBuffer& phaseBuffer, const AudioSampleBuffer& magBuffer, AudioSampleBuffer& out, int channelIndex=0);
 
-    static void toPhaseSpectrum(const AudioSampleBuffer& inp, AudioSampleBuffer& out);
+    static void toPhaseSpectrum(const AudioSampleBuffer& inp, AudioSampleBuffer& out, int channelIndex=0);
 
-    static void toFreqSpectrum(const AudioSampleBuffer& inp, AudioSampleBuffer& out);
+    static void toFreqSpectrum(const AudioSampleBuffer& inp, AudioSampleBuffer& out, int channelIndex=0);
 
-    static void scaleFrequencyOutput(AudioSampleBuffer& b, bool convertToDb, bool invert=false);
+    static void scaleFrequencyOutput(AudioSampleBuffer& b, bool convertToDb, bool invert=false, int channelIndex=0);
 };
 
 struct Spectrum2D
@@ -2229,7 +2348,7 @@ struct Spectrum2D
 
 		static constexpr int LookupTableSize = 512;
 
-		PixelRGB getColouredPixel(float normalisedInput);
+		PixelARGB getColouredPixel(float normalisedInput, bool useAlphaValue);
 
 		LookupTable();
 
@@ -2292,6 +2411,10 @@ struct Spectrum2D
 		int gainFactorDb = 1000;
 		int gammaPercent = 60;
 
+		bool standardize = false;
+
+		int freqGamma = 100;
+
 		float getGamma() const
 		{
 			return (float)gammaPercent / 100.0f;
@@ -2341,7 +2464,7 @@ struct Spectrum2D
 
 	bool useAlphaChannel = false;
 
-    AudioSampleBuffer createSpectrumBuffer();
+    AudioSampleBuffer createSpectrumBuffer(bool useFallback);
 };
 
 /** A interface class that can attach mouse events to the JSON object provided in the mouse event callback of a broadcaster. */
@@ -2490,6 +2613,585 @@ private:
 
 	BroadcasterType broadcaster;
 	std::array<std::array<std::pair<uint16, double>, NumDataSlots>, NumEventSlots> data;
+};
+
+/** A small helper class that simplifies the syntax when programatically creating JSON objects.
+ 
+    This is just a wrapper around a juce::DynamicObject but can be used as stack created variable
+ 	with overloaded []-operator access for neat syntax like:
+ 
+ 	```
+ 	JSONObject obj;
+ 	obj["someProperty"] = "Hello";
+ 	obj["noice"] = 1234;
+
+	// convert to juce::var for usage within JUCE / HISE
+ 	var v(obj);
+ */	
+struct JSONObject
+{
+	JSONObject(): obj(new DynamicObject()) {};
+
+	JSONObject(std::initializer_list<NamedValueSet::NamedValue>&& v):
+	  obj(new DynamicObject())
+	{
+		obj->getProperties() = v;
+	}
+
+	var& operator[](const Identifier& id)
+	{
+		if(!obj->hasProperty(id))
+			obj->setProperty(id, {});
+
+		return *obj->getProperties().getVarPointer(id);
+	}
+
+	const var& operator[](const Identifier& id) const
+	{
+		return obj->getProperty(id);
+	}
+
+
+	var& operator[](const String& c)
+	{
+		return operator[](Identifier(c));
+	}
+
+	const var& operator[](const String& c) const
+	{
+		return operator[](Identifier(c));
+	}
+
+	operator var() const { return var(obj.get()); }
+
+	const NamedValueSet::NamedValue* begin() const { return obj->getProperties().begin(); }
+	const NamedValueSet::NamedValue* end() const { return obj->getProperties().end(); }
+
+private:
+
+	DynamicObject::Ptr obj;
+};
+
+/** A interface class for a component that has a text editor that should show a autocomplete popup. */
+struct TextEditorWithAutocompleteComponent: public Timer,
+											public TextEditor::Listener
+{
+	static constexpr int ItemHeight = 28;
+
+    /** This is the main top level component (or any other component) that will show the autocomplete. */
+    struct Parent
+    {
+	    virtual ~Parent() {};
+
+        /** Overwrite this and return a dynamic list of autocomplete items. */
+        virtual StringArray getAutocompleteItems(const Identifier& id) = 0;
+
+		/** Overwrite this and return false if you want to add the autocomplete to the top level window. */
+		virtual bool isTopLevel() const { return true; }
+    };
+
+    TextEditorWithAutocompleteComponent():
+      navigator(*this)
+    {};
+
+    /** Call this from your subclass. */
+    void initEditor()
+    {
+	    getTextEditor()->addListener(this);
+		getTextEditor()->addKeyListener(&navigator);
+    }
+    
+    virtual ~TextEditorWithAutocompleteComponent() {};
+
+    /** Overwrite this and return the text editor that should be used by the autocomplete popup. */
+	virtual TextEditor* getTextEditor() = 0;
+
+    void timerCallback() override
+    {
+		if(Component::getCurrentlyFocusedComponent() == getTextEditor())
+			showAutocomplete(getTextEditor()->getText());
+        
+		stopTimer();
+    }
+
+    struct AutocompleteNavigator: public KeyListener
+    {
+        AutocompleteNavigator(TextEditorWithAutocompleteComponent& parent_):
+          parent(parent_)
+        {}
+	    bool keyPressed (const KeyPress& key,
+                             Component* originatingComponent) override;
+
+        TextEditorWithAutocompleteComponent& parent;
+    } navigator;
+
+	struct LookAndFeelMethods
+    {
+        virtual ~LookAndFeelMethods() {};
+        
+	    virtual void drawAutocompleteBackground(Graphics& g, TextEditor& te, Rectangle<float> b, const StringArray& itemToShow, int selectedIndex);
+		virtual void drawAutocompleteItem(Graphics& g, TextEditorWithAutocompleteComponent& parent, const String& itemName, Rectangle<float> itemBounds, bool selected);
+    };
+
+    void textEditorTextChanged(TextEditor&) override
+    {
+	    startTimer(400);
+    }
+
+    void textEditorReturnKeyPressed(TextEditor& e) override;
+
+    void textEditorEscapeKeyPressed(TextEditor& e) override;
+
+    void showAutocomplete(const String& currentText);
+    void dismissAutocomplete();
+
+	virtual void autoCompleteItemSelected(int selectedIndex, const String& item)
+	{
+		if(updateTextEditorOnItemChange)
+			getTextEditor()->setText(item, dontSendNotification);
+	}
+
+    virtual Identifier getIdForAutocomplete() const = 0;
+
+	static bool isAutocomplete(Component* c);
+
+    struct Autocomplete;
+
+    Autocomplete* getCurrentAutocomplete();
+
+    ScopedPointer<Component> currentAutocomplete;
+    StringArray autocompleteItems;
+
+    bool useDynamicAutocomplete = false;
+	int itemsToShow = 4;
+	bool updateTextEditorOnItemChange = false;
+
+    JUCE_DECLARE_WEAK_REFERENCEABLE(TextEditorWithAutocompleteComponent);
+};
+
+class Processor;
+
+struct ModulationDisplayValue
+{
+	struct QueryFunction: public ReferenceCountedObject
+	{
+		using Ptr = ReferenceCountedObjectPtr<QueryFunction>;
+
+		QueryFunction() = default;
+
+		virtual ~QueryFunction() {}
+
+		virtual bool onScaleDrag(Processor* p, bool isDown, float delta) = 0;
+		virtual ModulationDisplayValue getDisplayValue(Processor* p, double nv, NormalisableRange<double> nr, int sourceIndex) const = 0;
+		
+		JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(QueryFunction);
+	};
+
+	double getNormalisedModulationValue() const
+	{
+		return modulationActive ? jlimit(0.0, 1.0, scaledValue + addValue) : normalisedValue;
+	}
+	
+	void storeToJSON(DynamicObject* obj)
+	{
+		store(obj->getProperties());
+	}
+
+	void storeToComponent(Component& c)
+	{
+		store(c.getProperties());
+		c.repaint();
+	}
+
+	void clipTo0To1();
+
+	static float getDeltaForDragEvent(const Slider& slider, const MouseEvent& e)
+	{
+		auto thisDistanceX = e.getDistanceFromDragStartX();
+		auto thisDistanceY = -1 * e.getDistanceFromDragStartY();
+		auto thisDistance = thisDistanceX + thisDistanceY;
+		return (float)thisDistance / (float)slider.getWidth();
+	}
+
+	static ModulationDisplayValue fromJSON(const var& json, double defaultValue)
+	{
+		if(auto obj = json.getDynamicObject())
+		{
+			return fromNamedValueSet(obj->getProperties());
+		}
+
+		ModulationDisplayValue d;
+		d.modulationActive = false;
+		d.normalisedValue = jlimit(0.0, 1.0, defaultValue);
+
+		return d;
+	}
+
+	static ModulationDisplayValue fromComponent(Component& s, double defaultValue)
+	{
+		auto d = fromNamedValueSet(s.getProperties());
+
+		if(!d.modulationActive)
+			d.normalisedValue = defaultValue;
+
+		return d;
+	}
+
+	bool operator==(const ModulationDisplayValue& other) const
+	{
+		return normalisedValue == other.normalisedValue &&
+			   scaledValue == other.scaledValue &&
+			   addValue == other.addValue &&
+			   modulationActive == other.modulationActive &&
+			   modulationRange == other.modulationRange;
+	}
+
+	bool operator!=(const ModulationDisplayValue& other) const
+	{
+		return !(*this == other);
+	}
+	
+	double normalisedValue = 0.0;
+	
+	double scaledValue = 1.0;
+	double addValue = 0.0;
+	Range<double> modulationRange;
+	bool modulationActive = false;
+	double lastModValue = 0.0;
+
+private:
+
+	static ModulationDisplayValue fromNamedValueSet(const NamedValueSet& set)
+	{
+		ModulationDisplayValue v;
+		v.scaledValue = set["scaledValue"];
+		v.normalisedValue = set["valueNormalized"];
+		v.addValue = set["addValue"];
+		v.modulationActive = set["modulationActive"];
+		v.lastModValue = set["lastModValue"];
+
+		auto minv = (float)set["modMinValue"];
+		auto maxv = (float)set["modMaxValue"];
+
+		minv = jlimit(0.0f, 1.0f, FloatSanitizers::sanitizeFloatNumber(minv));
+		maxv = jlimit(0.0f, 1.0f, FloatSanitizers::sanitizeFloatNumber(maxv));
+		v.modulationRange = { minv, maxv };
+
+		return v;
+	}
+
+	void store(NamedValueSet& set) const
+	{
+		set.set("valueNormalized", normalisedValue);
+		set.set("scaledValue", scaledValue);
+		set.set("addValue", addValue);
+		set.set("modulationActive", modulationActive);
+		set.set("modMinValue", modulationRange.getStart());
+		set.set("modMaxValue", modulationRange.getEnd());
+		set.set("lastModValue", lastModValue);
+	}
+};
+
+struct ValueToTextConverter
+{
+	struct CustomConverter
+	{
+		virtual ~CustomConverter() {};
+
+		virtual String getText(double value) const = 0;
+		virtual double getValue(const String& text) const = 0;
+
+		JUCE_DECLARE_WEAK_REFERENCEABLE(CustomConverter);
+	};
+
+	struct ConverterFunctions
+	{
+		static String Frequency(double input)
+		{
+			auto absValue = std::abs(input);
+
+			if (absValue < 30.0f)
+				return String(input, 1) + " Hz";
+			else if (absValue < 1000.0f)
+				return String(roundToInt(input)) + " Hz";
+			else
+				return String(input / 1000.0, 1) + " kHz";
+		}
+
+		static String Time(double v)
+		{
+			if(v > 1000.0)
+				return String(v * 0.001, 1) + "s";
+			else
+				return String(roundToInt(v)) + "ms";
+		}
+
+		static String TempoSync(double v)
+		{
+			return TempoSyncer::getTempoName(roundToInt(v));
+		}
+
+		static String Decibel(double v)
+		{
+			return Decibels::toString(v, std::abs(v < 18 ? 1 : 0), -120.0);
+		}
+
+		static String Pan(double v)
+		{		
+			if (v == 0)
+				return "C";
+			
+			String result = String(roundToInt(std::abs(v)));
+						
+			if (v > 0)
+				result += "R";
+			else if (v < 0)
+				result += "L";
+
+			return result;
+		}
+
+		static String NormalizedPercentage(double v)
+		{
+			return String(roundToInt(v * 100.0)) + "%";
+		}
+
+		static String Semitones(double v)
+		{
+			String s;
+
+			if(v > 0.0)
+				s << '+';
+
+			if(std::fmod(std::abs(v+0.005), 1.0) < 0.01)
+				s << String(roundToInt(v));
+			else
+				s << String(v, 2);
+
+			s << " st";
+			return s;
+		}
+	};
+
+	struct InverterFunctions
+	{
+		static double Frequency(const String& input)
+		{
+			if(input.containsChar('k'))
+			{
+				return input.getDoubleValue() * 1000.0;
+			}
+			else
+			{
+				return input.getDoubleValue();
+			}
+		}
+
+		static double Time(const String& input)
+		{
+			if(input.containsChar('s') && !input.containsChar('m'))
+				return input.getDoubleValue() * 1000.0;
+			else
+				return input.getDoubleValue();
+		}
+
+		static double Decibel(const String& v)
+		{
+			if(v == "-INF")
+				return -100.0;
+
+			return v.getDoubleValue();
+		}
+
+		static double TempoSync(const String& input)
+		{
+			return (double)TempoSyncer::getTempoIndex(input);
+		}
+
+		static double Pan(const String& input)
+		{
+			if(input == "C")
+				return 0.0;
+
+			auto v = input.getDoubleValue();
+			if(input.contains("L"))
+				v *= -1.0;
+			return v;
+		}
+
+		static double NormalizedPercentage(const String& input)
+		{
+			return input.getDoubleValue() * 0.01;
+		}
+
+		static double Semitones(const String& input)
+		{
+			return input.getDoubleValue();
+		}
+	};
+
+	String getTextForValue(double v) const;
+
+	String operator()(double v) const
+	{
+		return getTextForValue(v);
+		
+	}
+
+	double getValueForText(const String& v) const;
+
+	double operator()(const String& v) const
+	{
+		return getValueForText(v);
+	}
+
+	static ValueToTextConverter createForOptions(const StringArray& options);
+	static ValueToTextConverter createForMode(const String& modeString);
+	static ValueToTextConverter fromString(const String& converterString);
+	static ValueToTextConverter createForCustomClass(CustomConverter* c);
+	static StringArray getAvailableTextConverterModes();
+
+	String toString() const;;
+
+	typedef String(*CF)(double);
+	typedef double(*ICF)(const String&);
+
+	bool active = false;
+	CF valueToTextFunction = nullptr;
+	ICF textToValueFunction = nullptr;
+	StringArray itemList;
+	WeakReference<CustomConverter> customConverter = nullptr;
+	double stepSize = 0.01;
+	String suffix;
+};
+
+struct HiseModulationColours
+{
+	enum class ColourId : char
+	{
+		ExtraMod = 0,
+		Midi,
+		Gain,
+		Pitch,
+		FX,
+		Wavetable,
+		Samplestart,
+		GroupFade,
+		GroupDetune,
+		GroupSpread,
+		numColourIds
+	};
+
+	static ColourId getFromVar(const var& value)
+	{
+		if(value.isVoid() || value.isUndefined())
+			return ColourId::ExtraMod;
+
+		auto idx = (int)value;
+
+		if(isPositiveAndBelow(idx, (int)ColourId::numColourIds))
+			return (ColourId)(int)idx;
+
+		return ColourId::ExtraMod;
+	}
+
+	struct Selector: public PropertyComponent
+	{
+		Selector(ValueTree& d, const Identifier& id, UndoManager* um):
+		  PropertyComponent(id.toString()),
+		  value(d.getPropertyAsValue(id, um, false))
+		{}
+
+		void mouseMove(const MouseEvent& e) override
+		{
+			auto bounds = getLookAndFeel().getPropertyComponentContentPosition (*this);
+
+			auto normX = (float)(e.getPosition().getX() - bounds.getX()) / (float)bounds.getWidth();
+
+			if(normX < 0.0f || normX > 1.0f)
+			{
+				hoverId = ColourId::numColourIds;
+			}
+			else
+			{
+				auto x = normX * (float)((int)ColourId::numColourIds);
+				hoverId = (ColourId)(int)(x);
+			}
+			
+			repaint();
+		}
+
+		void mouseDown(const MouseEvent& e) override
+		{
+			value.setValue((int)hoverId);
+			repaint();
+		}
+
+		void refresh() override { repaint(); }
+
+		void paint(Graphics& g) override
+		{
+			PropertyComponent::paint(g);
+
+			HiseModulationColours data;
+
+			auto numColours = (int)ColourId::numColourIds;
+			auto b = getLookAndFeel().getPropertyComponentContentPosition (*this).toFloat();
+			auto w = b.getWidth() / (float)numColours;
+
+			auto current = getFromVar(value.getValue());
+
+			for(int i = 0; i < numColours; i++)
+			{
+				auto a = b.removeFromLeft(w).reduced(1);
+				auto active = (ColourId)i == current;
+
+				float alpha = 0.5f;
+
+				if((ColourId)i == hoverId)
+					alpha += 0.2f;
+
+				if(active)
+					alpha += 0.3f;
+
+				g.setColour(data.getColour((ColourId)i).withAlpha(alpha));
+
+				g.fillRoundedRectangle(a, 3.0f);
+
+				if(active)
+				{
+					g.setColour(Colours::white.withAlpha(0.7f));
+					g.drawRoundedRectangle(a.reduced(1.0f), 3.0f, 2.0f);
+				}
+			}
+		}
+		
+		Value value;
+		ColourId hoverId = ColourId::numColourIds;
+	};
+
+	HiseModulationColours()
+	{
+		data[(int)ColourId::ExtraMod] = Colours::grey;
+		data[(int)ColourId::Midi] = Colour(0xFFC65638);
+		data[(int)ColourId::Gain] = Colour(0xffbe952c);
+		data[(int)ColourId::Pitch] = Colour(0xff7559a4);
+		data[(int)ColourId::FX] = Colour(0xff3a6666);
+		data[(int)ColourId::Wavetable] = Colour(0xFF4D54B3);
+		data[(int)ColourId::Samplestart] = Colour(0xFF5E8127);
+		data[(int)ColourId::GroupFade] = Colour(0xFF884B29);
+		data[(int)ColourId::GroupDetune] = Colour(0xFF880022);
+		data[(int)ColourId::GroupSpread] = Colour(0xFF22AA88);
+	}
+
+	Colour getColour(ColourId id) const
+	{
+		return data[(int)id];
+	}
+
+private:
+
+	std::array<Colour, (int)ColourId::numColourIds> data;
 };
 
 }

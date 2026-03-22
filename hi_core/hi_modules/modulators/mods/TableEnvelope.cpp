@@ -310,12 +310,13 @@ float TableEnvelope::calculateNewValue(int voiceIndex)
 	{
 	case TableEnvelopeState::ATTACK:
 	{
-		state->current_value = attackTable->getInterpolatedValue(state->uptime / (double)SAMPLE_LOOKUP_TABLE_SIZE, dontSendNotification);
-
 		state->uptime += attackUptimeDelta * state->attackModValue;
 
 		if ((int)state->uptime >= SAMPLE_LOOKUP_TABLE_SIZE)
 		{
+			// Very short attack times caused the sustain phase to use the wrong value
+			// This makes sure we use the last value of the table for the sustain phase
+			state->current_value = attackTable->getInterpolatedValue(1.0, dontSendNotification);
 			state->uptime = 0.0f;
 
 			if (!isMonophonic && attackTable->getLastValue() <= 0.01f)
@@ -327,6 +328,10 @@ float TableEnvelope::calculateNewValue(int voiceIndex)
 			{
 				state->current_state = TableEnvelopeState::SUSTAIN;
 			}
+		}
+		else
+		{
+			state->current_value = attackTable->getInterpolatedValue(state->uptime / (double)SAMPLE_LOOKUP_TABLE_SIZE, dontSendNotification);
 		}
 		break;
 	}
@@ -410,6 +415,59 @@ bool TableEnvelope::isPlaying(int voiceIndex) const
 		TableEnvelopeState *state = static_cast<TableEnvelopeState*>(states[voiceIndex]);
 		return state->current_state != TableEnvelopeState::IDLE;
 	}
+}
+
+void TableEnvelope::setInternalAttribute(int parameterIndex, float newValue)
+{
+	if (parameterIndex < EnvelopeModulator::Parameters::numParameters)
+	{
+		EnvelopeModulator::setInternalAttribute(parameterIndex, newValue);
+		return;
+	}
+
+	switch(parameterIndex)
+	{
+	case Attack:
+		attack = newValue;
+		attackUptimeDelta = calculateTableDelta(newValue);
+		break;
+	case Release:
+		release = newValue;
+		releaseUptimeDelta = calculateTableDelta(newValue);
+		break;
+	default:
+		jassertfalse;
+	}	
+}
+
+float TableEnvelope::getDefaultValue(int parameterIndex) const
+{
+	if (parameterIndex < EnvelopeModulator::Parameters::numParameters)
+	{
+		return EnvelopeModulator::getDefaultValue(parameterIndex);
+	}
+
+	switch (parameterIndex)
+	{
+	case Attack:
+		return 20.0f;
+	case Release:
+		return 20.0f;
+	default:
+		jassertfalse;
+		return -1;
+	}
+}
+
+ModulationDisplayValue::QueryFunction::Ptr TableEnvelope::getModulationQueryFunction(int parameterIndex) const
+{
+	switch(parameterIndex)
+	{
+	case Attack:  return new ModulatorChain::GetModulationOutput<(int)TableEnvelope::InternalChains::AttackChain>();
+	case Release: return new ModulatorChain::GetModulationOutput<(int)TableEnvelope::InternalChains::ReleaseChain>();
+	}
+
+	return EnvelopeModulator::getModulationQueryFunction(parameterIndex);
 }
 
 ProcessorEditorBody *TableEnvelope::createEditor(ProcessorEditor *parentEditor)

@@ -322,7 +322,10 @@ public:
     
     /** Overwrite this and return the default value. */
     virtual float getDefaultValue(int /*parameterIndex*/) const;
-    
+
+    /** Overwrite this method and return a function that calculates the modulation value for the given parameterIndex. */
+    virtual ModulationDisplayValue::QueryFunction::Ptr getModulationQueryFunction(int parameterIndex) const { return nullptr; }
+
     /** This must be overriden by every Processor and return the Chain with the Chain index.
      *
      *	You can either:
@@ -390,7 +393,19 @@ public:
     
     /** Sets the sample rate and the block size. */
     virtual void prepareToPlay(double sampleRate_, int samplesPerBlock_);
-    
+
+    /** Overwrite this and perform some operations when a voice is supposed to be delayed for a short time.
+     *
+     *  This happens either because the purge from play function is enabled or the time stretcher is prewarming
+     *  the stretching engine on the sample thread.
+     *
+     *  Usually you'll use this to reset the modulation curves for eg. envelopes). The function is called once
+     *  on the audio thread and once on the sample thread when it's finished.
+     */
+    virtual void syncAfterDelayStart(bool waitForDelay, int voiceIndex)
+	{
+	}
+
     /** Returns the sample rate. */
     double getSampleRate() const;;
     
@@ -667,7 +682,7 @@ public:
             // a uninitialised processor got inserted into the processing
             // chain, which is bad. Initialise all processors BEFORE
             // adding them there...
-            jassert(p->isValidAndInitialised());
+            jassert(p->isValidAndInitialised() || p->getMainController()->isFlakyThreadingAllowed());
             
             for(int i = 0; i < p->getNumChildProcessors(); i++)
             {
@@ -756,7 +771,15 @@ public:
         friend class WeakReference<DeleteListener>;
         WeakReference<DeleteListener>::Master masterReference;
     };
-    
+
+    virtual void onModulationDrop(int parameterIndex, int modulationSourceIndex) { jassertfalse; }
+
+    /** Override this whenever you want to show a different modulator target. */
+    virtual String getModulationTargetId(int parameterIndex) const
+    {
+	    return getIdentifierForParameterIndex(parameterIndex).toString();
+    }
+
     void addDeleteListener(DeleteListener* listener);
     
     void setIsWaitingForDeletion();
@@ -824,7 +847,55 @@ public:
 
 		NEW_PROCESSOR_DISPATCH(dispatcher.setNumAttributes(numForced));
 	}
+
     
+
+    virtual void connectToRuntimeTargets(scriptnode::OpaqueNode& on, bool shouldAdd)
+    {
+        getMainController()->connectToGlobalRuntimeTargets(on, shouldAdd);
+    }
+
+	struct ScopedAttributeNotificationSuspender
+    {
+	    ScopedAttributeNotificationSuspender(Processor* p_):
+          p(p_),
+          prevValue(p != nullptr ? p->forceDeactivateUpdates : false)
+	    {
+            if(p != nullptr)
+				p->forceDeactivateUpdates = true;
+	    }
+
+        ~ScopedAttributeNotificationSuspender()
+	    {
+            if(p != nullptr)
+				p->forceDeactivateUpdates = prevValue;
+	    }
+
+        Processor* p;
+        bool prevValue;
+    };
+
+    struct ScopedChildSkipper
+    {
+        ScopedChildSkipper(Processor& p_):
+          p(p_)
+        {
+            prevValue = p.skipRestoreChildProcessors;
+            p.skipRestoreChildProcessors = true;
+        };
+        
+        ~ScopedChildSkipper()
+        {
+            p.skipRestoreChildProcessors = prevValue;
+        }
+        
+        bool prevValue;
+        Processor& p;
+    };
+    
+	/** Call this from the baseclass whenever you want its editor to display a value change. */
+	void setOutputValue(float newValue);;
+
 protected:
 
 	/** Overwrite this method if you want to supply a custom symbol for the Processor. 
@@ -835,8 +906,7 @@ protected:
 
 	DisplayValues currentValues;
 
-	/** Call this from the baseclass whenever you want its editor to display a value change. */
-	void setOutputValue(float newValue);;
+	
 
 	/** Call this from the baseclass whenever you want its editor to display a input value change. 
 	*
@@ -864,6 +934,8 @@ protected:
 	NEW_PROCESSOR_DISPATCH(dispatch::library::Processor dispatcher);
 
 private:
+
+    bool forceDeactivateUpdates = false;
 
     struct OldBroadcaster: public SafeChangeBroadcaster
     {
@@ -893,6 +965,8 @@ private:
 	WeakReference<Processor>::Master masterReference;
     friend class WeakReference<Processor>;
 
+    bool skipRestoreChildProcessors = false;
+    
 	Array<bool> editorStateAsBoolList;
 
 	BigInteger editorState;
@@ -1055,6 +1129,9 @@ public:
 
 	static int getParameterIndexFromProcessor(Processor* p, const Identifier& id);
 
+	static String getDisplayName(Processor* p);
+
+	static void changeDisplayName(Processor* p, const String& newText);
 };
 
 } // namespace hise

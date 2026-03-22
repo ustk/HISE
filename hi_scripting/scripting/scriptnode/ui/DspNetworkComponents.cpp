@@ -236,8 +236,8 @@ juce::Path DspNetworkPathFactory::createPath(const String& url) const
 	LOAD_EPATH_IF_URL("undo", EditorIcons::undoIcon);
     LOAD_PATH_IF_URL("eject", ScriptnodeIcons::ejectIcon);
 	LOAD_EPATH_IF_URL("redo", EditorIcons::redoIcon);
-	LOAD_PATH_IF_URL("rebuild", ColumnIcons::moveIcon);
-	LOAD_PATH_IF_URL("comment", ColumnIcons::commentIcon);
+	LOAD_EPATH_IF_URL("rebuild", ColumnIcons::moveIcon);
+	LOAD_EPATH_IF_URL("comment", ColumnIcons::commentIcon);
 	LOAD_PATH_IF_URL("goto", ScriptnodeIcons::gotoIcon);
 	LOAD_PATH_IF_URL("properties", ScriptnodeIcons::propertyIcon);
 	LOAD_EPATH_IF_URL("bypass", HiBinaryData::ProcessorEditorHeaderIcons::bypassShape);
@@ -260,6 +260,7 @@ juce::Path DspNetworkPathFactory::createPath(const String& url) const
 	LOAD_EPATH_IF_URL("surround", HnodeIcons::injectNodeIcon);
     LOAD_EPATH_IF_URL("save", SampleMapIcons::saveSampleMap);
     LOAD_EPATH_IF_URL("export", SampleMapIcons::monolith);
+	LOAD_EPATH_IF_URL("lock", ColumnIcons::lockIcon);
 	LOAD_PATH_IF_URL("debug", SnexIcons::bugIcon);
 #endif
 
@@ -269,11 +270,25 @@ juce::Path DspNetworkPathFactory::createPath(const String& url) const
 DspNetworkGraph::DspNetworkGraph(DspNetwork* n) :
 	network(n),
 	dataReference(n->getValueTree()),
-	dragOverlay(*this)
+	dragOverlay(*this),
+	rootUndoButtons(*this)
 {
+	n->getParentHolder()->dllRebuildBroadcaster.addListener(*this, [](DspNetworkGraph& g, DspNetwork::Holder*)
+	{
+		g.rebuildNodes();
+	});
+
+	addChildComponent(rootUndoButtons);
 	network->addSelectionListener(this);
 	rebuildNodes();
 	setWantsKeyboardFocus(true);
+
+	lockListener.setCallback(dataReference, { PropertyIds::Locked},
+		valuetree::AsyncMode::Asynchronously,
+	[this](ValueTree v, Identifier id)
+	{
+		rebuildNodes();
+	});
 
 	cableRepainter.setCallback(dataReference, { PropertyIds::Bypassed },
 		valuetree::AsyncMode::Asynchronously,
@@ -298,11 +313,11 @@ DspNetworkGraph::DspNetworkGraph(DspNetwork* n) :
 
 	rebuildListener.forwardCallbacksForChildEvents(true);
 
-	resizeListener.setCallback(dataReference, { PropertyIds::Folded, PropertyIds::ShowParameters, PropertyIds::ShowClones, PropertyIds::DisplayedClones },
+	resizeListener.setCallback(dataReference, { PropertyIds::Folded, PropertyIds::ShowParameters, PropertyIds::ShowClones, PropertyIds::DisplayedClones, PropertyIds::Page, PropertyIds::SubGroup },
 		valuetree::AsyncMode::Asynchronously,
 		[this](ValueTree, Identifier id)
 	{
-		if (id == PropertyIds::ShowClones || id == PropertyIds::DisplayedClones)
+		if (id == PropertyIds::ShowClones || id == PropertyIds::DisplayedClones || id == PropertyIds::Page || id == PropertyIds::SubGroup)
 			this->rebuildNodes();
 		else
 			this->resizeNodes();
@@ -378,12 +393,21 @@ void DspNetworkGraph::handleAsyncUpdate()
 
 void DspNetworkGraph::rebuildNodes()
 {
-	addAndMakeVisible(root = dynamic_cast<NodeComponent*>(network->getRootNode()->createComponent()));
+	ScopedValueSetter<bool> svs(dynamic_cast<NodeContainer*>(getCurrentRootNode())->forceNoLock, true);
+	addAndMakeVisible(root = dynamic_cast<NodeComponent*>(getCurrentRootNode()->createComponent()));
+
+	if(currentRootNode != nullptr)
+		currentRootNode->getHelpManager().setShowComments(true);
+
+	rebuildBreadCrumbs();
 	resizeNodes();
 }
 
 void DspNetworkGraph::resizeNodes()
 {
+	heatmap.clear();
+	ScopedValueSetter<bool> svs(dynamic_cast<NodeContainer*>(getCurrentRootNode())->forceNoLock, true);
+
     Component::callRecursive<NodeComponent>(this, [](NodeComponent* nc)
     {
         if(auto mc = dynamic_cast<WrapperNode*>(nc->node.get()))
@@ -394,8 +418,32 @@ void DspNetworkGraph::resizeNodes()
         return false;
     });
     
-	auto b = network->getRootNode()->getPositionInCanvas({ UIValues::NodeMargin, UIValues::NodeMargin });
-	setSize(b.getWidth() + 2 * UIValues::NodeMargin, b.getHeight() + 2 * UIValues::NodeMargin);
+	auto b = getCurrentRootNode()->getPositionInCanvas({ UIValues::NodeMargin, UIValues::NodeMargin });
+
+	if(isShowingRootNode())
+	{
+		auto& hm = getCurrentRootNode()->getHelpManager();
+
+		auto helpBounds = hm.getHelpSize();
+
+		if(!helpBounds.isEmpty())
+		{
+			if(hm.isHelpBelow())
+				b.removeFromTop(-helpBounds.getHeight());
+			else
+				b.removeFromRight(-helpBounds.getWidth());
+		}
+	}
+
+	auto breadCrumbWidth = UIValues::ZoomOffset;
+
+	for(auto bc: breadcrumbs)
+	{
+		breadCrumbWidth += bc->getWidth();
+	}
+
+	auto wToUse = jmax(breadCrumbWidth, b.getWidth() + 2 * UIValues::NodeMargin);
+	setSize(wToUse, b.getHeight() + 2 * UIValues::NodeMargin + (!isShowingRootNode() ? UIValues::ZoomOffset : 0));
 	resized();
 }
 
@@ -447,9 +495,147 @@ void DspNetworkGraph::resized()
 {
 	if (root != nullptr)
 	{
-		root->setBounds(getLocalBounds().reduced(UIValues::NodeMargin));
-		root->setTopLeftPosition({ UIValues::NodeMargin, UIValues::NodeMargin });
+		ScopedValueSetter<bool> svs(dynamic_cast<NodeContainer*>(getCurrentRootNode())->forceNoLock, true);
+
+		auto b = getLocalBounds();
+
+		rootUndoButtons.setVisible(!isShowingRootNode());
+
+		if(!isShowingRootNode())
+		{
+			auto bcArea = b.removeFromTop(UIValues::ZoomOffset);
+
+			bcArea.removeFromLeft(UIValues::NodeMargin);
+
+			rootUndoButtons.setBounds(bcArea.removeFromLeft(UIValues::ZoomOffset));
+			rootUndoButtons.resized();
+
+			for(int i = breadcrumbs.size() - 1; i >= 0; i--)
+			{
+				auto bc = breadcrumbs[i];
+				auto w = bc->getWidth();
+				bc->setBounds(bcArea.removeFromLeft(w).withSizeKeepingCentre(w, 32));
+			}
+		}
+
+		b = b.reduced(UIValues::NodeMargin);
+
+		auto nb = getCurrentRootNode()->getPositionInCanvas({ UIValues::NodeMargin, UIValues::NodeMargin });
+
+		if(!isShowingRootNode())
+			nb = getCurrentRootNode()->getBoundsWithoutHelp(nb);
+
+		nb = b.withSizeKeepingCentre(nb.getWidth(), nb.getHeight());
+
+		if(!isShowingRootNode())
+		{
+			auto& hm = getCurrentRootNode()->getHelpManager();
+
+			if(!hm.isHelpBelow())
+			{
+				nb = nb.withX(UIValues::NodeMargin);
+			}
+			else
+			{
+				nb = nb.withY(b.getY());
+			}
+		}
+
+		root->setBounds(nb);
 		root->resized();
+	}
+}
+
+struct RootUndoAction: public UndoableAction
+{
+	RootUndoAction(DspNetworkGraph& p_, NodeBase* prev_, NodeBase* current_):
+	  UndoableAction(),
+	  p(p_),
+	  prev(prev_),
+	  current(current_)
+	{}
+
+	bool perform() override
+	{
+		p.setCurrentRootNode(current, false);
+		return true;
+	}
+
+	bool undo() override
+	{
+		p.setCurrentRootNode(prev, false);
+		return true;
+	}
+	
+	DspNetworkGraph& p;
+	WeakReference<NodeBase> prev, current;
+};
+
+void DspNetworkGraph::setCurrentRootNode(NodeBase* newRoot, bool useUndo, bool allowAnimation)
+{
+	if(newRoot == network->getRootNode())
+		newRoot = nullptr;
+
+	if(newRoot == currentRootNode)
+		return;
+
+	if(useUndo)
+	{
+		String name;
+
+		if(newRoot == nullptr)
+			name << "show " << network->getId() << " as root";
+		else
+			name << "show " << newRoot->getName() << " as root";
+
+		rootUndoManager.beginNewTransaction(name);
+		rootUndoManager.perform(new RootUndoAction(*this, currentRootNode.get(), newRoot));
+	}
+	else
+	{
+		auto prevNode = getCurrentRootNode();
+
+		currentRootNode = newRoot;
+
+		auto newRootNode = getCurrentRootNode();
+
+		auto zoomIn = newRootNode->getValueTree().isAChildOf(prevNode->getValueTree());
+
+		rootBroadcaster.sendMessage(sendNotificationAsync, getCurrentRootNode());
+
+		if(currentRootNode != nullptr && !network->isSignalDisplayEnabled())
+		{
+			network->setSignalDisplayEnabled(true);
+		}
+
+		if(currentRootNode == nullptr)
+			network->setSignalDisplayEnabled(false);
+
+
+		auto parent = findParentComponentOfClass<ZoomableViewport>();
+
+		auto zoomFactor = zoomIn ? 1.008f : JUCE_LIVE_CONSTANT_OFF(0.993f);
+
+		if(allowAnimation)
+			parent->makeSwapSnapshot(zoomFactor);
+
+		auto g = this;
+
+		auto f = [parent, g]()
+		{
+			parent->clearSwapSnapshot();
+
+			g->rebuildNodes();
+			
+			parent->zoomToRectangle(g->getLocalBounds().expanded(2* UIValues::NodeMargin));
+			g->repaint();
+			g->grabKeyboardFocus();
+		};
+
+		if(allowAnimation)
+			Timer::callAfterDelay(JUCE_LIVE_CONSTANT_OFF(350), f);
+		else
+			f();
 	}
 }
 
@@ -508,13 +694,43 @@ void drawBlockrateForCable(Graphics& g, Point<float> midPoint, Colour cableColou
 
 void DspNetworkGraph::paintOverChildren(Graphics& g)
 {
+	if(!isShowingRootNode())
+	{
+		auto b = getLocalBounds().removeFromTop(UIValues::ZoomOffset).toFloat();
+
+		g.setColour(Colours::black.withAlpha(0.1f));
+		g.fillRoundedRectangle(b.reduced(2.0f), 3.0f);
+
+		g.setColour(Colours::white);
+		g.setFont(GLOBAL_BOLD_FONT().withHeight(16.0));
+
+		auto& hm = getCurrentRootNode()->getHelpManager();
+
+		auto hb = hm.getHelpSize().toFloat();
+
+		if(!hb.isEmpty())
+		{
+			auto nb = root->getBoundsInParent().toFloat();
+
+			if(hm.isHelpBelow())
+				hb.setPosition(nb.getBottomLeft());
+			else
+				hb.setPosition(nb.getTopRight());
+
+			hm.render(g, hb);
+		}
+		
+		
+	}
+
+	
+
 	float HoverAlpha = 0.5f;
 	
 	if (Component::isMouseButtonDownAnywhere())
 		HoverAlpha += 0.1f;
 
-	if (network->isFrozen())
-		return;
+	Array<ParameterSlider*> targetSlidersWithCable;
 
 	if (dragOverlay.alpha != 0.0f)
 	{
@@ -707,6 +923,8 @@ void DspNetworkGraph::paintOverChildren(Graphics& g)
                         thisAlpha = HoverAlpha;
 					
 					GlobalHiseLookAndFeel::paintCable(g, start, end, colourToUse, thisAlpha, hc);
+
+					targetSlidersWithCable.addIfNotAlreadyThere(targetSlider);
 				}
 			}
 		}
@@ -751,6 +969,8 @@ void DspNetworkGraph::paintOverChildren(Graphics& g)
                 
 				Colour hc = s->isMouseOver(true) ? Colours::red : Colour(0xFFAAAAAA);
 				auto midPoint = GlobalHiseLookAndFeel::paintCable(g, start, end, c, thisAlpha, hc, network->getCpuProfileFlag());
+
+				targetSlidersWithCable.addIfNotAlreadyThere(s);
 
 				if (!midPoint.isOrigin())
 				{
@@ -814,6 +1034,8 @@ void DspNetworkGraph::paintOverChildren(Graphics& g)
 
 						auto midPoint = GlobalHiseLookAndFeel::paintCable(g, start, end, cableColour, thisAlpha, hc, network->getCpuProfileFlag());
 
+						targetSlidersWithCable.addIfNotAlreadyThere(s);
+
 						if (!midPoint.isOrigin())
 						{
 							auto thisSource = ConnectionBase::Helpers::findRealSource(sourceNode);
@@ -872,10 +1094,9 @@ void DspNetworkGraph::paintOverChildren(Graphics& g)
 
 		if (connection.isNotEmpty())
 		{
-			
-
 			if (connection.contains("["))
 			{
+				// Multi mod source
 				auto nodeId = connection.upToFirstOccurrenceOf("[", false, false);
 				auto slotIndex = connection.fromFirstOccurrenceOf("[", false, false).getIntValue();
 
@@ -900,8 +1121,10 @@ void DspNetworkGraph::paintOverChildren(Graphics& g)
 					}
 				}
 			}
-			else
+			else if (connection.containsChar('.'))
 			{
+				// Parameter
+
 				auto nodeId = connection.upToFirstOccurrenceOf(".", false, false);
 				auto pId = connection.fromFirstOccurrenceOf(".", false, false);
 
@@ -927,6 +1150,33 @@ void DspNetworkGraph::paintOverChildren(Graphics& g)
 
 						GlobalHiseLookAndFeel::paintCable(g, start, end, c, alpha, hc);
 						break;
+					}
+				}
+			}
+			else
+			{
+				// Single Mod source
+
+				for(auto m: modSourceList)
+				{
+					
+
+					if(auto mn = m->getSourceNodeFromParent())
+					{
+						if(mn->getId() == connection)
+						{
+							auto c = n->isBypassed() ? Colours::grey : Colour(SIGNAL_COLOUR).withAlpha(0.8f);
+
+							c = getSpecialColour(m, c);
+
+							auto start = getCircle(m, false);
+							auto end = getCircle(&b->powerButton).translated(0.0, -60.0f);
+							
+							Colour hc = m->isMouseOver(true) ? Colours::red : Colour(0xFFAAAAAA);
+
+							GlobalHiseLookAndFeel::paintCable(g, start, end, c, alpha, hc);
+							break;
+						}
 					}
 				}
 			}
@@ -1048,7 +1298,7 @@ void DspNetworkGraph::paintOverChildren(Graphics& g)
 
 				if (auto rn = r->getAsReceiveNode())
 				{
-					if (&sn->cable == rn->source)
+					if (sn->getCable() == *rn->getSourceCablePtr())
 					{
 						auto start = getCircle(s, false);
 						auto end = getCircle(r, false);
@@ -1062,7 +1312,140 @@ void DspNetworkGraph::paintOverChildren(Graphics& g)
 		}
 	}
 
+	Array<LockedContainerExtraComponent*> lockedContainers;
+	fillChildComponentList(lockedContainers, this);
 
+	for(auto& c: lockedContainers)
+	{
+		if(c->getObject()->getValueTree()[PropertyIds::Folded])
+			continue;
+
+		for(const auto& ev: c->externalConnections)
+		{
+			auto typeId = ev.getParent().getParent().getType();
+
+			if(typeId == PropertyIds::Parameter)
+			{
+				for(auto p: sliderList)
+				{
+					if(ev.isAChildOf(p->pTree))
+					{
+						auto start = getCircle(p, true);
+						auto end = getCircle(c, false);
+
+						auto t = network->getNodeWithId(ev[PropertyIds::NodeId].toString());
+
+						auto c = t->getColour();
+
+						if(c.isTransparent())
+							c = Colours::white;
+
+						GlobalHiseLookAndFeel::paintCable(g, start, end, c, 0.5f);
+						break;
+;					}
+				}
+			}
+			else
+			{
+				bool found = false;
+
+				for(auto m: modSourceList)
+				{
+					if(ev.isAChildOf(m->getSourceNodeFromParent()->getValueTree()))
+					{
+						auto start = getCircle(m, false);
+						auto end = getCircle(c, false);
+
+						auto t = network->getNodeWithId(ev[PropertyIds::NodeId].toString());
+
+						auto c = t->getColour();
+
+						GlobalHiseLookAndFeel::paintCable(g, start, end, c, alpha * 0.5f);
+						found = true;
+						break;
+					}
+				}
+
+				if(!found)
+				{
+					for(auto m: multiOutputList)
+					{
+						if(ev.isAChildOf(m->getNode()->getValueTree()))
+						{
+							auto evParent = ev.getParent().getParent();
+							jassert(evParent.getType() == PropertyIds::SwitchTarget);
+							auto connectionIndex = evParent.getParent().indexOf(evParent);
+
+							if(connectionIndex == m->getOutputIndex())
+							{
+								auto start = getCircle(dynamic_cast<Component*>(m), false);
+								auto end = getCircle(c, false);
+								auto c = MultiOutputDragSource::getFadeColour(connectionIndex, m->getNumOutputs()).withAlpha(1.0f);
+								
+								GlobalHiseLookAndFeel::paintCable(g, start, end, c, alpha * 0.5f);
+								break;
+							}
+						}
+					}
+
+				}
+			}
+		}
+	}
+	
+	if(!isShowingRootNode())
+	{
+		for(auto p: sliderList)
+		{
+			if(p->pTree[PropertyIds::Automated] && !targetSlidersWithCable.contains(p))
+			{
+				auto source = p->getConnectionSourceTree();
+
+				auto typeId = source.getParent().getParent().getType();
+
+				// Do not show the connections to the current breadcrumb...
+				if(source.isAChildOf(getCurrentRootNode()->getValueTree()))
+					continue;
+
+				for(auto bc: breadcrumbs)
+				{
+					if(source.isAChildOf(bc->node->getValueTree()))
+					{
+						auto start = getCircle(bc, false).translated(0.0, JUCE_LIVE_CONSTANT(0.0f));
+						auto end = getCircle(p);
+
+						auto colourToUse = Colours::white;
+
+						
+						if(typeId == PropertyIds::Parameter)
+						{
+							// Use the target node colour for the cable when connected to a parameter
+							if (auto nc = p->findParentComponentOfClass<NodeComponent>())
+								colourToUse = nc->getHeaderColour();
+
+						}
+						else if(typeId == PropertyIds::SwitchTarget)
+						{
+							// use the multi out colour for the given output index
+							auto st = valuetree::Helpers::findParentWithType(source, PropertyIds::SwitchTarget);
+							auto numOutputs = st.getParent().getNumChildren();
+							auto index = st.getParent().indexOf(st);
+							colourToUse = MultiOutputDragSource::getFadeColour(index, numOutputs).withAlpha(1.0f);
+						}
+						else
+						{
+							// Use the source node for modulation outputs
+							auto c = valuetree::Helpers::findParentWithType(source, PropertyIds::Node)[PropertyIds::NodeColour];
+							colourToUse = PropertyHelpers::getColourFromVar(c);
+						}
+
+						GlobalHiseLookAndFeel::paintCable(g, start, end, colourToUse, alpha);
+						break;
+					}
+				}
+			}
+		}
+	}
 
 	if(isMouseButtonDown(true) || externalDragComponent)
 	{
@@ -1077,6 +1460,9 @@ void DspNetworkGraph::paintOverChildren(Graphics& g)
 			{
 				return ps->parent.dragging;
 			}
+
+			if(auto ps = dynamic_cast<BreadcrumbButton*>(c))
+				return ps->draggingIndex != -1;
 
 			if(dynamic_cast<MultiOutputDragSource*>(c))
 				return true;
@@ -1132,18 +1518,25 @@ void DspNetworkGraph::paintOverChildren(Graphics& g)
 		delta.setX(cd.clipValue(currentPosition.getX() - lastMousePos.getX()));
 		delta.setY(cd.clipValue(currentPosition.getY() - lastMousePos.getY()));
 
-		auto fadeAlpha = jlimit(0.0f, 1.0f, 1.0f - delta.getDistanceFromOrigin() / 30.0f);
-
-		auto c = c1.interpolatedWith(c2, jlimit(0.0f, 1.0f, fadeAlpha));
-
-		
+		auto c = c2;
 
 		GlobalHiseLookAndFeel::paintCable(g, start, end, c, alpha, c, false, hanging, delta);
 
 		lastMousePos.setX(lastMousePos.getX() * dragSmoothAlpha + currentPosition.getX() * (1.0f - dragSmoothAlpha));
 		lastMousePos.setY(lastMousePos.getY() * dragSmoothAlpha + currentPosition.getY() * (1.0f - dragSmoothAlpha));
 	}
-	
+
+	for(const auto& h: heatmap)
+	{
+		
+		auto alpha = std::pow((float)h.second, JUCE_LIVE_CONSTANT_OFF(3.0f));
+		FloatSanitizers::sanitizeFloatNumber(alpha);
+		alpha = jlimit(0.0f, 1.0f, alpha);
+		g.setColour(Colour(HISE_WARNING_COLOUR).withAlpha(alpha));
+		g.drawRect(h.first, 3);
+		g.setColour(Colour(HISE_WARNING_COLOUR).withAlpha(alpha * 0.2f));
+		g.fillRect(h.first);
+	}
 }
 
 scriptnode::NodeComponent* DspNetworkGraph::getComponent(NodeBase::Ptr node)
@@ -1222,230 +1615,30 @@ bool DspNetworkGraph::Actions::swapOrientation(DspNetworkGraph& g)
 
 	for (auto n : l)
 	{
-		if (auto sn = dynamic_cast<SerialNode*>(n.get()))
+		if(auto sn = dynamic_cast<SerialNode*>(n.get()))
+		{
 			sn->isVertical.storeValue(!sn->isVertical.getValue(), sn->getUndoManager());
+
+			auto dg = &g;
+
+			auto f = [sn, dg]()
+			{
+				if(auto b = dg->getComponent(sn))
+				{
+					auto cb = dg->getLocalArea(b, b->getLocalBounds());
+					dg->findParentComponentOfClass<ZoomableViewport>()->zoomToRectangle(cb);
+				}
+			};
+
+			MessageManager::callAsync(f);
+
+			return true;
+		}
 	}
 
-	g.setTransform({});
-	g.findParentComponentOfClass<ZoomableViewport>()->centerCanvas();
+	
 
 	return true;
-}
-
-bool DspNetworkGraph::Actions::freezeNode(NodeBase::Ptr node)
-{
-#if 0
-	auto freezedId = node->getValueTree()[PropertyIds::FreezedId].toString();
-
-	if (freezedId.isNotEmpty())
-	{
-		if (auto fn = dynamic_cast<NodeBase*>(node->getRootNetwork()->get(freezedId).getObject()))
-		{
-			node->getRootNetwork()->deselect(fn);
-
-			auto newTree = fn->getValueTree();
-			auto oldTree = node->getValueTree();
-			auto um = node->getUndoManager();
-
-			auto f = [oldTree, newTree, um]()
-			{
-				auto p = oldTree.getParent();
-
-				int position = p.indexOf(oldTree);
-				p.removeChild(oldTree, um);
-				p.addChild(newTree, position, um);
-			};
-
-			MessageManager::callAsync(f);
-
-			auto nw = node->getRootNetwork();
-			auto s = [newTree, nw]()
-			{
-				auto newNode = nw->getNodeForValueTree(newTree);
-				nw->deselectAll();
-				nw->addToSelection(newNode, ModifierKeys());
-			};
-
-			MessageManager::callAsync(s);
-		}
-
-		return true;
-	}
-
-	auto freezedPath = node->getValueTree()[PropertyIds::FreezedPath].toString();
-
-	if (freezedPath.isNotEmpty())
-	{
-		auto newNode = node->getRootNetwork()->create(freezedPath, node->getId() + "_freezed");
-
-		if (auto nn = dynamic_cast<NodeBase*>(newNode.getObject()))
-		{
-			auto newTree = nn->getValueTree();
-			auto oldTree = node->getValueTree();
-			auto um = node->getUndoManager();
-
-			auto f = [oldTree, newTree, um]()
-			{
-				auto p = oldTree.getParent();
-
-				int position = p.indexOf(oldTree);
-				p.removeChild(oldTree, um);
-				p.addChild(newTree, position, um);
-			};
-
-			MessageManager::callAsync(f);
-
-			auto nw = node->getRootNetwork();
-			auto s = [newTree, nw]()
-			{
-				auto newNode = nw->getNodeForValueTree(newTree);
-				nw->deselectAll();
-				nw->addToSelection(newNode, ModifierKeys());
-			};
-
-			MessageManager::callAsync(s);
-		}
-
-		return true;
-	}
-#endif
-
-	return false;
-}
-
-bool DspNetworkGraph::Actions::unfreezeNode(NodeBase::Ptr node)
-{
-	if (auto fn = node->getEmbeddedNetwork())
-	{
-		auto newTree = fn->getRootNode()->getValueTree();
-        
-        Array<DspNetwork::IdChange> changes;
-        
-		newTree = node->getRootNetwork()->cloneValueTreeWithNewIds(newTree, changes, true);
-
-		{
-			auto oldTree = node->getValueTree();
-			auto um = node->getUndoManager();
-
-			auto newNode = node->getRootNetwork()->createFromValueTree(true, newTree, true);
-
-			auto f = [oldTree, newTree, um]()
-			{
-				auto p = oldTree.getParent();
-
-				int position = p.indexOf(oldTree);
-				p.removeChild(oldTree, um);
-				p.addChild(newTree, position, um);
-			};
-
-			MessageManager::callAsync(f);
-
-			auto nw = node->getRootNetwork();
-
-			auto s = [newNode, nw]()
-			{
-				nw->deselectAll();
-				nw->addToSelection(newNode, ModifierKeys());
-			};
-
-			MessageManager::callAsync(s);
-		}
-	}
-
-
-
-
-
-
-
-
-
-
-
-
-
-#if 0
-	if (auto hc = node->getAsRestorableNode())
-	{
-		// Check if there is already a node that was unfrozen
-
-		for (auto n : node->getRootNetwork()->getListOfUnconnectedNodes())
-		{
-			if (n->getValueTree()[PropertyIds::FreezedId].toString() == node->getId())
-			{
-				auto newTree = n->getValueTree();
-				auto oldTree = node->getValueTree();
-				auto um = node->getUndoManager();
-
-				auto f = [oldTree, newTree, um]()
-				{
-					auto p = oldTree.getParent();
-
-					int position = p.indexOf(oldTree);
-					p.removeChild(oldTree, um);
-					p.addChild(newTree, position, um);
-				};
-
-				MessageManager::callAsync(f);
-
-				auto nw = node->getRootNetwork();
-
-				auto s = [newTree, nw]()
-				{
-					auto newNode = nw->getNodeForValueTree(newTree);
-					nw->deselectAll();
-					nw->addToSelection(newNode, ModifierKeys());
-				};
-
-				MessageManager::callAsync(s);
-
-				return true;
-			}
-		}
-
-		auto t = hc->getSnippetText();
-
-		if (t.isNotEmpty())
-		{
-			auto newTree = ValueTreeConverters::convertBase64ToValueTree(t, true);
-			newTree = node->getRootNetwork()->cloneValueTreeWithNewIds(newTree);
-			newTree.setProperty(PropertyIds::FreezedPath, node->getValueTree()[PropertyIds::FactoryPath], nullptr);
-			newTree.setProperty(PropertyIds::FreezedId, node->getId(), nullptr);
-
-			{
-				auto oldTree = node->getValueTree();
-				auto um = node->getUndoManager();
-
-				auto newNode = node->getRootNetwork()->createFromValueTree(true, newTree, true);
-
-				auto f = [oldTree, newTree, um]()
-				{
-					auto p = oldTree.getParent();
-
-					int position = p.indexOf(oldTree);
-					p.removeChild(oldTree, um);
-					p.addChild(newTree, position, um);
-				};
-
-				MessageManager::callAsync(f);
-
-				auto nw = node->getRootNetwork();
-
-				auto s = [newNode, nw]()
-				{
-					nw->deselectAll();
-					nw->addToSelection(newNode, ModifierKeys());
-				};
-
-				MessageManager::callAsync(s);
-			}
-		}
-
-		return true;
-	}
-#endif
-
-	return false;
 }
 
 bool DspNetworkGraph::Actions::toggleBypass(DspNetworkGraph& g)
@@ -1484,42 +1677,6 @@ bool DspNetworkGraph::Actions::toggleSignalDisplay(DspNetworkGraph& g)
     
     return true;
 }
-
-bool DspNetworkGraph::Actions::toggleFreeze(DspNetworkGraph& g)
-{
-	auto selection = g.network->getSelection();
-
-	if (selection.isEmpty())
-	{
-		if (g.network->canBeFrozen())
-			g.network->setUseFrozenNode(!g.network->isFrozen());
-
-		g.repaint();
-
-		return true;
-	}
-	else
-	{
-		auto f = selection.getFirst();
-
-
-		if (auto fn = f->getEmbeddedNetwork())
-		{
-			if (fn->canBeFrozen())
-			{
-				auto state = !fn->isFrozen();
-
-				for (auto s : selection)
-					s->setValueTreeProperty(PropertyIds::Frozen, state);
-			}
-		}
-
-		return true;
-	}
-		
-	return false;
-}
-
 
 
 bool DspNetworkGraph::Actions::save(DspNetworkGraph& g)
@@ -1768,12 +1925,70 @@ bool DspNetworkGraph::Actions::toggleComments(DspNetworkGraph& g)
 
 bool DspNetworkGraph::Actions::toggleCpuProfiling(DspNetworkGraph& g)
 {
+#if HISE_INCLUDE_PROFILING_TOOLKIT
 	auto& b = g.network->getCpuProfileFlag();
 	b = !b;
-	
-	g.enablePeriodicRepainting(b);
 
+	if(b)
+	{
+		Component::SafePointer<DspNetworkGraph> sg(&g);
+		auto delay = g.network->getScriptProcessor()->getMainController_()->getDebugSession().getOptions().millisecondsToRecord;
+		Timer::callAfterDelay(delay, [sg]()
+		{
+			if(sg.getComponent() && sg->network->getCpuProfileFlag())
+			{
+				toggleCpuProfiling(*sg);
+			}
+		});
+
+		auto jp = dynamic_cast<JavascriptProcessor*>(g.network->getScriptProcessor());
+		g.network->getScriptProcessor()->getMainController_()->getDebugSession().clearData(jp);
+
+		DspNetworkHeatmapGenerator hg(g.network->getRootNode());
+		hg.generateHeatmapIndexes();
+
+		jp->heatmapManager.heatmapBroadcaster.addListener(g, [](DspNetworkGraph& g, DebugInformationBase::Ptr p, const std::map<int, double>* map)
+		{
+			g.heatmap.clear();
+
+			if(map != nullptr)
+			{
+				Array<NodeComponent*> list;
+				fillChildComponentList(list, &g);
+
+				for(auto nc: list)
+				{
+					auto idx = nc->node->profileData->lineRange.getStart();
+					auto ex = map->find(idx);
+
+					if(ex != map->end())
+					{
+						auto alpha = ex->second;
+						auto b = g.getLocalArea(nc, nc->getLocalBounds());
+						g.heatmap.push_back({ b, alpha });
+					}
+				}
+
+				g.repaint();
+			}
+		});
+	}
+	else
+	{
+#if USE_BACKEND
+		if(auto r = g.network->getScriptProcessor()->getMainController_()->getDebugSession().getLastProfileRoot(DebugSession::ThreadIdentifier::Type::AudioThread))
+		{
+			auto ptr = &g;
+			auto c = g.network->getScriptProcessor()->getMainController_()->getDebugSession().createPopupViewer(r);
+
+			GET_BACKEND_ROOT_WINDOW(ptr)->getRootFloatingTile()->showComponentInRootPopup(c, &g, { g.getWidth() / 2 , 15 } , false);
+		}
+#endif
+	}
+
+	g.enablePeriodicRepainting(b);
 	g.repaint();
+#endif
 
 	return true;
 }
@@ -1828,6 +2043,11 @@ bool DspNetworkGraph::Actions::foldUnselectedNodes(DspNetworkGraph& g)
 	auto parent = g.findParentComponentOfClass<ZoomableViewport>();
 
 	int counter = 0;
+
+	if(g.getCurrentRootNode()->getValueTree().isAChildOf(selection.getFirst()->getValueTree()))
+	{
+		g.setCurrentRootNode(selection.getFirst());
+	}
 
 	auto skipAnimation = valuetree::Helpers::forEach(g.network->getValueTree(), [&](const ValueTree& v)
 	{
@@ -2161,59 +2381,12 @@ bool DspNetworkGraph::Actions::showKeyboardPopup(DspNetworkGraph& g, KeyboardPop
 	return true;
 }
 
-struct DuplicateHelpers
-{
-    static ValueTree findRoot(const ValueTree& v)
-    {
-        auto p = v.getParent();
-        
-        if(!p.isValid())
-            return v;
-        
-        return findRoot(p);
-    }
-    
-    static int getIndexInRoot(const ValueTree& v)
-    {
-        auto p = findRoot(v);
-        
-        int index = 0;
-        auto iptr = &index;
-        
-        valuetree::Helpers::forEach(p, [&iptr, v](ValueTree& c)
-        {
-            *iptr = *iptr + 1;
-            return c == v;
-        });
-        
-        return index;
-    }
-    
-    // This sorts it reversed so that the index works when duplicating
-    static int compareElements(const WeakReference<NodeBase>& n1, const WeakReference<NodeBase>& n2)
-    {
-        if(n1 == n2)
-            return 0;
-        
-        if(n1 != nullptr && n2 != nullptr)
-        {
-            auto i1 = getIndexInRoot(n1->getValueTree());
-            auto i2 = getIndexInRoot(n2->getValueTree());
-            
-            if(i1 < i2)
-                return 1;
-            if(i1 > i2)
-                return -1;
-        }
-        
-        jassertfalse;
-        return 0;
-    }
-};
+
 
 
 bool DspNetworkGraph::Actions::duplicateSelection(DspNetworkGraph& g)
 {
+#if USE_BACKEND
 	int insertIndex = 0;
 
 	for (auto n : g.network->getSelection())
@@ -2221,9 +2394,7 @@ bool DspNetworkGraph::Actions::duplicateSelection(DspNetworkGraph& g)
 		auto tree = n->getValueTree();
 		insertIndex = jmax(insertIndex, tree.getParent().indexOf(tree) + 1);
 	}
-
-    
-    
+	
     Array<DspNetwork::IdChange> changes;
     
     struct TreeData
@@ -2233,7 +2404,6 @@ bool DspNetworkGraph::Actions::duplicateSelection(DspNetworkGraph& g)
     };
     
     auto sortedSelection = g.network->getSelection();
-    
     
     DuplicateHelpers h;
     
@@ -2258,14 +2428,25 @@ bool DspNetworkGraph::Actions::duplicateSelection(DspNetworkGraph& g)
         {
             g.network->changeNodeId(ct.newTree, c.oldId, c.newId, nullptr);
         }
-        
+	}
+
+	Array<ValueTree> newNodes;
+
+	for(auto& ct: clonedTrees)
+		newNodes.add(ct.newTree);
+
+	h.removeOutsideConnections(newNodes, changes);
+
+	for(auto& ct: clonedTrees)
+	{
 		g.network->createFromValueTree(true, ct.newTree, true);
 		ct.location.getParent().addChild(ct.newTree, insertIndex, g.network->getUndoManager());
         insertIndex = ct.location.getParent().indexOf(ct.newTree);
 	}
 
     g.network->runPostInitFunctions();
-    
+
+#endif
 	return true;
 }
 
@@ -2353,6 +2534,21 @@ bool DspNetworkGraph::Actions::showJSONEditorForSelection(DspNetworkGraph& g)
 	auto b = p->getLocalArea(componentToPointTo, componentToPointTo->getLocalBounds());
 
 	p->setCurrentModalWindow(editor, b);
+
+	return true;
+}
+
+bool DspNetworkGraph::Actions::lockContainer(DspNetworkGraph& g)
+{
+	auto list = g.network->getSelection();
+
+	auto firstValue = (bool)list.getFirst()->getValueTree()[PropertyIds::Locked];
+
+	for(auto l: list)
+	{
+		if(auto c = dynamic_cast<NodeContainer*>(l.get()))
+			l->getValueTree().setProperty(PropertyIds::Locked, !firstValue, l->getUndoManager());
+	}
 
 	return true;
 }
@@ -2594,7 +2790,13 @@ bool DspNetworkGraph::Actions::zoomFit(DspNetworkGraph& g)
 	auto f = [&g]()
 	{
 		g.findParentComponentOfClass<ZoomableViewport>()->clearSwapSnapshot();
-		g.findParentComponentOfClass<ZoomableViewport>()->zoomToRectangle(g.root->getBoundsInParent());
+
+		auto b = g.root->getBoundsInParent();
+
+		if(!g.isShowingRootNode())
+			b = g.getLocalBounds();
+
+		g.findParentComponentOfClass<ZoomableViewport>()->zoomToRectangle(b.expanded(UIValues::NodeMargin*2));
 		g.repaint();
 		g.grabKeyboardFocus();
 	};
@@ -2680,6 +2882,8 @@ void KeyboardPopup::addNodeAndClose(String path)
 
 				for(auto& c: changes)
 		            network->changeNodeId(newTree, c.oldId, c.newId, nullptr);
+
+				BACKEND_ONLY(DuplicateHelpers::removeOutsideConnections(newTree, changes));
 
 				newNode = network->createFromValueTree(true, newTree, true);
 				
@@ -2935,15 +3139,7 @@ void DspNetworkGraph::WrapperWithMenuBar::rebuildAfterContentChange()
 
 	auto id = n->getId();
 
-	if (n->getParentNetwork() != nullptr)
-	{
-		BACKEND_ONLY(addCustomComponent(new BreadcrumbComponent(n.get())));
-	}
-
     //addButton("debug");
-    
-	if(n->canBeFrozen())
-		addButton("export");
 
 	addButton("zoom");
 
@@ -2966,6 +3162,10 @@ void DspNetworkGraph::WrapperWithMenuBar::rebuildAfterContentChange()
 	addButton("wrap");
 	addButton("colour");
 	addButton("profile");
+
+	addSpacer(10);
+
+	addButton("lock");
 
 	addSpacer(10);
 	addButton("undo");
@@ -3029,7 +3229,24 @@ void DspNetworkGraph::WrapperWithMenuBar::addButton(const String& name)
 		b->actionFunction = Actions::showParameterPopup;
 		b->setTooltip("Show all parameters in a popup");
 	}
-    
+
+	if(name == "lock")
+	{
+		b->actionFunction = Actions::lockContainer;
+		b->setTooltip("Locks the current container");
+		b->enabledFunction = [](DspNetworkGraph& g)
+		{
+			auto s = g.network->getSelection();
+			return !s.isEmpty() && dynamic_cast<NodeContainer*>(s.getFirst().get()) != nullptr;
+		};
+
+		b->stateFunction = [](DspNetworkGraph& g)
+		{
+			auto s = g.network->getSelection();
+			return !s.isEmpty() && (bool)s.getFirst()->getValueTree()[PropertyIds::Locked];
+		};
+	}
+
     if(name == "eject")
     {
         b->actionFunction = Actions::eject;
@@ -3053,39 +3270,6 @@ void DspNetworkGraph::WrapperWithMenuBar::addButton(const String& name)
 		b->actionFunction = Actions::toggleComments;
 		b->stateFunction = [](DspNetworkGraph& g) { return (bool)g.dataReference[PropertyIds::ShowComments]; };
 		b->setTooltip("Show / Hide comments");
-	}
-	if (name == "export")
-	{
-		b->actionFunction = Actions::toggleFreeze;
-		b->enabledFunction = [](DspNetworkGraph& g) 
-		{
-			auto s = g.network->getSelection();
-
-			if (s.isEmpty())
-				return g.network->canBeFrozen();
-			else
-			{
-				if (auto fn = s.getFirst()->getEmbeddedNetwork())
-					return fn->canBeFrozen();
-
-				return false;
-			}
-		};
-
-		b->stateFunction = [](DspNetworkGraph& g)
-		{
-			auto s = g.network->getSelection();
-
-			if (s.isEmpty())
-				return g.network->isFrozen();
-			else
-			{
-				if (auto fn = s.getFirst()->getEmbeddedNetwork())
-					return fn->isFrozen();
-
-				return false;
-			}
-		};
 	}
 	if (name == "swap-orientation")
 	{
@@ -3145,7 +3329,6 @@ void DspNetworkGraph::WrapperWithMenuBar::addButton(const String& name)
 			m.addItem((int)NodeComponent::MenuActions::WrapIntoSoftBypass, "Wrap into soft bypass container");
 			m.addItem((int)NodeComponent::MenuActions::WrapIntoOversample4, "Wrap into 4x oversample container");
 
-			m.addItem((int)NodeComponent::MenuActions::UnfreezeNode, "Explode DSP Network", s != nullptr && s->getEmbeddedNetwork() != nullptr);
 			m.addItem((int)NodeComponent::MenuActions::ExplodeLocalCables, "Replace local cable connections");
 
 			int result = m.show();
@@ -3464,43 +3647,5 @@ void KeyboardPopup::ImagePreviewCreator::timerCallback()
     createdComponent = nullptr;
 	stopTimer();
 }
-
-#if USE_BACKEND
-DspNetworkGraph::BreadcrumbComponent::NetworkButton::NetworkButton(DspNetwork* n, bool current_) :
-	TextButton(n->getId()),
-	network(n),
-	current(current_)
-{
-	w = GLOBAL_BOLD_FONT().getStringWidth(getName()) + 30;
-
-	if (current)
-	{
-		changeWarning = new DspNetworkListeners::LambdaAtNetworkChange(n);
-		changeWarning->additionalCallback = [this]() { this->repaint(); };
-
-		auto td = BackendDllManager::getSubFolder(n->getScriptProcessor()->getMainController_(), BackendDllManager::FolderSubType::Networks);
-
-		currentSaver = new DspNetworkListeners::PatchAutosaver(n, td);
-	}
-
-	onClick = BIND_MEMBER_FUNCTION_0(NetworkButton::click);
-}
-
-void DspNetworkGraph::BreadcrumbComponent::NetworkButton::click()
-{
-	auto bc = findParentComponentOfClass<BreadcrumbComponent>();
-
-	for (auto nb : bc->buttons)
-	{
-		if (nb == this)
-			continue;
-
-		nb->requestClose();
-	}
-
-	findParentComponentOfClass<WrapperWithMenuBarBase>()->canvas.setNewContent(new DspNetworkGraph(network), nullptr);
-}
-
-#endif
 
 }

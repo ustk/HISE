@@ -47,7 +47,7 @@ struct DspHelpers
 	/** Increases the buffer size to match the process specs. */
 	static void increaseBuffer(AudioSampleBuffer& b, const PrepareSpecs& ps);
 
-	static void increaseBuffer(snex::Types::heap<float>& b, const PrepareSpecs& ps);
+	static void increaseBuffer(snex::Types::heap<float>& b, const PrepareSpecs& ps, bool clearForFrame=true);
 
 	using ParameterCallback = std::function<void(double)>;
 
@@ -56,10 +56,6 @@ struct DspHelpers
 	static void setErrorIfNotOriginalSamplerate(const PrepareSpecs& ps, NodeBase* n);
 
 	/** Returns a ParameterCallback with the given range. */
-
-#if 0
-	static ParameterCallback getFunctionFrom0To1ForRange(InvertableParameterRange r, const ParameterCallback& originalFunction);
-#endif
 
 	forcedinline static double findPeak(const float* data, int numSamples)
 	{

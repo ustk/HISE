@@ -44,7 +44,25 @@ namespace scriptnode
 using namespace juce;
 using namespace hise;
 
+struct DspNetworkPathFactory : public PathFactory
+{
+	String getId() const override { return "Scriptnode Toolbar"; }
 
+	Path createPath(const String& url) const override;
+	Array<Description> getDescription() const override;
+
+};
+
+struct NodeComponentFactory : public PathFactory
+{
+	static Component* createComponent(NodeBase* node);
+
+	String getId() const;;
+
+	Array<Description> getDescription() const override;
+
+	Path createPath(const String& id) const override;
+};
 
 struct NodeFactory;
 
@@ -97,6 +115,9 @@ public:
 	void addError(NodeBase* n, Error e, const String& errorMessage = {});
 
 	void removeError(NodeBase* n, Error::ErrorCode errorToRemove=Error::numErrorCodes);
+	bool canBeAutofixed(NodeBase* node, Error error);
+
+	void autofix(NodeBase* node);
 
 	static String getErrorMessage(Error e);
 
@@ -105,6 +126,8 @@ public:
 	LambdaBroadcaster<NodeBase*, Error> errorBroadcaster;
 
 private:
+
+	bool autofixInternal(NodeBase* n, Error::ErrorCode code);
 
 	String customErrorMessage;
 	Array<Item> items;
@@ -199,12 +222,8 @@ public:
 
 		DspNetwork* getActiveNetwork() const;
 
-		void setProjectDll(dll::ProjectDll::Ptr pdll);
-
-		void connectRuntimeTargets(MainController* mc) override;
-		void disconnectRuntimeTargets(MainController* mc) override;
-
-		dll::ProjectDll::Ptr projectDll;
+		void connectRuntimeTargets(Processor* p) override;
+		void disconnectRuntimeTargets(Processor* p) override;
 
 		ExternalDataHolder* getExternalDataHolder();
 
@@ -212,18 +231,24 @@ public:
 
 		void setVoiceKillerToUse(snex::Types::VoiceResetter* vk_);
 
-		SimpleReadWriteLock& getNetworkLock();
+		virtual ModulatorChain::ExtraModulatorRuntimeTargetSource* getExtraModulationHandler() { return nullptr; }
 
-		DspNetwork* addEmbeddedNetwork(DspNetwork* parent, const ValueTree& v, ExternalDataHolder* holderToUse);
+		SimpleReadWriteLock& getNetworkLock();
 
 		DspNetwork* getDebuggedNetwork();;
 		const DspNetwork* getDebuggedNetwork() const;;
 
 		void toggleDebug();
 
-	protected:
+		void initialiseProjectDll(MainController* mc);
 
-		ReferenceCountedArray<DspNetwork> embeddedNetworks;
+		static void onDllReload(Holder& h, const std::pair<dll::ProjectDll*, dll::ProjectDll*>& update);
+
+		dll::ProjectDll::Ptr projectDll;
+
+		LambdaBroadcaster<Holder*> dllRebuildBroadcaster;
+
+	protected:
 
 		SimpleReadWriteLock connectLock;
 
@@ -242,7 +267,9 @@ public:
 	DspNetwork(ProcessorWithScriptingContent* p, ValueTree data, bool isPolyphonic, ExternalDataHolder* dataHolder=nullptr);
 	~DspNetwork();
 
-    /** The faust manager will handle the IDE editing features by sending out compilation and selection messages to its registered listeners. */
+	
+
+	/** The faust manager will handle the IDE editing features by sending out compilation and selection messages to its registered listeners. */
     struct FaustManager
     {
         struct FaustListener
@@ -403,21 +430,7 @@ public:
 
 			ExternalScriptFile::ResourceType resourceType;
 
-			void init(snex::ui::WorkbenchData::CodeProvider* codeProvider, const ValueTree& pTree, ProcessorWithScriptingContent* sp)
-			{
-				cp = codeProvider;
-				wb = new snex::ui::WorkbenchData();
-				wb->setCodeProvider(cp, dontSendNotification);
-				wb->setCompileHandler(new SnexSourceCompileHandler(wb.get(), sp));
-
-				parameterTree = pTree;
-
-				if(!parameterTree.isValid())
-					parameterTree = ValueTree(PropertyIds::Parameters);
-
-				pListener.setCallback(parameterTree, valuetree::AsyncMode::Asynchronously, BIND_MEMBER_FUNCTION_2(Entry::parameterAddedOrRemoved));
-				propListener.setCallback(parameterTree, RangeHelpers::getRangeIds(), valuetree::AsyncMode::Asynchronously, BIND_MEMBER_FUNCTION_2(Entry::propertyChanged));
-			}
+			void init(snex::ui::WorkbenchData::CodeProvider* codeProvider, const ValueTree& pTree, ProcessorWithScriptingContent* sp);
 
 			void updateFile();
 
@@ -464,6 +477,8 @@ public:
 	NodeBase::Holder* getCurrentHolder() const;
 
 	void registerOwnedFactory(NodeFactory* ownedFactory);
+
+	void onDllReload(const std::pair<dll::ProjectDll*, dll::ProjectDll*>& update);
 
 	NodeBase::List getListOfNodesWithPath(const NamespacedIdentifier& id, bool includeUnusedNodes);
 
@@ -527,16 +542,9 @@ public:
 	/** Undo the last action. */
 	bool undo();
 
-	void checkValid() const
-	{
-		if (parentHolder == nullptr)
-			reportScriptError("Parent of DSP Network is deleted");
-	}
+	void checkValid() const;
 
-	bool isBeingDebugged() const
-	{
-		return parentHolder->getDebuggedNetwork() == this;
-	}
+	bool isBeingDebugged() const;
 
 	/** Creates a test object for this network. */
 	var createTest(var testData);
@@ -568,10 +576,9 @@ public:
 
     bool isInitialised() const noexcept { return initialised; };
 
-	bool isForwardingControlsToParameters() const
-	{
-		return forwardControls;
-	}
+	bool isForwardingControlsToParameters() const;
+
+	bool checkAllowCompilationFlag(NodeBase* n, bool requiredValue);
 
 	PrepareSpecs getCurrentSpecs() const { return currentSpecs; }
 
@@ -697,27 +704,9 @@ public:
 			getPolyHandler()->setVoiceResetter(newVoiceKiller);	
 	}
 
-	void setUseFrozenNode(bool shouldBeEnabled);
-
-	bool canBeFrozen() const { return projectNodeHolder.loaded; }
-
-	bool isFrozen() const { return projectNodeHolder.isActive(); }
-
-	bool hashMatches();
-
-	void setExternalData(const snex::ExternalData & d, int index);
-
 	ScriptParameterHandler* getCurrentParameterHandler();
 
 	Holder* getParentHolder() { return parentHolder; }
-
-	DspNetwork* getParentNetwork() { return parentNetwork.get(); }
-	const DspNetwork* getParentNetwork() const { return parentNetwork.get(); }
-
-	void setParentNetwork(DspNetwork* p)
-	{
-		parentNetwork = p;
-	}
 
 	PolyHandler* getPolyHandler();
 
@@ -738,22 +727,54 @@ public:
 
     bool isSignalDisplayEnabled() const { return signalDisplayEnabled; }
     
-    void setSignalDisplayEnabled(bool shouldBeEnabled)
-    {
-        signalDisplayEnabled = shouldBeEnabled;
-    }
-    
+    void setSignalDisplayEnabled(bool shouldBeEnabled);
+
 	String getNonExistentId(String id, StringArray& usedIds) const;
 
-	
+	const modulation::ParameterProperties& getParameterProperties() const noexcept { return dynamicParameterProperties.data; }
 
 private:
+
+	struct DynamicParameterModulationProperties
+	{
+		DynamicParameterModulationProperties(DspNetwork& parent_):
+		  parent(parent_)
+		{}
+
+		void shutdown()
+		{
+			shutdownCalled = true;
+			data.reset();
+			propertyListener.shutdown();
+			blockSizeListener.shutdown();
+			connectionListener.shutdown();
+		}
+
+		void init();
+
+		void refreshIdAndColours();
+
+		void refreshConnections();
+
+		void refreshProcessSpecs();
+
+		bool shutdownCalled = false;
+		DspNetwork& parent;
+		scriptnode::modulation::ParameterProperties data;
+		valuetree::RecursivePropertyListener propertyListener;
+		valuetree::PropertyListener blockSizeListener;
+		valuetree::RecursiveTypedChildListener connectionListener;
+	} dynamicParameterProperties;
 
 	String initialId;
 
 	void checkId(const Identifier& id, const var& newValue);
 
+	void updateRootParameters(const ValueTree& v, bool wasAdded);
+
 	valuetree::PropertyListener idGuard;
+
+	valuetree::ChildListener rootParameterListener;
 
     bool signalDisplayEnabled = false;
     
@@ -764,7 +785,6 @@ private:
 	bool enableCpuProfiling = false;
 
 	WeakReference<ExternalDataHolder> dataHolder;
-	WeakReference<DspNetwork> parentNetwork;
 
 	PrepareSpecs currentSpecs;
 
@@ -839,118 +859,10 @@ private:
 	WeakReference<NodeBase::Holder> currentNodeHolder;
 
 	bool createAnonymousNodes = false;
-
-	struct ProjectNodeHolder: public hise::ScriptParameterHandler
-	{
-		ProjectNodeHolder(DspNetwork& parent);
-
-		Identifier getParameterId(int index) const override;
-
-		int getParameterIndexForIdentifier(const Identifier& id) const override
-		{
-			return network.networkParameterHandler.getParameterIndexForIdentifier(id);
-		}
-
-		int getNumParameters() const override;
-
-		void setParameter(int index, float newValue) override;
-
-		float getParameter(int index) const override;;
-
-		~ProjectNodeHolder();
-
-		bool isActive() const;
-
-		void prepare(PrepareSpecs ps);
-
-		void process(ProcessDataDyn& data);
-
-		bool handleModulation(double& modValue);
-
-		void setEnabled(bool shouldBeEnabled);
-
-		void init(dll::StaticLibraryHostFactory* staticLibrary);
-
-		void init(dll::ProjectDll::Ptr dllToUse);
-
-		bool hashMatches = false;
-
-		float parameterValues[OpaqueNode::NumMaxParameters];
-		DspNetwork& network;
-		dll::ProjectDll::Ptr dll;
-		OpaqueNode n;
-		bool loaded = false;
-		bool forwardToNode = false;
-	} projectNodeHolder;
     
 	JUCE_DECLARE_WEAK_REFERENCEABLE(DspNetwork);
 };
 
-
-struct OpaqueNetworkHolder
-{
-	SN_GET_SELF_AS_OBJECT(OpaqueNetworkHolder);
-
-	bool isPolyphonic() const;
-
-	SN_EMPTY_INITIALISE;
-	
-
-	OpaqueNetworkHolder();
-
-	~OpaqueNetworkHolder();
-
-	void handleHiseEvent(HiseEvent& e);
-
-	bool handleModulation(double& modValue);
-
-	void process(ProcessDataDyn& d);
-
-	void reset();
-
-	template <typename FrameDataType> void processFrame(FrameDataType& d)
-	{
-		// this might be the most inefficient code ever but we need
-		// to allow frame based processing of wrapped networks
-		float* channels[NUM_MAX_CHANNELS];
-
-		for (int i = 0; i < d.size(); i++)
-			channels[i] = d.begin() + i;
-
-		ProcessDataDyn pd(channels, 1, d.size());
-
-		ownedNetwork->process(pd);
-	}
-
-	void prepare(PrepareSpecs ps);
-
-	void createParameters(ParameterDataList& l);
-
-	void setCallback(parameter::data& d, int index);
-
-	template <int P> static void setParameterStatic(void* obj, double v)
-	{
-		auto t = static_cast<OpaqueNetworkHolder*>(obj);
-		t->ownedNetwork->getCurrentParameterHandler()->setParameter(P, (float)v);
-	}
-
-	void setNetwork(DspNetwork* n);
-
-	DspNetwork* getNetwork();
-
-	void setExternalData(const ExternalData& d, int index);
-
-private:
-
-	struct DeferedDataInitialiser
-	{
-		ExternalData d;
-		int index;
-	};
-
-	Array<DeferedDataInitialiser> deferredData;
-	ReferenceCountedObjectPtr<DspNetwork> ownedNetwork;
-};
 
 struct HostHelpers
 {
@@ -962,37 +874,45 @@ struct HostHelpers
 	static int getNumMaxDataObjects(const ValueTree& v, snex::ExternalData::DataType t);
 
 	static void setNumDataObjectsFromValueTree(OpaqueNode& on, const ValueTree& v);
-
-	template <typename WrapperType> static NodeBase* initNodeWithNetwork(DspNetwork* p, ValueTree nodeTree, const ValueTree& embeddedNetworkTree, bool useMod)
-	{
-		auto t = dynamic_cast<WrapperType*>(WrapperType::template createNode<OpaqueNetworkHolder, NoExtraComponent, false, false>(p, nodeTree));
-
-		auto& on = t->getWrapperType().getWrappedObject();
-		setNumDataObjectsFromValueTree(on, embeddedNetworkTree);
-		auto ed = t->setOpaqueDataEditor(useMod);
-
-		auto onh = static_cast<OpaqueNetworkHolder*>(on.getObjectPtr());
-		onh->setNetwork(p->getParentHolder()->addEmbeddedNetwork(p, embeddedNetworkTree, ed));
-
-		ParameterDataList pList;
-		onh->createParameters(pList);
-		on.fillParameterList(pList);
-
-		t->postInit();
-		auto asNode = dynamic_cast<NodeBase*>(t);
-		asNode->setEmbeddedNetwork(onh->getNetwork());
-
-		return asNode;
-	}
 };
 
 
 #if !USE_FRONTEND
 
-struct DspNetworkGraph;
+class DspNetworkGraph;
+
+struct DuplicateHelpers
+{
+    static ValueTree findRoot(const ValueTree& v);
+
+    static void removeOutsideConnections(const Array<ValueTree>& newNodes, const Array<DspNetwork::IdChange>& idChanges);
+
+    static int getIndexInRoot(const ValueTree& v);
+
+    // This sorts it reversed so that the index works when duplicating
+    static int compareElements(const WeakReference<NodeBase>& n1, const WeakReference<NodeBase>& n2);
+};
 
 struct DspNetworkListeners
 {
+	struct DspNetworkGraphRootListener
+	{
+		virtual ~DspNetworkGraphRootListener()
+		{
+			
+		}
+
+		static void onChangeStatic(DspNetworkGraphRootListener& l, NodeBase* n);
+
+		virtual void onRootChange(NodeBase* newRoot) = 0;
+
+		JUCE_DECLARE_WEAK_REFERENCEABLE(DspNetworkGraphRootListener);
+	};
+
+	static void initRootListener(DspNetworkGraphRootListener* l);
+
+	static WeakReference<NodeBase> getSourceNodeFromComponentDrag(Component* component);
+
 	struct MacroParameterDragListener: public MouseListener
 	{
 		MacroParameterDragListener(Component* c_, const std::function<Component*(DspNetworkGraph*)>& initFunction);

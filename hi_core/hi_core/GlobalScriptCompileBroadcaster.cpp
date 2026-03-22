@@ -48,8 +48,15 @@ GlobalScriptCompileBroadcaster::~GlobalScriptCompileBroadcaster()
 	clearIncludedFiles();
 }
 
-void GlobalScriptCompileBroadcaster::addScriptListener(GlobalScriptCompileListener* listener, bool insertAtBeginning)
+void GlobalScriptCompileBroadcaster::addScriptListener(GlobalScriptCompileListener* listener, bool insertAtBeginning, bool insertAsFirstElement)
 {
+	if(insertAsFirstElement)
+	{
+		jassert(!listenerListStart.contains(listener));
+		listenerListStart.insert(0, listener);
+		return;
+	}
+
 	if (insertAtBeginning)
 	{
 		listenerListStart.addIfNotAlreadyThere(listener);
@@ -66,12 +73,6 @@ void GlobalScriptCompileBroadcaster::removeScriptListener(GlobalScriptCompileLis
 	listenerListStart.removeAllInstancesOf(listener);
 	listenerListEnd.removeAllInstancesOf(listener);
 }
-
-void GlobalScriptCompileBroadcaster::setShouldUseBackgroundThreadForCompiling(bool shouldBeEnabled) noexcept
-{ useBackgroundCompiling = shouldBeEnabled; }
-
-bool GlobalScriptCompileBroadcaster::isUsingBackgroundThreadForCompiling() const noexcept
-{ return useBackgroundCompiling; }
 
 void GlobalScriptCompileBroadcaster::setEnableCompileAllScriptsOnPresetLoad(bool shouldBeEnabled) noexcept
 { enableGlobalRecompile = shouldBeEnabled; }
@@ -90,6 +91,11 @@ ExternalScriptFile::Ptr GlobalScriptCompileBroadcaster::getExternalScriptFile(in
 void GlobalScriptCompileBroadcaster::clearIncludedFiles()
 {
 	includedFiles.clear();
+}
+
+void GlobalScriptCompileBroadcaster::removeIncludedFile(int index)
+{
+	includedFiles.remove(index);
 }
 
 void GlobalScriptCompileBroadcaster::restoreIncludedScriptFilesFromSnippet(const ValueTree& snippetTree)
@@ -217,12 +223,17 @@ void GlobalScriptCompileBroadcaster::setWebViewRoot(File newRoot)
 void GlobalScriptCompileBroadcaster::saveAllExternalFiles()
 {
 	for(int i = 0; i < getNumExternalScriptFiles(); i++)
-	{
+	{		
 		auto ef = getExternalScriptFile(i);
 
 		if(ef->getResourceType() == ExternalScriptFile::ResourceType::EmbeddedInSnippet)
 		{
 			debugToConsole(dynamic_cast<MainController*>(this)->getMainSynthChain(), "Skip writing embedded file " + ef->getFile().getFileName() + " to disk...");
+			continue;
+		}
+		else if (!ef->getFile().exists())
+		{
+			removeIncludedFile(i);
 			continue;
 		}
 			
@@ -233,6 +244,12 @@ void GlobalScriptCompileBroadcaster::saveAllExternalFiles()
 
 void GlobalScriptCompileBroadcaster::sendScriptCompileMessage(JavascriptProcessor *processorThatWasCompiled)
 {
+	if(auto jmp = dynamic_cast<JavascriptMidiProcessor*>(processorThatWasCompiled))
+	{
+		if(jmp->isFront())
+			rebuildPluginParameters();
+	}
+
 	if (!enableGlobalRecompile) return;
 
 	for (int i = 0; i < listenerListStart.size(); i++)
@@ -426,6 +443,33 @@ void GlobalScriptCompileBroadcaster::restoreWebResources(const ValueTree& v)
 	}
 }
 
+struct HiseWebResourceProvider: public ControlledObject,
+								public WebViewData::ExternalResourceProviderBase 
+{
+	HiseWebResourceProvider(MainController* mc):
+	  ControlledObject(mc)
+	{}
+
+	Image getImage(const String& hiseReference) override
+	{
+		PoolReference ref(getMainController(), hiseReference, ProjectHandler::Images);
+
+		if(!ref.isAbsoluteFile())
+		{
+			auto image = getMainController()->getExpansionHandler().loadImageReference(ref);
+
+			if(image)
+			{
+				return *(image.getData());
+			}
+		}
+
+		return Image();
+	}
+
+	std::pair<String, String> getMimeContent(const String& hiseReference) override { return {}; }
+};
+
 hise::WebViewData::Ptr GlobalScriptCompileBroadcaster::getOrCreateWebView(const Identifier& id)
 {
 	for (const auto& wv : webviews)
@@ -434,7 +478,13 @@ hise::WebViewData::Ptr GlobalScriptCompileBroadcaster::getOrCreateWebView(const 
 			return std::get<1>(wv);
 	}
 
-	webviews.add({ id, new WebViewData(webViewRoot) });
+	auto nw = new WebViewData(webViewRoot);
+
+	auto mc = dynamic_cast<MainController*>(this);
+
+	nw->addExternalResourceProvider(new HiseWebResourceProvider(mc));
+	
+	webviews.add({ id, nw });
 	return std::get<1>(webviews.getLast());
 }
 

@@ -233,8 +233,29 @@ StandaloneProcessor::StandaloneProcessor()
 	ScopedPointer<XmlElement> xml = AudioProcessorDriver::getSettings();
 
 #if USE_BACKEND
-	if(!CompileExporter::isExportingFromCommandLine()) 
+	if(!CompileExporter::shouldSkipAudioDriverInitialisation())
+	{
+		if(xml != nullptr)
+		{
+			BigInteger numOutputChannels;
+
+			numOutputChannels.parseString(xml->getStringAttribute("audioDeviceOutChans"), 2);
+
+			auto numOutputsInDeviceSetting = numOutputChannels.countNumberOfSetBits();
+
+			if(numOutputsInDeviceSetting != HISE_NUM_STANDALONE_OUTPUTS)
+			{
+				if(PresetHandler::showYesNoWindow("Channel amount mismatch", "The number of channels used in the audio device settings do not match the amount of channels defined by `HISE_NUM_STANDALONE_OUTPUTS`.  \nPress OK to remove the xml file and initialise the default value."))
+				{
+					AudioProcessorDriver::getDeviceSettingsFile().deleteFile();
+					xml = nullptr;
+				}
+			}
+		}
+
 		dynamic_cast<AudioProcessorDriver*>(wrappedProcessor.get())->initialiseAudioDriver(xml);
+	}
+		
 #else
 	
     auto apd = dynamic_cast<AudioProcessorDriver*>(wrappedProcessor.get());
@@ -335,6 +356,29 @@ void AudioProcessorDriver::initialiseAudioDriver(XmlElement *deviceData)
 	deviceManager->addMidiInputCallback(String(), callback);
 
 	getSettingsObject().initialiseAudioDriverData();
+
+	// Apply saved MIDI input settings to ensure MIDI inputs are properly connected
+	// This fixes the issue where MIDI keyboards appear selected but don't work until manually toggled
+	auto midiInputSetting = getSettingsObject().getSetting(HiseSettings::Midi::MidiInput);
+	if (midiInputSetting.isInt64())
+	{
+		auto state = BigInteger((int64)midiInputSetting);
+		auto mc = dynamic_cast<MainController*>(this);
+
+		StringArray midiNames;
+		if (mc != nullptr && !mc->isFlakyThreadingAllowed())
+		{
+			midiNames = MidiInput::getDevices();
+		}
+
+		if (midiNames.size() > 0)
+		{
+			for (int i = 0; i < midiNames.size(); i++)
+			{
+				toggleMidiInput(midiNames[i], state[i]);
+			}
+		}
+	}
 }
 
 void GlobalSettingManager::setGlobalScaleFactor(double newScaleFactor, NotificationType notifyListeners/*=dontSendNotification*/)

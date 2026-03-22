@@ -84,8 +84,7 @@ void FilterNodeBase<FilterType, NV>::setFrequency(double newFrequency)
 template <class FilterType, int NV>
 void FilterNodeBase<FilterType, NV>::setEnabled(double isEnabled)
 {
-	enabled = isEnabled;
-
+	enabled = isEnabled > 0.5;
 	this->sendCoefficientUpdateMessage();
 }
 
@@ -139,6 +138,7 @@ void FilterNodeBase<FilterType, NV>::createParameters(ParameterDataList& paramet
 		p.setRange({ 20.0, 20000.0});
 		p.setSkewForCentre(1000.0);
 		p.setDefaultValue(1000.0);
+		p.info.textConverter = parameter::pod::TextValueConverters::Frequency;
 		parameters.add(std::move(p));
 	}
 	{
@@ -153,6 +153,7 @@ void FilterNodeBase<FilterType, NV>::createParameters(ParameterDataList& paramet
 		DEFINE_PARAMETERDATA(FilterNodeBase, Gain);
 		p.setRange({ -18, 18 });
 		p.setSkewForCentre(0.0);
+		p.info.textConverter = parameter::pod::Decibel;
 		p.setDefaultValue(0.0);
 		parameters.add(std::move(p));
 	}

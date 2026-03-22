@@ -63,10 +63,30 @@ public:
 	void calculateBlock(int startSample, int numSamples) override;
 	void resetVoice() override;
 
+#if HISE_SAMPLER_ALLOW_RELEASE_START
 	virtual void jumpToRelease()
 	{
-		wrappedVoice.jumpToRelease();
+		if(shouldJumpToRelease())
+			wrappedVoice.jumpToRelease();
 	}
+
+	enum class ReleaseStartState
+	{
+		Enabled,
+		AlwaysDisabled,
+		DisabledOnce
+	};
+
+	void setAllowReleaseStart(ReleaseStartState shouldAllow)
+	{
+		allowReleaseStart = shouldAllow;
+	}
+
+	bool shouldJumpToRelease() const { return allowReleaseStart == ReleaseStartState::Enabled; }
+
+	ReleaseStartState allowReleaseStart = ReleaseStartState::Enabled;
+
+#endif
 
 	virtual void setNonRealtime(bool isNonRealtime)
 	{
@@ -89,8 +109,11 @@ public:
 	// ================================================================================================================
 
 	float getConstantCrossfadeModulationValue() const noexcept;
-
 	const float *getCrossfadeModulationValues(int startSample, int numSamples);
+
+	float getConstantGroupModulationValue() const noexcept;
+	const float *getGroupModulationValues(int startSample, int numSamples);
+
 	void setSampleStartModValue(float modValue) { sampleStartModValue = modValue; };
 	void enablePitchModulation(bool shouldBeEnabled);
 	
@@ -119,7 +142,7 @@ public:
 	virtual void setTimestretchOptions(const ModulatorSampler::TimestretchOptions& options)
 	{
 		wrappedVoice.setEnableTimestretch((bool)options, options.engineId);
-		wrappedVoice.setSkipLatency(options.skipStart);
+		wrappedVoice.setSkipLatency(options.synchronousSkip ? sendNotificationSync : sendNotificationAsync);
 		wrappedVoice.setTimestretchTonality(options.tonality);
 	}
 
@@ -166,7 +189,7 @@ private:
 	friend class ModulatorSampler;
 
 	bool nonRealtime = false;
-	
+	bool firstInVoice = true;
 
 	StreamingSamplerVoice wrappedVoice;
 
@@ -214,11 +237,18 @@ public:
 			v->loader.setIsNonRealtime(isNonRealtime);
 	}
 
+#if HISE_SAMPLER_ALLOW_RELEASE_START
+
 	void jumpToRelease() override
 	{
-		for(auto v: wrappedVoices)
-			v->jumpToRelease();
+		if(shouldJumpToRelease())
+		{
+			for(auto v: wrappedVoices)
+				v->jumpToRelease();
+		}
 	}
+
+#endif
 
 	// ================================================================================================================
 
@@ -229,7 +259,7 @@ public:
 		for (auto v : wrappedVoices)
 		{
 			v->setEnableTimestretch(options);
-			v->setSkipLatency(options.skipStart);
+			v->setSkipLatency(options.synchronousSkip ? sendNotificationSync : sendNotificationAsync);
 			v->setTimestretchTonality(options.tonality);
 		}
 	}

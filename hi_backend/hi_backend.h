@@ -36,7 +36,7 @@ BEGIN_JUCE_MODULE_DECLARATION
 
   ID:               hi_backend
   vendor:           Hart Instruments
-  version:          4.0.0
+  version:          4.1.0
   name:             HISE Backend Module
   description:      The backend application classes for HISE
   website:          http://hise.audio
@@ -82,7 +82,8 @@ If true, then the patch browser will display global modulator connections.
 #include "backend/BackendRootWindow.h"
 #include "backend/CompileExporter.h"
 
-
+#include "backend/HiseAssetInstaller.h"
+#include "backend/HiseAssetManager.h"
 
 
 

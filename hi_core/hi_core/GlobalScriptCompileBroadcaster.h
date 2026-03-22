@@ -130,12 +130,11 @@ public:
 
 	Result getResult() const;
 
-	void reloadIfChanged()
+	bool reloadIfChanged()
 	{
 #if USE_BACKEND
-
 		if(resourceType == ResourceType::EmbeddedInSnippet)
-			return;
+			return false;
 
 		auto thisLast = getFile().getLastModificationTime();
 
@@ -144,8 +143,11 @@ public:
 			getFileDocument().replaceAllContent(getFile().loadFileAsString());
             getFileDocument().setSavePoint();
 			lastEditTime = thisLast;
+			return true;
 		}
 #endif
+
+		return false;
 	}
 
 	void saveFile()
@@ -222,12 +224,9 @@ public:
 	void sendScriptCompileMessage(JavascriptProcessor *processorThatWasCompiled);
 
 	/** Adds a ScriptListener. You can influence the order of the callback by inserting Listeners at the beginning of the list. */
-	void addScriptListener(GlobalScriptCompileListener *listener, bool insertAtBeginning = false);;
+	void addScriptListener(GlobalScriptCompileListener *listener, bool insertAtBeginning = false, bool insertAsFirstElement=false);;
 
 	void removeScriptListener(GlobalScriptCompileListener *listener);;
-
-	void setShouldUseBackgroundThreadForCompiling(bool shouldBeEnabled) noexcept;
-	bool isUsingBackgroundThreadForCompiling() const noexcept;
 
 	double getCompileTimeOut() const noexcept;
 
@@ -251,6 +250,7 @@ public:
 	ExternalScriptFile::Ptr getExternalScriptFile(int index) const;
 
 	void clearIncludedFiles();
+	void removeIncludedFile(int index);
 
 	void restoreIncludedScriptFilesFromSnippet(const ValueTree& snippetTree);
 
@@ -273,6 +273,8 @@ public:
 	void restoreWebResources(const ValueTree& v);
 
     void clearWebResources();
+
+	virtual void rebuildPluginParameters() {};
 
 	WebViewData::Ptr getOrCreateWebView(const Identifier& id);
 

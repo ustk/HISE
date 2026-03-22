@@ -102,6 +102,7 @@ DECLARE_ID(DefaultUserPreset);
 DECLARE_ID(CompileWithPerfetto);
 DECLARE_ID(CompileWithDebugSymbols);
 DECLARE_ID(IncludeLorisInFrontend);
+DECLARE_ID(ProjectType);
 
 Array<Identifier> getAllIds();
 
@@ -157,6 +158,7 @@ DECLARE_ID(EnableOptimizations);
 DECLARE_ID(EnableDebugMode);
 DECLARE_ID(WarnIfUndefinedParameters);
 DECLARE_ID(SaveConnectedFilesOnCompile);
+DECLARE_ID(RecompileOnFileChange);
 DECLARE_ID(EnableMousePositioning);
 
 Array<Identifier> getAllIds();

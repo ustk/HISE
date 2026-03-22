@@ -180,6 +180,8 @@ public:
 
 	bool areVoicesActive() const override;
 
+	void onProfileEnableChange() override;
+
 	/** Handles the ModulatorSynthChain. */
 	class ModulatorSynthChainHandler: public Chain::Handler
 	{
@@ -217,13 +219,7 @@ public:
 
 	HiseEvent::ChannelFilterData* getActiveChannelData();
 
-	void setUseUniformVoiceHandler(bool shouldUseVoiceHandler, UniformVoiceHandler* externalVoiceHandler) override;
-
-    bool isUniformVoiceHandlerRoot() const;;
-	
 private:
-
-	ScopedPointer<UniformVoiceHandler> ownedUniformVoiceHandler;
 
 	HiseEvent::ChannelFilterData activeChannels;
 	ModulatorSynthChainHandler handler;

@@ -73,30 +73,19 @@ public:
 	static constexpr int AsyncMagicNumber = 912;
 	static constexpr int AsyncHiPriorityMagicNumber = 913;
 
-	static var getDispatchTypeMagicNumber(dispatch::DispatchType n)
-	{
-		using Type = dispatch::DispatchType;
-
-		switch(n)
-		{
-		case dispatch::dontSendNotification: return var(false);
-		case dispatch::sendNotification: return var(true);
-		case dispatch::sendNotificationSync: return var(SyncMagicNumber);
-		case dispatch::sendNotificationAsync: return var(AsyncMagicNumber);;
-		case dispatch::sendNotificationAsyncHiPriority: return var(AsyncHiPriorityMagicNumber);
-		default: return var(false);
-		}
-	}
+	static var getDispatchTypeMagicNumber(dispatch::DispatchType n);
 
 	static dispatch::DispatchType getDispatchType(const var& syncValue, bool getDontForFalse);
 
 	static bool isSynchronous(const var& syncValue);
 
+	static var createRectangle(const var::NativeFunctionArgs& a);
+
 	static var getVarFromPoint(Point<float> pos);
 
 	static Point<float> getPointFromVar(const var& data, Result* r = nullptr);
 
-	static var getVarRectangle(Rectangle<float> floatRectangle, Result* r = nullptr);
+	static var getVarRectangle(bool useRectangleClass, Rectangle<float> floatRectangle, Result* r = nullptr);
 
 	static Rectangle<float> getRectangleFromVar(const var& data, Result* r = nullptr);
 
@@ -115,8 +104,10 @@ public:
 	static Colour getColourFromVar(const var& value);
 
 	static var convertStyleSheetProperty(const var& value, const String& type);
-	
-	
+
+	static StringArray getMouseCursorNames();
+
+	static MouseCursor::StandardCursorType getMouseCursorFromString(const String& name, Result* r = nullptr);
 
 	static Array<Identifier> getGlobalApiClasses();
 
@@ -217,6 +208,18 @@ namespace ScriptingObjects
 			return 0.0;
 		}
 
+		/** Applies a median filter with zero padding to the buffer and returns the filtered median values. */
+		var applyMedianFilter(int windowSize)
+		{
+			return var();
+		}
+
+		/** Analyses the sample and splits it into sinusoidal, transient & residual noise components. */
+		var decompose(double sampleRate, var configData)
+		{
+			return 0.0;
+		}
+
 		/** Converts a buffer with up to 44100 samples to a Base64 string. */
 		String toBase64()
 		{
@@ -240,14 +243,23 @@ namespace ScriptingObjects
         var toCharString(int numChars, var range);
         
 		/** Returns an array with the min and max value in the given range. */
-		var getPeakRange(int startSample, int numSamples);
-        
+		var getPeakRange(int startSample, int numSamples) { jassertfalse; return -1; }
+
+		/** Returns a resampled buffer using the given resample ratio and interpolation type. */
+		var resample(double ratio, String interpolationType, bool wrapAround) { return var(); }
+
+		/** Returns a new buffer that contains a reference to a slice of this buffer. */
+		var getSlice(int offsetInBuffer, int numSamples) { return var(); }
+
         /** Trims a buffer at the start and end and returns a copy of it. */
         var trim(int trimFromStart, int trimFromEnd)
         {
             jassertfalse;
             return {};
         }
+
+		/** Returns the next zero crossing at the position. */
+		var getNextZeroCrossing(int index) const { return -1; }
 
 	};
 
@@ -423,6 +435,9 @@ namespace ScriptingObjects
 		/** Loads the track (zero-based) of the MIDI file. If successful, it returns an object containing the time signature and a list of all events. */
 		var loadAsMidiFile(int trackIndex);
 
+		/** Loads the binary file, compresses it with zstd and returns a Base64 string. */
+		String loadAsBase64String() const;
+		
 		/** Replaces the file content with the given text. */
 		bool writeString(String text);
 
@@ -441,11 +456,14 @@ namespace ScriptingObjects
 		/** Renames the file. */
 		bool rename(String newName);
 
-		/** Moves the file. */
+		/** Moves the file. The target isn't the directory to put it in, it's the actual file to create. */
 		bool move(var target);
 
-		/** Copies the file. */
+		/** Copies the file. The target isn't the directory to put it in, it's the actual file to create. */
 		bool copy(var target);
+
+		/** Recursively copies the directory. The target is the actual directory to create, not the directory into which the new one should be placed. */
+		bool copyDirectory(var target);
 
 		/** Loads the given file as audio file. */
 		var loadAsAudioFile() const;
@@ -552,6 +570,7 @@ namespace ScriptingObjects
 
 		~ScriptBackgroundTask()
 		{
+			recordingSession = nullptr;
 			stopThread(timeOut);
 		}
 
@@ -644,6 +663,8 @@ namespace ScriptingObjects
 
 	private:
 
+		ScopedPointer<ProfiledRecordingSession> recordingSession;
+
 		bool forwardToLoadingThread = false;
 
 		void callFinishCallback(bool isFinished, bool wasCancelled)
@@ -692,6 +713,7 @@ namespace ScriptingObjects
         bool realtimeSafe = true;
         
 		JUCE_DECLARE_WEAK_REFERENCEABLE(ScriptBackgroundTask);
+		JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ScriptBackgroundTask);
 	};
 
 	class ScriptThreadSafeStorage: public ConstScriptingObject
@@ -753,7 +775,9 @@ namespace ScriptingObjects
 			API_VOID_METHOD_WRAPPER_1(ScriptFFT, setEnableInverseFFT);
 			API_VOID_METHOD_WRAPPER_1(ScriptFFT, setSpectrum2DParameters);
 			API_METHOD_WRAPPER_0(ScriptFFT, getSpectrum2DParameters);
-			API_METHOD_WRAPPER_2(ScriptFFT, dumpSpectrum);
+			API_VOID_METHOD_WRAPPER_1(ScriptFFT, setUseSpectrumList);
+			API_METHOD_WRAPPER_4(ScriptFFT, dumpSpectrum);
+			API_VOID_METHOD_WRAPPER_1(ScriptFFT, setUseFallbackEngine);
 		};
 
 		ScriptFFT(ProcessorWithScriptingContent* pwsc);
@@ -801,14 +825,39 @@ namespace ScriptingObjects
 		/** Returns the JSON data for the spectrum parameters. */
 		var getSpectrum2DParameters() const;
 
-		/** Dumps the spectrum image to the given file (as PNG image). */
-		bool dumpSpectrum(var file, bool output);
+		/** Flushes the given spectrum list to a file. */
+		void setUseSpectrumList(int numRows);
+
+		bool dumpSpectrum(var file, bool output, int numFreqPixels, int numTimePixels);
+
+		/** This forces the FFT object to use the fallback engine. */
+		void setUseFallbackEngine(bool shouldUseFallback)
+		{
+			useFallback = shouldUseFallback;
+		}
 
 		// ======================================================================================================= End of API Methods
 
 		Image getSpectrum(bool getOutput) const { return getOutput ? outputSpectrum : spectrum; }
 
+		Image getRescaledAndRotatedSpectrum(bool getOutput, int numFreqPixels, int numTimePixels);
+
 	private:
+
+		struct SpectrumList
+		{
+			SpectrumList(int numItems);
+
+			bool dump(const File& outputFile);
+
+			bool setImage(int imageIndex, const Image& img);
+			
+			std::vector<Image> images;
+		};
+
+		ScopedPointer<SpectrumList> spectrumList;
+
+		bool useFallback = false;
 
 		AudioSampleBuffer windowBuffer;
 
@@ -1076,42 +1125,8 @@ namespace ScriptingObjects
 
 		void setCallbackInternal(bool isDisplay, var f);
 
-        void linkToInternal(var o)
-        {
-            auto other = dynamic_cast<ScriptComplexDataReferenceBase*>(o.getObject());
-            
-            if(other == nullptr)
-            {
-                reportScriptError("Not a data object");
-                return;
-            }
-            
-            if(other->type != type)
-            {
-                reportScriptError("Type mismatch");
-                return;
-            }
-            
-            using PED = hise::ProcessorWithExternalData;
-            
-            if(auto pdst = holder.get())
-            {
-                if(auto psrc = other->holder.get())
-                {
-                    if(auto ex = psrc->getComplexBaseType(type, other->index))
-                    {
-                        complexObject->getUpdater().removeEventListener(this);
+        void linkToInternal(var o);
 
-						pdst->linkTo(type, *psrc, other->index, index);
-                        complexObject = holder->getComplexBaseType(type, index);
-                        complexObject->getUpdater().addEventListener(this);
-                    }
-                }
-            }
-            
-            return;
-        }
-        
 		WeakReference<ComplexDataUIBase> complexObject;
 
 		WeakCallbackHolder displayCallback;
@@ -1137,12 +1152,24 @@ namespace ScriptingObjects
 
 		void clear();
 
+		/** Returns the audio file's current range in the form [start, end]. */
+		var getRange();
+
+		/** Returns the length of the original audio file in samples. */
+		var getTotalLengthInSamples();
+
 		/** Sets a new sample range. */
 		void setRange(int min, int max);
+		
+		/** Returns the current loop range in the form [start, end]. */
+		var getLoopRange(bool subtractStart);
 
 		/** Loads an audio file from the given reference. */
 		void loadFile(const String& filePath);
 
+		/** Loads a buffer into the audio sample slot. */
+		void loadBuffer(var bufferData, double sampleRate, var loopRange);
+		
 		/** Returns the current audio data as array of channels. */
 		var getContent();
 
@@ -1210,7 +1237,13 @@ namespace ScriptingObjects
 
         /** Enables or disables the ring buffer. */
         void setActive(bool shouldBeActive);
-        
+
+		/** Exports the display buffer state as base64 encoded string. */
+		String toBase64() const;
+
+		/** Restores the display buffer state from the base64 encoded string. */
+		void fromBase64(const String& b64, bool useUndoManager);
+
 		// ============================================================================================================
 
 	private:
@@ -1638,6 +1671,15 @@ namespace ScriptingObjects
 		/** Loads the model layout and weights from a Pytorch model JSON. */
 		void loadPytorchModel(const var& modelJSON);
 
+		/** Loads the model from a NAM file. */
+		void loadNAMModel(const var& modelJSON); 
+
+		/** Loads the ONNX runtime model for spectral analysis. */
+		bool loadOnnxModel(const var& base64Data, int numOutputValues);
+
+		/** Processes the FFT spectrum and returns the output tensor as array of float numbers. */
+		var processFFTSpectrum(var fftObject, int numFreqPixels, int numTimePixels);
+
 		/** Returns the model JSON. */
 		var getModelJSON();
 
@@ -1666,6 +1708,9 @@ namespace ScriptingObjects
 #if HISE_INCLUDE_RT_NEURAL
 		NeuralNetwork::Ptr nn;
 #endif
+
+		ONNXLoader::Ptr onnx;
+		std::vector<float> onnxOutput;
 
 		JUCE_DECLARE_WEAK_REFERENCEABLE(ScriptNeuralNetwork);
 	};
@@ -1700,11 +1745,7 @@ namespace ScriptingObjects
 
 		String getDebugValue() const override { return "Used: " + String(size()); }
 
-		DebugInformationBase* getChildElement(int index) override
-		{
-			IndexedValue i(this, index);
-			return new LambdaValueInformation(i, i.getId(), {}, DebugInformation::Type::Constant, getLocation());
-		}
+		DebugInformationBase* getChildElement(int index) override;
 
 		// ============================================================================================================
 
@@ -1845,7 +1886,10 @@ namespace ScriptingObjects
 		
 		/** Returns the id of the global modulation container and global modulator this modulator is connected to */
 		String getGlobalModulatorId();
-		
+
+		/** Sets the data for the input & output ranges if this modulator is a MatrixModulator. */
+		void setMatrixProperties(var matrixData);
+
 		/** Sets the attribute of the Modulator. You can look up the specific parameter indexes in the manual. */
 		void setAttribute(int index, float value);
 
@@ -1985,8 +2029,8 @@ namespace ScriptingObjects
         /** Returns the ID of the attribute with the given index. */
         String getAttributeId(int index);
 				
-				/** Returns the index of the attribute with the given ID. */
-				int getAttributeIndex(String id);
+		/** Returns the index of the attribute with the given ID. */
+		int getAttributeIndex(String id);
         
 		/** Returns the number of attributes. */
 		int getNumAttributes() const;
@@ -2027,6 +2071,12 @@ namespace ScriptingObjects
 		/** Adds and connects a receiving static time variant modulator for the given global modulator. */
 		var addStaticGlobalModulator(var chainIndex, var timeVariantMod, String modName);
 
+		/** Sets the draggable filter data object (if applicable). */
+		void setDraggableFilterData(var filterData);
+
+		/** Returns the draggable filter data object (if applicable). */
+		var getDraggableFilterData();
+
 		// ============================================================================================================
 
 		struct Wrapper;
@@ -2051,7 +2101,7 @@ namespace ScriptingObjects
 
 		// ============================================================================================================
 
-		ScriptingSlotFX(ProcessorWithScriptingContent *p, EffectProcessor *fx);
+		ScriptingSlotFX(ProcessorWithScriptingContent *p, Processor *fx);
 		~ScriptingSlotFX() {};
 
 		static Identifier getClassName() { RETURN_STATIC_IDENTIFIER("SlotFX"); }
@@ -2080,10 +2130,10 @@ namespace ScriptingObjects
 		void clear();
 
 		/** Loads the effect with the given name and returns a reference to it. */
-		ScriptingEffect* setEffect(String effectName);
+		var setEffect(String effectName);
 
 		/** Returns a reference to the currently loaded effect. */
-		ScriptingEffect* getCurrentEffect();
+		var getCurrentEffect();
 
 		/** Swaps the effect with the other slot. */
 		bool swap(var otherSlot);
@@ -2099,11 +2149,13 @@ namespace ScriptingObjects
         
 		// ============================================================================================================
 
+	private:
+
 		struct Wrapper;
 
 		HotswappableProcessor* getSlotFX();
 
-	private:
+		DspNetwork::Holder* getDspNetworkHolder();
 
 		WeakReference<Processor> slotFX;
 
@@ -2137,6 +2189,12 @@ namespace ScriptingObjects
 
 		/** Sets the amount of channels (if the matrix is resizeable). */
 		void setNumChannels(int numSourceChannels);
+		
+		/** Gets the amount of source channels. */
+		int getNumSourceChannels();
+		
+		/** Gets the amount of destination channels. */
+		int getNumDestinationChannels();
 
 		/** adds a connection to the given channels. */
 		bool addConnection(int sourceIndex, int destinationIndex);
@@ -2212,6 +2270,9 @@ namespace ScriptingObjects
 		/** Changes one of the Parameter. Look in the manual for the index numbers of each effect. */
 		void setAttribute(int parameterIndex, float newValue);;
 
+		/** Changes the initial modulation value for the given chain. */
+		void setModulationInitialValue(int chainIndex, float initialValue);
+
         /** Returns the attribute with the given index. */
         float getAttribute(int index);
 
@@ -2253,6 +2314,9 @@ namespace ScriptingObjects
 
 		/** Adds and connects a receiving static time variant modulator for the given global modulator. */
 		var addStaticGlobalModulator(var chainIndex, var timeVariantMod, String modName);
+
+		/** Changes the processing order of the effects of this sound generator. */
+		void setEffectChainOrder(bool doPoly, var slotRange, var chainOrder);
 
 		/** Returns a reference as Sampler or undefined if no Sampler. */
 		var asSampler();
@@ -2406,11 +2470,20 @@ namespace ScriptingObjects
 		/** Returns the filename (including wildcard) for the currently loaded file. */
 		String getFilename(); 
 
-		/** Returns the samplerange in the form [start, end]. */
+		/** Returns the sample range start. */
 		var getSampleStart();
 
+		/** Returns the current loop range in the form [start, end]. */
+		var getLoopRange(bool subtractStart);
+		
 		/** Returns the length of the current sample selection in samples. */
 		int getSampleLength() const;
+
+		/** Returns the current sample range in the form [start, end]. */
+		var getSampleRange();
+
+		/** Returns the total sample length in samples. */
+		var getTotalLengthInSamples();
 
 		/** Sets the length of the current sample selection in samples. */
 		void setSampleRange(int startSample, int endSample);
@@ -2473,7 +2546,9 @@ namespace ScriptingObjects
 
 		// =============================================================================================
 
-		Identifier getObjectName() const override { RETURN_STATIC_IDENTIFIER("DisplayBufferSource"); };
+		static Identifier getClassName() { RETURN_STATIC_IDENTIFIER("DisplayBufferSource"); }
+
+		Identifier getObjectName() const override { return getClassName(); };
 		bool objectDeleted() const override { return source.get() == nullptr; }
 		bool objectExists() const override { return source != nullptr; }
 
@@ -2534,6 +2609,78 @@ namespace ScriptingObjects
 		// ============================================================================================================
 	};
 
+
+	struct ScriptWavetableController: public ConstScriptingObject,
+									  public ControlledObject,
+									  public WeakErrorHandler
+	{
+		ScriptWavetableController(ProcessorWithScriptingContent* sp, Processor* wavetableSynth);
+
+		static Identifier getClassName() { RETURN_STATIC_IDENTIFIER("WavetableController"); }
+
+		Identifier getObjectName() const override { return getClassName(); };
+		bool objectDeleted() const override { return wt_.get() == nullptr; }
+		bool objectExists() const override { return wt_.get() != nullptr; }
+
+		void handleErrorMessage(const String& error) override
+		{
+			if(errorHandler)
+				errorHandler.call1(error);
+		}
+
+		// ============================================================================================================ API Methods
+
+		/** Returns a JSON object with the current resynthesis options. */
+		var getResynthesisOptions() const;
+
+		/** Sets the current resynthesis options. */
+		void setResynthesisOptions(const var& optionData);
+
+		/** Resynthesises the wavetables from the currently loaded audio file. */
+		void resynthesise();
+
+		/** Saves the currently loaded wavetable as HWT file somewhere. */
+		void saveAsHwt(const var& outputFile);
+
+		/** Saves the currently loaded wavetable as audio file. */
+		void saveAsAudioFile(const var& outputFile);
+
+		/** This will store all resynthesised wavetables to the given directory and reused if the same file is loaded again. */
+		void setEnableResynthesisCache(const var& cacheDirectory, bool clearCache);
+
+		/** Loads a file (or buffer) into the wavetable synth. */
+		void loadData(var bufferOrFile, var sampleRate, var loopRange);
+
+		/** Sets up a chain of post FX processors that will be applied to the loaded wavetable. */
+		void setPostFXProcessors(const var& postFXData);
+
+		/** Sets up a function that will be executed when a error occurs during resynthesis. */
+		void setErrorHandler(const var& errorCallback);
+
+		// ============================================================================================================
+
+	private:
+
+		struct Wrapper
+		{
+			API_METHOD_WRAPPER_0(ScriptWavetableController, getResynthesisOptions);
+			API_VOID_METHOD_WRAPPER_1(ScriptWavetableController, setResynthesisOptions);
+			API_VOID_METHOD_WRAPPER_0(ScriptWavetableController, resynthesise);
+			API_VOID_METHOD_WRAPPER_1(ScriptWavetableController, saveAsHwt);
+			API_VOID_METHOD_WRAPPER_1(ScriptWavetableController, saveAsAudioFile);
+			API_VOID_METHOD_WRAPPER_2(ScriptWavetableController, setEnableResynthesisCache);
+			API_VOID_METHOD_WRAPPER_1(ScriptWavetableController, setErrorHandler);
+			API_VOID_METHOD_WRAPPER_3(ScriptWavetableController, loadData);
+			API_VOID_METHOD_WRAPPER_1(ScriptWavetableController, setPostFXProcessors);
+		};
+
+		WavetableSynth* getWavetableSynth() { return dynamic_cast<WavetableSynth*>(wt_.get()); }
+		const WavetableSynth* getWavetableSynth() const { return dynamic_cast<WavetableSynth*>(wt_.get()); }
+
+		WeakCallbackHolder errorHandler;
+
+		WeakReference<Processor> wt_;
+	};
 
 	struct GlobalRoutingManagerReference : public ConstScriptingObject,
 										   public ControlledObject,
@@ -2641,7 +2788,10 @@ namespace ScriptingObjects
 
 		/** Sends the value to all targets (after converting it from the input range. */
 		void setValue(double inputWithinRange);
-		
+
+		/** Sends any type of data (JSON, string, buffers) to the target. */
+		void sendData(var dataToSend);
+
 		/** Set the input range using a min and max value (no steps / no skew factor). */
 		void setRange(double min, double max);
 
@@ -2650,6 +2800,9 @@ namespace ScriptingObjects
 
 		/** Set the input range using a min and max value as well as a step size. */
 		void setRangeWithStep(double min, double max, double stepSize);
+
+		/** Registers a function that will be executed asynchronously when the data receives a JSON data chunk. */
+		void registerDataCallback(var dataCallbackFunction);
 
 		/** Registers a function that will be executed whenever a value is sent through the cable. */
 		void registerCallback(var callbackFunction, var synchronous);
@@ -2673,12 +2826,16 @@ namespace ScriptingObjects
 		struct DummyTarget;
 		struct Wrapper;
 		struct Callback;
+		struct DataCallback;
 
 		var cable;
 
 		ScopedPointer<DummyTarget> dummyTarget;
 		OwnedArray<Callback> callbacks;
+		OwnedArray<DataCallback> dataCallbacks;
 		scriptnode::InvertableParameterRange inputRange;
+
+		bool dataRecursion = false;
 	};
 
 	class TimerObject : public ConstScriptingObject,
@@ -2792,10 +2949,7 @@ namespace ScriptingObjects
 		
 	private:
 
-		void handleAsyncUpdate() override
-		{
-			sendUpdateMessage(sendNotificationAsync);
-		}
+		void handleAsyncUpdate() override;
 
 		struct ScopedUpdateDelayer
 		{
@@ -3138,7 +3292,103 @@ namespace ScriptingObjects
 		HiseMidiSequence::Ptr getSequence() const { return getPlayer()->getCurrentSequence(); }
 	};
 
-	
+	struct ScriptingComplexGroupManager: public ConstScriptingObject
+	{
+		ScriptingComplexGroupManager(ProcessorWithScriptingContent* pwsc, ModulatorSampler* sampler_);
+
+
+		static Identifier getClassName() { RETURN_STATIC_IDENTIFIER("ComplexGroupManager"); };
+		Identifier getObjectName() const override { return getClassName(); }
+
+		// ================================================================================ API Methods
+
+		/** Sets a layer property. */
+		void setLayerProperty(var layerIdOrIndex, String propertyId, var value);
+
+		/** Returns the value of a given layer property. */
+		var getLayerProperty(var layerIdOrIndex, String propertyId);
+
+		/** Returns the index of the given layer. */
+		int getLayerIndex(String layerId) const;
+
+		/** Returns the number of groups in this layer. */
+		int getNumGroupsInLayer(int layerIndex);
+
+		/** Sets the currently active group. */
+		void setActiveGroup(int layerIndex, int groupIndex);
+
+		/** Creates a note map for the given layer. */
+		void createNoteMap(var layerIdOrIndex);
+
+		/** Checks if the given note number has any samples mapped in this layer. */
+		bool isNoteNumberMapped(int layerIndex, int noteNumber) const;
+
+		/** Enables gain tracking of all samples that match the given layer and group. */
+		void setEnableGainTracking(var layerIdOrIndex, int groupIndex, bool shouldBeActive);
+
+		/** Returns the peak volume of the first sound that was started with the given event ID. */
+		float getCurrentPeak(int layerIndex, int groupIndex, int eventId);
+
+		/** Registers a callback that will be executed with each group index that was started. */
+		void registerGroupStartCallback(var layerIdOrIndex, var callback);
+
+		/** Delays the event that matches the given layer and group. */
+		void delayGroupEvent(int layerIndex, int groupIndex, double delayInSamples);
+
+		/** Adds a fade in to the event that matches the given layer and group. */
+		void fadeInGroupEvent(int layerIndex, int groupIndex, double fadeInTimeMs, double targetGainDb);
+
+		/** Sets the sample to fade out with the given fade-in time after a fixed length. */
+		void setFixedGroupEventLength(int layerIndex, int groupIndex, double numSamplesToPlayBeforeFadeout);
+
+		/** Adds a start offset to the event that matches the given layer and group. */
+		void addGroupEventStartOffset(int layerIndex, int groupIndex, double startOffsetSamples);
+
+		/** Fades out all voices that are playing the given layer / group. */
+		void fadeOutGroupEvent(int layerIndex, int groupIndex, double fadeOutTimeMs);
+
+		/** Sets the smoothed volume for the given layer / group. */
+		void setGroupVolume(int layerIndex, int groupIndex, double gainFactor);
+
+		// ================================================================================ API Methods
+
+	private:
+
+		struct GroupCallback: public ComplexGroupManager::VoiceStartCallback
+		{
+			GroupCallback(ScriptingComplexGroupManager& parent, const var& f):
+			  callback(parent.getScriptProcessor(), &parent, f, 1)
+			{}
+
+			void onVoiceStart(uint8 groupValue) final
+			{
+				args = groupValue == ComplexGroupManager::IgnoreFlag ? (int)ComplexGroupManager::IgnoreFlag : (int)(groupValue - 1);
+				callback.callSync(&args, 1, nullptr);
+			}
+			
+			var args;
+			WeakCallbackHolder callback;
+		};
+
+		OwnedArray<GroupCallback> groupCallbacks;
+
+		static uint8 bumpGroupIndexFromZeroBased(int groupIndex)
+		{
+			return uint8(groupIndex + ((uint8)groupIndex != ComplexGroupManager::IgnoreFlag));
+		}
+
+		std::vector<std::pair<uint8, uint8>> gainTrackingGroups;
+
+		std::map<uint8, VoiceBitMap<128, uint32>> noteMaps;
+
+		ComplexGroupManager* getManager() const;
+
+		int getLayerIndexInternal(const var& layerIdOrString) const;
+
+		struct Wrapper;
+
+		WeakReference<ModulatorSampler> sampler;
+	};
 };
 
 

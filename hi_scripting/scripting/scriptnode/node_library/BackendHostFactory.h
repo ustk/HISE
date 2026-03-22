@@ -74,6 +74,8 @@ struct BackendDllManager : public ReferenceCountedObject,
 		CustomNodes,
 		CodeLibrary,
 		FaustCode,
+		ProjectNodeTemplates,
+		GlobalNodeTemplates,
 		AdditionalCode,
 		Binaries,
 		DllLocation,
@@ -95,7 +97,20 @@ struct BackendDllManager : public ReferenceCountedObject,
 
 	int getDllHash(int index);
 
+	static std::pair<Array<Identifier>, int> initialiseThirdPartyProperties(MainController* mc);
+
 	static int getHashForNetworkFile(MainController* mc, const String& id);
+
+	bool isDllLoaded() const { return projectDll != nullptr; }
+
+	bool hasFilesToCompile()
+	{
+		auto hasCpp = !getThirdPartyFiles(getMainController(), false).isEmpty();
+		auto hasNetworks = !getNetworkFiles(getMainController(), false).isEmpty();
+		auto hasFaustFiles = getSubFolder(getMainController(), FolderSubType::FaustCode).getNumberOfChildFiles(File::findFiles, "*.dsp") != 0;
+
+		return hasCpp || hasNetworks || hasFaustFiles;
+	}
 
 	bool unloadDll();
 	bool loadDll(bool forceUnload);
@@ -122,7 +137,32 @@ struct BackendDllManager : public ReferenceCountedObject,
     {
         return getSubFolder(mc, FolderSubType::ThirdParty).getChildFile("src").getChildFile("rnbo");
     }
-    
+
+	static Array<ValueTree> getAllNodeTemplates(MainController* mc)
+    {
+	    auto globalFolder = getSubFolder(mc, FolderSubType::GlobalNodeTemplates);
+		auto localFolder = getSubFolder(mc, FolderSubType::ProjectNodeTemplates);
+
+		Array<File> files;
+
+		files.addArray(globalFolder.findChildFiles(File::findFiles, false, "*.xml"));
+		files.addArray(localFolder.findChildFiles(File::findFiles, false, "*.xml"));
+
+		files.sort();
+
+		Array<ValueTree> list;
+
+		for(auto f: files)
+		{
+			if(auto xml = XmlDocument::parse(f))
+			{
+				list.add(ValueTree::fromXml(*xml));
+			}
+		}
+
+		return list;
+    }
+
     static void addNodePropertyToJSONFile(const MainController* mc, const String& classId, const Identifier& property)
     {
         auto thirdPartyFolder = getSubFolder(mc, FolderSubType::ThirdParty);
@@ -218,5 +258,7 @@ struct BackendDllManager : public ReferenceCountedObject,
 	}
 
 	scriptnode::dll::ProjectDll::Ptr projectDll;
+
+	LambdaBroadcaster<std::pair<scriptnode::dll::ProjectDll*, scriptnode::dll::ProjectDll*>> reloadBroadcaster;
 };
 }

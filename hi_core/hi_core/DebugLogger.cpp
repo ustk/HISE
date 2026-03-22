@@ -44,274 +44,7 @@ bool StartupLogger::isInitialised = false;
 double StartupLogger::timeToLastCall = 0.0;
 #endif
 
-struct DebugLogger::Message
-{
-	Message() {};
 
-	Message(int messageIndex_, int callbackIndex_, double timestamp_, Location l, const Processor* const p_, const Identifier& id_) :
-		messageIndex(messageIndex_),
-		callbackIndex(callbackIndex_),
-		timestamp(timestamp_),
-		p(const_cast<Processor*>(p_)),
-		id(id_),
-		location(l)
-	{};
-    
-    virtual ~Message() {};
-
-	String getTimeString()
-	{
-		String t;
-		NewLine nl;
-
-		t << "- Time: **" << String(timestamp, 2) << "**  " << " / ";
-		t << "CallbackIndex: **" << String(callbackIndex) << "**  " << nl;
-
-		return t;
-	}
-
-	String getLocationString()
-	{
-		String l;
-		NewLine nl;
-
-
-		l << "- Location: `";
-
-		if (p.get() != nullptr)
-		{
-			l << p.get()->getId() << "::";
-		}
-
-		if (!id.isNull())
-		{
-			l << id.toString() << "::";
-		}
-
-		l << DebugLogger::getNameForLocation(location) << "`  " << nl;
-
-		return l;
-	}
-
-	virtual bool shouldPrintBacktrace() const { return false; };
-
-	virtual String getMessageText(int errorIndex = -1) { ignoreUnused(errorIndex); jassertfalse; return String(); }
-
-
-	int messageIndex = -1;
-
-	int callbackIndex = -1;
-	double timestamp = 0.0;
-
-	const Identifier id;
-	WeakReference<Processor> p;
-
-	Location location;
-};
-
-struct DebugLogger::StringMessage : public DebugLogger::Message
-{
-	StringMessage(int messageIndex, int callbackIndex, const String& message_, double ts) :
-		Message(messageIndex, callbackIndex, ts, Location::Empty, nullptr, Identifier()),
-		message(message_)
-	{}
-
-    virtual ~StringMessage()
-    {
-        
-    };
-    
-	String getMessageText(int errorIndex /* = -1 */) override 
-	{
-		ignoreUnused(errorIndex);
-
-		String s;
-		s << message << "(CI: `" << String(callbackIndex) << "`)  ";
-
-		return s; 
-	}
-
-	String message;
-};
-
-struct DebugLogger::Event : public DebugLogger::Message
-{
-	Event(int messageIndex, int callbackIndex, const HiseEvent& e_) :
-		Message(messageIndex, callbackIndex, 0, Location::MainRenderCallback, nullptr, Identifier()),
-		e(e_)
-	{}
-    
-    virtual ~Event()
-    {
-        
-    };
-
-	String getMessageText(int errorIndex /* = -1 */) override
-	{
-		ignoreUnused(errorIndex);
-
-		String eventString;
-		
-		eventString << "**" << e.getTypeAsString() << "** CI: `" << String(callbackIndex) << "` ID: `" << String(e.getEventId()) << "` TS: `" << String(e.getTimeStamp()) << "` ";
-		eventString << "V1: `" << (e.isNoteOnOrOff() ? MidiMessage::getMidiNoteName(e.getNoteNumber(), true, true, 3) : String(e.getNoteNumber())) << "`, V2: `" << String(e.getVelocity()) << "`, Ch: `" << String(e.getChannel()) << "`  ";
-
-		return eventString;
-	}
-
-	const HiseEvent e;
-};
-
-struct DebugLogger::AudioSettingChange : public DebugLogger::Message
-{
-	AudioSettingChange(int messageIndex, int callbackIndex, double ts, FailureType type_, double oldValue_, double newValue_) :
-		Message(messageIndex, callbackIndex, ts, Location::MainRenderCallback, nullptr, Identifier()),
-		type(type_),
-		oldValue(oldValue_),
-		newValue(newValue_)
-	{};
-    
-    virtual ~AudioSettingChange()
-    {
-        
-    };
-
-	FailureType type;
-	double oldValue;
-	double newValue;
-
-	String getMessageText(int errorIndex = -1)
-	{
-		ignoreUnused(errorIndex);
-		
-		NewLine nl;
-		String errorMessage;
-
-		errorMessage << "### " << DebugLogger::getNameForFailure(type) << nl;
-
-		errorMessage << getTimeString();
-
-		if (type == FailureType::SampleRateChange || type == FailureType::BufferSizeChange)
-		{
-			errorMessage << "- Old: **" << String(oldValue, 0) << "**  " << nl;
-			errorMessage << "- New: **" << String(newValue, 0) << "**  " << nl << nl;
-			
-		}
-
-		return errorMessage;
-	}
-};
-
-struct DebugLogger::PerformanceWarning : public DebugLogger::Message
-{
-	PerformanceWarning(int messageIndex, int callbackIndex, const DebugLogger::PerformanceData& d_, double timestamp_, int voiceAmount_) :
-		Message(messageIndex, callbackIndex, timestamp_, (Location)d_.location, d_.p, Identifier()),
-		d(d_),
-		voiceAmount(voiceAmount_),
-		timestamp(timestamp_)
-	{};
-    
-    virtual ~PerformanceWarning()
-    {
-        
-    };
-
-	int voiceAmount = 0;
-	double timestamp = 0.0;
-
-	String getMessageText(int /*errorIndex*/) override
-	{
-		String errorMessage;
-		NewLine nl;
-
-		errorMessage << "### PerformanceWarning" << nl;
-
-		errorMessage << getTimeString();
-		errorMessage << getLocationString();
-
-		errorMessage << "- Voice Amount: **" << String(voiceAmount) << "**  " << nl;
-		errorMessage << "- Limit: `" << String(100.0 * d.limit, 1) << "%` Avg: `" << String(d.averagePercentage, 2) << "%`, Peak: `" << String(d.thisPercentage, 1) << "%`  ";
-
-		return errorMessage;
-	}
-
-	const DebugLogger::PerformanceData d;
-};
-
-struct DebugLogger::ParameterChange : public DebugLogger::Message
-{
-	ParameterChange(int messageIndex, int callbackIndex, double timestamp, const Identifier& id, var value_):
-		Message(messageIndex, callbackIndex, timestamp, Location::Empty, nullptr, id),
-		value(value_)
-	{}
-
-	ParameterChange() :
-		value(var())
-	{};
-
-	String getMessageText(int) override
-	{
-		String s;
-		s << "**Parameter Change** ";
-		s << "ID: `" << id << "` value: `" << value.toString() << "`  " << "CI: `" << callbackIndex << "`  ";
-		return s;
-	}
-
-	var value;
-};
-
-struct DebugLogger::Failure : public DebugLogger::Message
-{
-	Failure(int messageIndex, int callbackIndex_, Location loc_, FailureType t, const Processor* faultyModule, double ts, double extraValue_, const Identifier& id_ = Identifier()) :
-		Message(messageIndex, callbackIndex_, ts, loc_, faultyModule, id_),
-		type(t),
-		extraValue(extraValue_)
-	{};
-
-    virtual ~Failure()
-    {
-        
-    };
-    
-	bool shouldPrintBacktrace() const override { return type == FailureType::PriorityInversion; }
-
-	String getMessageText(int errorIndex = -1)
-	{
-		static const String ok("All OK");
-
-		if (type == FailureType::Empty)
-			return ok;
-
-		NewLine nl;
-		String errorMessage;
-
-		if (errorIndex == -1)
-		{
-			errorMessage << "### " << DebugLogger::getNameForFailure(type) << nl;
-		}
-		else
-		{
-			errorMessage << "### #" << String(errorIndex) << ": " << DebugLogger::getNameForFailure(type) << nl;
-		}
-
-		errorMessage << getTimeString();
-
-		errorMessage << getLocationString();
-
-		if (extraValue != 0.0)
-		{
-			errorMessage << "- AdditionalInfo: **" << String(extraValue, 3) << "**  " << nl;
-		}
-
-
-		errorMessage << nl;
-		return errorMessage;
-	}
-
-	FailureType type;
-	
-	double extraValue = 0.0;
-	
-};
 
 
 DebugLogger::PerformanceData::PerformanceData(int location_, float thisPercentage_, float averagePercentage_,
@@ -341,7 +74,7 @@ void DebugLogger::Listener::logEnded()
 void DebugLogger::Listener::errorDetected()
 {}
 
-void DebugLogger::Listener::recordStateChanged(bool isRecording)
+void DebugLogger::Listener::recordStateChanged(RecordState isRecording)
 {}
 
 MainController* DebugLogger::getMainController()
@@ -793,7 +526,7 @@ void DebugLogger::timerCallback()
 
 	messageIndex = 0;
 
-	Array<Message*> messages;
+	juce::Array<Message*> messages;
 
 	for (int i = 0; i < warningCopy.size(); i++)
 		messages.add(&warningCopy.getReference(i));
@@ -1037,51 +770,116 @@ void DebugLogger::setPerformanceWarningLevel(int newWarningLevel)
 	warningLevel = newWarningLevel;
 }
 
-
-
-void DebugLogger::startRecording()
+struct DebugRenderer: public AudioRendererBase
 {
-	auto numberOfSeconds = PresetHandler::getCustomName("1.0", "Enter the amount of seconds you want to record").getDoubleValue();
+	using UpdateCallback = std::function<void(const AudioSampleBuffer& b)>;
 
-	if(isPositiveAndBelow(numberOfSeconds, 60.0))
+	DebugRenderer(MainController* mc, const HiseEventBuffer& eventBuffer, const UpdateCallback& ub):
+	  AudioRendererBase(mc),
+	  updateCallback(ub)
 	{
-		{
-			ScopedLock sl(recorderLock);
-			auto rate = getMainController()->getMainSynthChain()->getSampleRate();
-			debugRecorder = AudioSampleBuffer(2, rate * numberOfSeconds);
-			recordUptime = 0;
-		}
+		auto hb = new HiseEventBuffer();
+		hb->addEvents(eventBuffer);
+		eventBuffers.add(hb);
+		initAfterFillingEventBuffer();
+	}
 
-		for (auto l : listeners)
+	void callUpdateCallback(bool isFinished, double progress)
+	{
+		if(isFinished && updateCallback)
 		{
-			if (l != nullptr)
-				l->recordStateChanged(true);
+			HeapBlock<float*> data;
+			data.calloc(channels.size());
+
+			for(int i = 0; i < channels.size(); i++)
+			{
+				data[i] = channels[i]->buffer.getWritePointer(0);
+			}
+
+			AudioSampleBuffer b(data.get(), channels.size(), channels[0]->size);
+			updateCallback(b);
 		}
 	}
-	else
-	{
-		PresetHandler::showMessageWindow("Invalid input", "Enter a number between 1.0 and 60.0", PresetHandler::IconType::Error);
-	}
+	
+	UpdateCallback updateCallback;
+};
+
+void DebugLogger::startRecording(double numberOfSeconds, const File& outputFile_, bool waitForInput_, bool renderOffline_)
+{
+	waitForInput = waitForInput_;
+	outputFile = outputFile_;
+	numSecondsToRecord = numberOfSeconds;
+	renderOffline = renderOffline_;
+	waitForInput = waitForInput_;
+
+	if(!waitForInput)
+			startRecordingInternal();
 }
 
-void DebugLogger::recordOutput(AudioSampleBuffer& bufferToRecord)
+void DebugLogger::recordOutput(MidiBuffer& mb, AudioSampleBuffer& bufferToRecord)
 {
+	if(waitForInput)
+	{
+		for(int i = 0; i < 127; i++)
+		{
+			if(getMainController()->getKeyboardState().isNoteOn(1, i))
+			{
+				startRecordingInternal();
+				waitForInput = false;
+				break;
+			}
+		}
+	}
+
 	if (recordUptime < 0)
 		return;
-
+	
 	ScopedLock sl(recorderLock);
 
 	int numSamplesToRecord = jmin<int>(debugRecorder.getNumSamples() - recordUptime, bufferToRecord.getNumSamples());
 
-	debugRecorder.copyFrom(0, recordUptime, bufferToRecord, 0, 0, numSamplesToRecord);
-	debugRecorder.copyFrom(1, recordUptime, bufferToRecord, 1, 0, numSamplesToRecord);
+	if(renderOffline)
+	{
+		MidiBuffer::Iterator iter(mb);
 
+		MidiMessage m;
+		int pos;
+
+		while(iter.getNextEvent(m, pos))
+		{
+			eventBuffer.addEvent(m, pos + recordUptime);
+		}
+	}
+	else
+	{
+		debugRecorder.copyFrom(0, recordUptime, bufferToRecord, 0, 0, numSamplesToRecord);
+		debugRecorder.copyFrom(1, recordUptime, bufferToRecord, 1, 0, numSamplesToRecord);
+	}
+	
 	recordUptime += bufferToRecord.getNumSamples();
 
 	if (recordUptime > debugRecorder.getNumSamples())
 	{
 		recordUptime = -1;
 		dumper.triggerAsyncUpdate();
+	}
+}
+
+
+
+void DebugLogger::startRecordingInternal()
+{
+	ScopedLock sl(recorderLock);
+	auto rate = getMainController()->getMainSynthChain()->getSampleRate();
+	debugRecorder = AudioSampleBuffer(2, rate * numSecondsToRecord);
+	recordUptime = 0;
+
+	for (auto l : listeners)
+	{
+		auto s = renderOffline ? Listener::RecordingMidi : Listener::RecordingAudio;
+
+		if (l != nullptr)
+			l->recordStateChanged(s);
 	}
 }
 
@@ -1243,32 +1041,208 @@ String DebugLogger::getSystemSpecs() const
 
 void DebugLogger::RecordDumper::handleAsyncUpdate()
 {
-	auto desktop = File::getSpecialLocation(File::SpecialLocationType::userDesktopDirectory);
-
-	auto dumpFile = desktop.getChildFile("HISE_One_Second_Dump.wav");
-
-	if (dumpFile.existsAsFile())
-		dumpFile.deleteFile();
-
-	WavAudioFormat waf;
-
-	StringPairArray metadata;
-
-	ScopedPointer<AudioFormatWriter> writer = waf.createWriterFor(new FileOutputStream(dumpFile), parent.getMainController()->getMainSynthChain()->getSampleRate(), 2, 24, metadata, 5);
-
-	writer->writeFromAudioSampleBuffer(parent.debugRecorder, 0, parent.debugRecorder.getNumSamples());
-
-	parent.debugRecorder = AudioSampleBuffer(2, 0);
-
-	writer = nullptr;
-
-	dumpFile.revealToUser();
-
-	for (auto l : parent.listeners)
+	if(parent.renderOffline)
 	{
-		if (l != nullptr)
-			l->recordStateChanged(false);
+		for (auto l : parent.listeners)
+		{
+			if (l != nullptr)
+				l->recordStateChanged(Listener::RecordState::RecordingAudio);
+		}
+
+		parent.currentExportThread = new DebugRenderer(parent.getMainController(), parent.eventBuffer, BIND_MEMBER_FUNCTION_1(RecordDumper::onOfflineRender));
+
+		ThreadStarters::startNormal(parent.currentExportThread);
 	}
+	else
+	{
+		File dumpFile = parent.outputFile;
+
+		if(dumpFile == File())
+		{
+			auto desktop = File::getSpecialLocation(File::SpecialLocationType::userDesktopDirectory);
+
+			dumpFile = desktop.getChildFile("HISE_One_Second_Dump.wav");
+		}
+
+		if (dumpFile.existsAsFile())
+			dumpFile.deleteFile();
+
+		WavAudioFormat waf;
+
+		StringPairArray metadata;
+
+		ScopedPointer<AudioFormatWriter> writer = waf.createWriterFor(new FileOutputStream(dumpFile), parent.getMainController()->getMainSynthChain()->getSampleRate(), 2, 24, metadata, 5);
+
+		writer->writeFromAudioSampleBuffer(parent.debugRecorder, 0, parent.debugRecorder.getNumSamples());
+
+		parent.debugRecorder = AudioSampleBuffer(2, 0);
+		parent.eventBuffer.clear();
+
+		writer = nullptr;
+
+		//dumpFile.revealToUser();
+
+		for (auto l : parent.listeners)
+		{
+			auto newState = parent.renderOffline ? Listener::RecordState::RecordingAudio : Listener::RecordState::Done;
+
+			if (l != nullptr)
+				l->recordStateChanged(newState);
+		}
+	}
+}
+
+void DebugLogger::RecordDumper::onOfflineRender(const AudioSampleBuffer& b)
+{
+	parent.debugRecorder.makeCopyOf(b);
+	parent.renderOffline = false;
+	triggerAsyncUpdate();
+}
+
+DebugLogger::Message::Message(int messageIndex_, int callbackIndex_, double timestamp_, Location l, const Processor* const p_, const Identifier& id_) :
+	messageIndex(messageIndex_),
+	callbackIndex(callbackIndex_),
+	timestamp(timestamp_),
+	p(const_cast<Processor*>(p_)),
+	id(id_),
+	location(l)
+{
+
+}
+
+String DebugLogger::Message::getTimeString()
+{
+	String t;
+	NewLine nl;
+
+	t << "- Time: **" << String(timestamp, 2) << "**  " << " / ";
+	t << "CallbackIndex: **" << String(callbackIndex) << "**  " << nl;
+
+	return t;
+}
+
+String DebugLogger::Message::getLocationString()
+{
+	String l;
+	NewLine nl;
+
+
+	l << "- Location: `";
+
+	if (p.get() != nullptr)
+	{
+		l << p.get()->getId() << "::";
+	}
+
+	if (!id.isNull())
+	{
+		l << id.toString() << "::";
+	}
+
+	l << DebugLogger::getNameForLocation(location) << "`  " << nl;
+
+	return l;
+}
+
+String DebugLogger::Message::getMessageText(int errorIndex /*= -1*/)
+{
+	ignoreUnused(errorIndex); jassertfalse; return String();
+}
+
+bool DebugLogger::Message::shouldPrintBacktrace() const
+{
+	return false;
+}
+
+DebugLogger::StringMessage::StringMessage(int messageIndex, int callbackIndex, const String& message_, double ts) :
+	Message(messageIndex, callbackIndex, ts, Location::Empty, nullptr, Identifier()),
+	message(message_)
+{
+
+}
+
+String DebugLogger::StringMessage::getMessageText(int errorIndex /* = -1 */)
+{
+	ignoreUnused(errorIndex);
+
+	String s;
+	s << message << "(CI: `" << String(callbackIndex) << "`)  ";
+
+	return s;
+}
+
+DebugLogger::Event::Event(int messageIndex, int callbackIndex, const HiseEvent& e_) :
+	Message(messageIndex, callbackIndex, 0, Location::MainRenderCallback, nullptr, Identifier()),
+	e(e_)
+{
+
+}
+
+String DebugLogger::Event::getMessageText(int errorIndex /* = -1 */)
+{
+	ignoreUnused(errorIndex);
+
+	String eventString;
+
+	eventString << "**" << e.getTypeAsString() << "** CI: `" << String(callbackIndex) << "` ID: `" << String(e.getEventId()) << "` TS: `" << String(e.getTimeStamp()) << "` ";
+	eventString << "V1: `" << (e.isNoteOnOrOff() ? MidiMessage::getMidiNoteName(e.getNoteNumber(), true, true, 3) : String(e.getNoteNumber())) << "`, V2: `" << String(e.getVelocity()) << "`, Ch: `" << String(e.getChannel()) << "`  ";
+
+	return eventString;
+}
+
+DebugLogger::AudioSettingChange::AudioSettingChange(int messageIndex, int callbackIndex, double ts, FailureType type_, double oldValue_, double newValue_) :
+	Message(messageIndex, callbackIndex, ts, Location::MainRenderCallback, nullptr, Identifier()),
+	type(type_),
+	oldValue(oldValue_),
+	newValue(newValue_)
+{
+
+}
+
+String DebugLogger::AudioSettingChange::getMessageText(int errorIndex /*= -1*/)
+{
+	ignoreUnused(errorIndex);
+
+	NewLine nl;
+	String errorMessage;
+
+	errorMessage << "### " << DebugLogger::getNameForFailure(type) << nl;
+
+	errorMessage << getTimeString();
+
+	if (type == FailureType::SampleRateChange || type == FailureType::BufferSizeChange)
+	{
+		errorMessage << "- Old: **" << String(oldValue, 0) << "**  " << nl;
+		errorMessage << "- New: **" << String(newValue, 0) << "**  " << nl << nl;
+
+	}
+
+	return errorMessage;
+}
+
+DebugLogger::PerformanceWarning::PerformanceWarning(int messageIndex, int callbackIndex, const DebugLogger::PerformanceData& d_, double timestamp_, int voiceAmount_) :
+	Message(messageIndex, callbackIndex, timestamp_, (Location)d_.location, d_.p, Identifier()),
+	d(d_),
+	voiceAmount(voiceAmount_),
+	timestamp(timestamp_)
+{
+
+}
+
+String DebugLogger::PerformanceWarning::getMessageText(int /*errorIndex*/)
+{
+	String errorMessage;
+	NewLine nl;
+
+	errorMessage << "### PerformanceWarning" << nl;
+
+	errorMessage << getTimeString();
+	errorMessage << getLocationString();
+
+	errorMessage << "- Voice Amount: **" << String(voiceAmount) << "**  " << nl;
+	errorMessage << "- Limit: `" << String(100.0 * d.limit, 1) << "%` Avg: `" << String(d.averagePercentage, 2) << "%`, Peak: `" << String(d.thisPercentage, 1) << "%`  ";
+
+	return errorMessage;
 }
 
 } // namespace hise

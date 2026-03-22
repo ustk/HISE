@@ -54,13 +54,15 @@ WaveSynth::WaveSynth(MainController *mc, const String &id, int numVoices) :
 	waveForm2(WaveformComponent::Saw),
     tempBuffer(2, 0)
 {
-	modChains += { this, "Mix Modulation"};
+	modChains += { this, "Mix Modulation", ModulatorChain::ModulationType::Normal, Modulation::Mode::CombinedMode };
 	modChains += { this, "Osc2 Pitch Modulation", ModulatorChain::ModulationType::Normal, Modulation::PitchMode};
 
 	finaliseModChains();
 
 	modChains[ChainIndex::MixChain].setAllowModificationOfVoiceValues(true);
 	modChains[ChainIndex::MixChain].setExpandToAudioRate(true);
+	modChains[ChainIndex::MixChain].setIncludeMonophonicValuesInVoiceRendering(true);
+	modChains[ChainIndex::MixChain].setClampTo0To1(true);
 
 	modChains[ChainIndex::Osc2PitchIndex].setExpandToAudioRate(true);
 
@@ -70,12 +72,10 @@ WaveSynth::WaveSynth(MainController *mc, const String &id, int numVoices) :
 	scaleFunction = [](float input) { return input * 2.0f - 1.0f; };
 
 	parameterNames.add("OctaveTranspose1");
-	parameterNames.add("SemiTones1");
 	parameterNames.add("WaveForm1");
 	parameterNames.add("Detune1");
 	parameterNames.add("Pan1");
 	parameterNames.add("OctaveTranspose2");
-	parameterNames.add("SemiTones2");
 	parameterNames.add("WaveForm2");
 	parameterNames.add("Detune2");
 	parameterNames.add("Pan2");
@@ -84,6 +84,8 @@ WaveSynth::WaveSynth(MainController *mc, const String &id, int numVoices) :
 	parameterNames.add("PulseWidth1");
 	parameterNames.add("PulseWidth2");
 	parameterNames.add("HardSync");
+    parameterNames.add("SemiTones1");
+    parameterNames.add("SemiTones2");
 
 	updateParameterSlots();
 
@@ -293,7 +295,10 @@ void WaveSynth::setInternalAttribute(int parameterIndex, float newValue)
 		break;
 	case Pan1:					pan1 = newValue; break;
 	case Pan2:					pan2 = newValue; break;
-	case Mix:					mix = newValue; break;
+	case Mix:					
+		mix = newValue;
+		modChains[MixChain].getChain()->setInitialValue(newValue);
+		break;
 	case EnableSecondOscillator: enableSecondOscillator = newValue > 0.5f; break;
 	case PulseWidth1:			pulseWidth1 = jlimit<float>(0.0f, 1.0f, newValue); refreshPulseWidth(true); break;
 	case PulseWidth2:			pulseWidth2 = jlimit<float>(0.0f, 1.0f, newValue); refreshPulseWidth(false); break;

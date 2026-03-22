@@ -86,11 +86,19 @@ void ModulationSourceNode::rebuildCallback()
 
 	auto mp = ConnectionBase::createParameterFromConnectionTree(this, getModulationTargetTree(), isUsingNormalisedRange());
 
-    // we need to pass in the target node for the clone container to work...
-    auto firstId = getModulationTargetTree().getChild(0)[PropertyIds::NodeId].toString();
-    auto tn = getRootNetwork()->getNodeWithId(firstId);
-    
-	p->setParameter(tn, mp);
+	try
+	{
+		// we need to pass in the target node for the clone container to work...
+	    auto firstId = getModulationTargetTree().getChild(0)[PropertyIds::NodeId].toString();
+	    auto tn = getRootNetwork()->getNodeWithId(firstId);
+	    
+		p->setParameter(tn, mp);
+	}
+	catch(const String& e)
+	{
+		jassertfalse;
+		DBG(e);
+	}
 }
 
 ModulationSourceBaseComponent::ModulationSourceBaseComponent(PooledUIUpdater* updater) :
@@ -98,7 +106,7 @@ ModulationSourceBaseComponent::ModulationSourceBaseComponent(PooledUIUpdater* up
 {
 	unscaledPath.loadPathFromData(ScriptnodeIcons::unscaledMod, SIZE_OF_PATH(ScriptnodeIcons::unscaledMod));
 
-	dragPath.loadPathFromData(ColumnIcons::targetIcon, sizeof(ColumnIcons::targetIcon));
+	dragPath.loadPathFromData(ColumnIcons::targetIcon, ColumnIcons::targetIcon_Size);
 
 	setRepaintsOnMouseActivity(true);
 	setMouseCursor(createMouseCursor());
@@ -135,7 +143,7 @@ juce::Image ModulationSourceBaseComponent::createDragImageStatic(bool shouldFill
 	if (shouldFill)
 	{
 		Path p;
-		p.loadPathFromData(ColumnIcons::targetIcon, sizeof(ColumnIcons::targetIcon));
+		p.loadPathFromData(ColumnIcons::targetIcon, ColumnIcons::targetIcon_Size);
 		p.scaleToFit(0.0f, 0.0f, 28.0f * sf, 28.0f * sf, true);
 		g.setColour(Colours::white.withAlpha(0.9f));
 		g.fillPath(p);
@@ -170,9 +178,7 @@ void ModulationSourceBaseComponent::drawDragArea(Graphics& g, Rectangle<float> b
 
 juce::MouseCursor ModulationSourceBaseComponent::createMouseCursor()
 {
-	auto c = createDragImageStatic(true);
-	MouseCursor mc(c, 14, 14);
-	return mc;
+	return MouseCursor(MouseCursor::CrosshairCursor);
 }
 
 void ModulationSourceBaseComponent::mouseDrag(const MouseEvent& e)
@@ -182,7 +188,16 @@ void ModulationSourceBaseComponent::mouseDrag(const MouseEvent& e)
 	if (getSourceNodeFromParent() == nullptr)
 		return;
 
-	if (auto container = dynamic_cast<DragAndDropContainer*>(findParentComponentOfClass<DspNetworkGraph>()->root.get()))
+	auto ng = findParentComponentOfClass<DspNetworkGraph>();
+
+	DragAndDropContainer* container = nullptr;
+
+	if(ng->isShowingRootNode())
+		container = dynamic_cast<DragAndDropContainer*>(ng->root.get());
+	else
+		container = ng;
+
+	if (container != nullptr)
 	{
 		// We need to be able to drag it anywhere...
 		//while (auto pc = DragAndDropContainer::findParentDragContainerFor(dynamic_cast<Component*>(container)))
@@ -254,7 +269,10 @@ scriptnode::ModulationSourceNode* ModulationSourceBaseComponent::getSourceNodeFr
 	{
 		if (auto pc = findParentComponentOfClass<NodeComponent>())
 		{
-			sourceNode = dynamic_cast<ModulationSourceNode*>(pc->node.get());
+			if(auto container = dynamic_cast<NodeContainer*>(pc->node.get()))
+				sourceNode = container->getLockedModNode();
+			else
+				sourceNode = dynamic_cast<ModulationSourceNode*>(pc->node.get());
 		}
 	}
 
@@ -266,7 +284,7 @@ ModulationSourcePlotter::ModulationSourcePlotter(PooledUIUpdater* updater) :
 	ModulationSourceBaseComponent(updater)
 {
 	
-	p.setSpecialLookAndFeel(new data::ui::pimpl::complex_ui_laf(), true);
+	p.setSpecialLookAndFeel(new scriptnode::complex_ui_laf(), true);
 
 	start();
 	setOpaque(true);
@@ -412,7 +430,7 @@ void WrapperNode::initParameterData(ParameterDataList& pData)
 		auto ndb = new parameter::dynamic_base(p.callback);
 
 		newP->setDynamicParameter(ndb);
-		newP->valueNames = p.parameterNames;
+		newP->valueNames = p.getParameterNames().toStringArray();
 
 		addParameter(newP);
 	}

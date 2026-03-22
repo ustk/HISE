@@ -45,7 +45,8 @@ public:
         bgColour,
         trackColour,
         peakColour,
-        maxPeakColour
+        maxPeakColour,
+        overPeakColour
     };
     
     enum class SpecialProperties
@@ -496,12 +497,15 @@ public:
 		ShowAddButton,
 		ShowRenameButton,
 		ShowDeleteButton,
+    ShowSearchBar,
 		ButtonsInsideBorder,
 		ColumnRowPadding,
 		SearchBarBounds,
 		SaveButtonBounds,
 		MoreButtonBounds,
 		FavoriteButtonBounds,
+    FullPathFavorites,
+    FavoriteIconOffset,
 		numSpecialProperties
 	};
 
@@ -544,6 +548,8 @@ private:
 *	- `ColourData::itemColour1`: the icon colour
 *	- `Font`
 *	- `FontSize`
+*	- `Fade`: enable fade animation (default: true)
+*	- `ShowIcon`: show info icon (default: true)
 *
 *	### Example JSON
 *
@@ -552,6 +558,8 @@ private:
 	  "Type": "TooltipPanel",
 	  "Font": "Arial Italic",
 	  "FontSize": 20,
+	  "Fade": false,
+	  "ShowIcon": true,
 	  "ColourData": {
 		"bgColour": "0x22FF0000",
 		"textColour": "0xFFFFFFFF",
@@ -575,10 +583,24 @@ public:
 	void fromDynamicObject(const var& object) override;
 	void resized() override;
 
+	enum SpecialPanelIds
+	{
+		Fade = (int)FloatingTileContent::PanelPropertyId::numPropertyIds,
+		ShowIcon,
+		numPropertyIds
+	};
+
+	int getNumDefaultableProperties() const override { return SpecialPanelIds::numPropertyIds; }
+	Identifier getDefaultablePropertyId(int index) const override;
+	var getDefaultProperty(int index) const override;
+	var toDynamicObject() const override;
+
 private:
 
 	String fontName;
 	float fontSize = 14.0f;
+	bool useFade = true;
+	bool showIcon = true;
 
 	ScopedPointer<TooltipBar> tooltipBar;
 };
@@ -681,6 +703,7 @@ public:
 	enum ColumnId
 	{
 		CCNumber = 1,
+		Channel,
 		ParameterName,
 		Inverted,
 		Minimum,
@@ -690,7 +713,7 @@ public:
 	};
 
 	TableFloatingTileBase(FloatingTile* parent);
-	void initTable();
+	void initTable(bool addChannelColumn=false);
 
 	virtual ~TableFloatingTileBase() {};
 
@@ -754,7 +777,7 @@ protected:
 	Colour itemColour2;
 
 	class ValueSliderColumn : public Component,
-		public SliderListener
+							  public Slider::Listener
 	{
 	public:
 

@@ -42,6 +42,11 @@ NodeComponent* ComponentHelpers::createDefaultComponent(NodeBase* n)
  
 void ComponentHelpers::addExtraComponentToDefault(NodeComponent* nc, Component* c)
 {
+	if(auto ec = dynamic_cast<ScriptnodeExtraComponentBase*>(c))
+	{
+		ec->initialise(nc->node.get());
+	}
+
     dynamic_cast<DefaultParameterNodeComponent*>(nc)->setExtraComponent(c);
 }
 
@@ -63,61 +68,12 @@ scriptnode::NodeComponent* WrapperNode::createComponent()
 	return nc;
 }
 
+
 juce::Rectangle<int> WrapperNode::getPositionInCanvas(Point<int> topLeft) const
 {
-	int numParameters = getNumParameters();
-
-	if (numParameters == 7)
-		return createRectangleForParameterSliders(4).withPosition(topLeft);
-	else if (numParameters == 0)
-		return createRectangleForParameterSliders(0).withPosition(topLeft);
-	else if (numParameters % 5 == 0)
-		return createRectangleForParameterSliders(5).withPosition(topLeft);
-	else if (numParameters % 4 == 0)
-		return createRectangleForParameterSliders(4).withPosition(topLeft);
-	else if (numParameters % 3 == 0)
-		return createRectangleForParameterSliders(3).withPosition(topLeft);
-	else if (numParameters % 2 == 0)
-		return createRectangleForParameterSliders(2).withPosition(topLeft);
-	else if (numParameters == 1)
-		return createRectangleForParameterSliders(1).withPosition(topLeft);
-    else
-        return createRectangleForParameterSliders(5).withPosition(topLeft);
+	auto b = NodeComponent::PositionHelpers::getPositionInCanvasForStandardSliders(this, topLeft);
+	return getBoundsToDisplay(b);
 }
-
-juce::Rectangle<int> WrapperNode::createRectangleForParameterSliders(int numColumns) const
-{
-	int h = UIValues::HeaderHeight;
-	
-	if (getEmbeddedNetwork() != nullptr)
-		h += 24;
-
-	auto eb = getExtraComponentBounds();
-
-	h += eb.getHeight();
-	
-
-	int w = 0;
-
-	if (numColumns == 0)
-		w = eb.getWidth() > 0 ? eb.getWidth() : UIValues::NodeWidth * 2;
-	else
-	{
-		int numParameters = getNumParameters();
-		int numRows = (int)std::ceil((float)numParameters / (float)numColumns);
-
-		h += numRows * (48 + 28) - 10;
-		w = jmin(numColumns * 100, numParameters * 100);
-	}
-
-
-	w = jmax(w, eb.getWidth());
-
-	auto b = Rectangle<int>(0, 0, w, h);
-	return getBoundsToDisplay(b.expanded(UIValues::NodeMargin));
-}
-
-
 
 void InterpretedNode::reset()
 {
@@ -294,8 +250,9 @@ void InterpretedCableNode::prepare(PrepareSpecs ps)
 
 	try
 	{
-		ModulationSourceNode::prepare(ps);
 		this->obj.prepare(ps);
+		ModulationSourceNode::prepare(ps);
+		
 	}
 	catch (Error& s)
 	{
@@ -433,7 +390,56 @@ bool OpaqueNodeDataHolder::removeDataObject(ExternalData::DataType t, int index)
 	return false;
 }
 
+void UncompiledNode::ReloadComponent::mouseDown(const MouseEvent& e)
+{
+#if USE_BACKEND
+	if(!reloaded)
+	{
+		// show the compile menu...
+		if(auto bpe = findParentComponentOfClass<BackendRootWindow>())
+		{
+			BackendCommandTarget::Actions::compileNetworksToDll(bpe);
+		}
+	}
+	else
+	{
+		// reload the network to use the proper node
+		auto n = findParentComponentOfClass<DspNetworkGraph>()->network;
 
+		auto currentData = n->getValueTree().createCopy();
+		auto holder = n->getParentHolder();
+
+		auto bpe = findParentComponentOfClass<BackendRootWindow>();
+
+		auto f = [holder, currentData, bpe]()
+		{
+			ValueTree p1("p1");
+			ValueTree p2("Networks");
+
+			p1.addChild(p2, -1, nullptr);
+			p2.addChild(currentData, -1, nullptr);
+			
+			holder->clearAllNetworks();
+			holder->restoreNetworks(p1);
+
+			auto p = dynamic_cast<Processor*>(holder);
+
+			auto an = holder->getActiveNetwork();
+
+			auto numChannels = dynamic_cast<RoutableProcessor*>(p)->getMatrix().getNumSourceChannels();
+
+			an->setNumChannels(numChannels);
+			an->prepareToPlay(p->getSampleRate(), p->getLargestBlockSize());
+
+			holder->getActiveNetwork()->prepareToPlay(p->getSampleRate(), p->getLargestBlockSize());
+
+			bpe->gotoIfWorkspace(p);
+		};
+
+		MessageManager::callAsync(f);
+	}
+#endif
+}
 
 OpaqueNodeDataHolder::Editor::Editor(OpaqueNodeDataHolder* obj, PooledUIUpdater* u, bool addDragger) :
 	ScriptnodeExtraComponent<OpaqueNodeDataHolder>(obj, u),
@@ -835,7 +841,33 @@ TemplateNodeFactory::TemplateNodeFactory(DspNetwork* n) :
 	registerNodeRaw<node_templates::softbypass_switch<6>>();
 	registerNodeRaw<node_templates::softbypass_switch<7>>();
 	registerNodeRaw<node_templates::softbypass_switch<8>>();
-	
+
+#if USE_BACKEND
+	auto fileTemplates = BackendDllManager::getAllNodeTemplates(n->getScriptProcessor()->getMainController_());
+
+	for(auto v: fileTemplates)
+	{
+		auto name = v[PropertyIds::Name].toString();
+		if(name.isEmpty())
+			name = v[PropertyIds::ID].toString();
+
+		registerNodeWithLambda(name, [v](DspNetwork* n, ValueTree dummy)
+		{
+			dummy.setProperty(PropertyIds::ID, "AAARG", nullptr);
+
+			Array<DspNetwork::IdChange> changes;
+			auto newTree = n->cloneValueTreeWithNewIds(v, changes, false);
+			DuplicateHelpers::removeOutsideConnections({ newTree }, changes );
+
+			for(auto& c: changes)
+	            n->changeNodeId(newTree, c.oldId, c.newId, nullptr);
+
+			auto newNode = n->createFromValueTree(n->isPolyphonic(), newTree, true);
+
+			return newNode;
+		});
+	}
+#endif
 }
 
 int TemplateNodeFactory::Builder::addNode(int parent, const String& path, const String& id, int index)

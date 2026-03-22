@@ -49,31 +49,58 @@ struct FloatSanitizers
     }
 
     /** Returns the silence threshold as gain factor. Uses the HISE_SILENCE_THRESHOLD_DB preprocessor. */
-    static bool isSilence(const float value)
-    {
-        static const float Silence = std::pow(10.0f, (float)HISE_SILENCE_THRESHOLD_DB * -0.05f);
-        static const float MinusSilence = -1.0f * Silence;
-        return value < Silence && value > MinusSilence;
-    }
-    
-    static bool isNotSilence(const float value)
-    {
-        return !isSilence(value);
-    }
-    
+    static bool isSilence(const float value);
+
+    static bool isNotSilence(const float value);
+
     static void sanitizeArray(float* data, int size);;
 
     static float sanitizeFloatNumber(float& input);;
 
+	static double sanitizeDoubleNumber(double& input);
+
     struct Test : public UnitTest
     {
-        Test() :
-            UnitTest("Testing float sanitizer")
-        {
-
-        };
+        Test();;
 
         void runTest() override;
+
+		template <typename FloatType> void testSingleSanitizer()
+		{
+			auto san = [](FloatType& v)
+			{
+				if constexpr(std::is_same<double, FloatType>())
+					FloatSanitizers::sanitizeDoubleNumber(v);
+				else
+					FloatSanitizers::sanitizeFloatNumber(v);
+			};
+
+			beginTest("Testing single method");
+
+			FloatType d0 = std::numeric_limits<FloatType>::infinity();
+			FloatType d1 = std::numeric_limits<FloatType>::min() / static_cast<FloatType>(20.0);
+			FloatType d2 = std::numeric_limits<FloatType>::min() / static_cast<FloatType>(-14.0);
+			FloatType d3 = std::numeric_limits<FloatType>::quiet_NaN();
+			FloatType d4 = static_cast<FloatType>(24.0);
+			FloatType d5 = static_cast<FloatType>(0.0052);
+
+			san(d0);
+			san(d1);
+			san(d2);
+			san(d3);
+			san(d3);
+			san(d4);
+			san(d5);
+
+			expectEquals<FloatType>(d0, static_cast<FloatType>(0.0), "Single Infinity");
+			expectEquals<FloatType>(d1, static_cast<FloatType>(0.0), "Single Denormal");
+			expectEquals<FloatType>(d2, static_cast<FloatType>(0.0), "Single Negative Denormal");
+			expectEquals<FloatType>(d3, static_cast<FloatType>(0.0), "Single NaN");
+			expectEquals<FloatType>(d4, static_cast<FloatType>(24.0), "Single Normal Number");
+			expectEquals<FloatType>(d5, static_cast<FloatType>(0.0052), "Single Small Number");
+		}
+
+		void testArray();
     };
 };
 
@@ -195,6 +222,25 @@ private:
 
 	static int numAlignedCalls;
 	static int numOddCalls;
+};
+
+struct ModBufferExpansion
+{
+
+	static bool isEqual(float rampStart, const float* data, int numElements);
+
+	/** Expands the data found in modulationData + startsample according to the HISE_CONTROL_RATE_DOWNSAMPLING_FACTOR.
+	*
+	*	It updates the rampstart and returns true if there was movement in the modulation data.
+	*
+	*/
+	static bool expand(const float* modulationData, int startSample, int numSamples, float& rampStart);
+
+	static void pitchFactorToNormalisedRange(float* data, int numSamples);
+
+	static void normalisedRangeToPitchFactor(float* data, int numSamples);
+
+	static void applySkewFactor(float* data, int numSamples, NormalisableRange<double> targetRange);
 };
 
 /** This class divides a block into fixed chunks of data.
@@ -376,25 +422,13 @@ class Ramper
 {
 public:
 
-	Ramper() :
-		targetValue(0.0f),
-		stepDelta(0.0f),
-		stepAmount(-1)
-	{};
+	Ramper();;
 
 	/** Sets the step amount that the ramper will use. You can overwrite this value by supplying a step number in setTarget. */
 	void setStepAmount(int newStepAmount) { stepAmount = newStepAmount; };
 
 	/** sets the new target and recalculates the step size using either the supplied step number or the step amount previously set by setStepAmount(). */
-	void setTarget(float currentValue, float newTarget, int numberOfSteps = -1)
-	{
-		if (numberOfSteps != -1) stepDelta = (newTarget - currentValue) / numberOfSteps;
-		else if (stepAmount != -1) stepDelta = (newTarget - currentValue) / stepAmount;
-		else jassertfalse; // Either the step amount should be set, or a new step amount should be supplied
-
-		targetValue = newTarget;
-		busy = true;
-	};
+	void setTarget(float currentValue, float newTarget, int numberOfSteps = -1);;
 
 	/** Sets the ramper value and the target to the new value and stops ramping. */
 	void setValue(float newValue)

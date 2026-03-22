@@ -55,7 +55,56 @@ public:
 		numEditorStates
 	};
 
-	virtual ~ProcessorWithScriptingContent();;
+	virtual ~ProcessorWithScriptingContent();
+
+	struct InterfaceQueryFunction: public ModulationDisplayValue::QueryFunction
+	{
+		InterfaceQueryFunction(Processor* p, ModulationDisplayValue::QueryFunction::Ptr targetFunction_):
+		  safeP(p),
+		  targetFunction(targetFunction_)
+		{};
+
+		bool onScaleDrag(Processor* p, bool isDown, float delta) override
+		{
+			jassert(targetFunction != nullptr);
+
+			if(safeP != nullptr)
+				return targetFunction->onScaleDrag(safeP.get(), isDown, delta);
+
+			return false;
+		}
+
+		ModulationDisplayValue getDisplayValue(Processor* p, double nv, NormalisableRange<double> nr, int displayIndex) const override
+		{
+			jassert(targetFunction != nullptr);
+
+			if(safeP != nullptr)
+				return targetFunction->getDisplayValue(safeP, nv, nr, displayIndex);
+
+			return {};
+		}
+
+		WeakReference<Processor> safeP;
+		ModulationDisplayValue::QueryFunction::Ptr targetFunction;
+	};
+
+	void setModulationDisplayQueryFunction(int idx, Processor* p, ModulationDisplayValue::QueryFunction::Ptr mv)
+	{
+		if(mv != nullptr)
+			assignedFunctions[idx] = new InterfaceQueryFunction(p, mv);
+		else
+			assignedFunctions[idx] = nullptr;
+	}
+
+	ModulationDisplayValue::QueryFunction::Ptr getAssignedModulationQueryFunction(int parameterIndex) const
+	{
+		auto f = assignedFunctions.find(parameterIndex);
+
+		if(f != assignedFunctions.end())
+			return f->second;
+
+		return {};
+	}
 
 	void setAllowObjectConstruction(bool shouldBeAllowed);
 
@@ -108,6 +157,8 @@ public:
 
 	const MainController* getMainController_() const;
 
+	ProfileCollection callbackProfile;
+
 protected:
 
 	/** Call this from the base class to create the content. */
@@ -148,6 +199,8 @@ protected:
 	} contentParameterHandler;
 
 private:
+
+	std::map<int, ModulationDisplayValue::QueryFunction::Ptr> assignedFunctions;
 
 	void defaultControlCallbackIdle(ScriptingApi::Content::ScriptComponent *component, const var& controllerValue, Result& r);
 
@@ -253,6 +306,12 @@ public:
 	/** This includes every external script, compresses it and returns a base64 encoded string that can be shared without further dependencies. */
 	static ValueTree collectAllScriptFiles(ModulatorSynthChain *synthChainToExport);
 
+	void checkOnFocusGain()
+	{
+		if(reloader != nullptr)
+			reloader->timerCallback();
+	}
+
 private:
 
 	struct ExternalReloader: public Timer
@@ -318,6 +377,14 @@ public:
 
         Array<WeakReference<JavascriptProcessor>> list;
     };
+
+	Result returnResult(const Result& r)
+	{
+		if(!r.wasOk())
+			runtimeErrorBroadcaster.sendMessage(sendNotificationAsync, r.getErrorMessage());
+
+		return r;
+	}
     
 	using PreprocessorFunction = std::function<bool(const Identifier&, String& m)>;
 
@@ -469,10 +536,12 @@ public:
 
 	void breakpointWasHit(int index) override;
 
-	void addInplaceDebugValue(const Identifier& callback, int lineNumber, const String& value);
-    
-    Array<mcl::LanguageManager::InplaceDebugValue> inplaceValues;
+	void addInplaceDebugValue(const Identifier& callback, int lineNumber, const String& value, DebugInformationBase::Ptr info);
+
+	Array<std::pair<String, mcl::LanguageManager::InplaceDebugValue::Ptr>> deferredValues;
+    mcl::LanguageManager::InplaceDebugValue::List inplaceValues;
     LambdaBroadcaster<Identifier, int> inplaceBroadcaster;
+	LambdaBroadcaster<String> runtimeErrorBroadcaster;
     
 	virtual void fileChanged() override;
 
@@ -486,6 +555,20 @@ public:
 	virtual SnippetDocument *getSnippet(int c) = 0;
 	virtual const SnippetDocument *getSnippet(int c) const = 0;
 	virtual int getNumSnippets() const = 0;
+
+	CodeDocument* getSnippetOrExternalFile(const Identifier& id)
+	{
+		if(auto sn = getSnippet(id))
+			return sn;
+
+		for(int i = 0; i < getNumWatchedFiles(); i++)
+		{
+			if(getWatchedFile(i).getFileName() == id.toString())
+				return &getWatchedFileDocument(i);
+		}
+
+		return nullptr;
+	}
 
 	SnippetDocument *getSnippet(const Identifier& id);
 	const SnippetDocument *getSnippet(const Identifier& id) const;
@@ -519,12 +602,12 @@ public:
 
 	ApiProviderBase* getProviderBase() override;
 
+	DebugSession* getDebugSession() override;
+
 	HiseJavascriptEngine *getScriptEngine();
 
 	void mergeCallbacksToScript(String &x, const String& sepString=String()) const;
 	bool parseSnippetsFromString(const String &x, bool clearUndoHistory = false);
-
-	void setCompileProgress(double progress);
 
 	void compileScriptWithCycleReferenceCheckEnabled();
 
@@ -616,18 +699,14 @@ protected:
 
 	virtual SnippetResult compileInternal();
 
-	friend class CompileThread;
-
 	String connectedFileReference;
-
-	CompileThread *currentCompileThread;
 
 	ScopedPointer<HiseJavascriptEngine> scriptEngine;
 
-	
-
 	bool lastCompileWasOK;
 	bool useStoredContentData = false;
+	ProfileCollection compileProfile;
+	ProfileCollection::ID pCompileScript, pCreateDebugInfo, pControlCallback;
 
 private:
 
@@ -689,6 +768,7 @@ struct JavascriptSleepListener
 };
 
 class JavascriptThreadPool : public Thread,
+							 public ProfiledRecordingSession,
 							 public ControlledObject
 {
 	static constexpr uint64_t ScriptTrackId = 8999;
@@ -840,6 +920,9 @@ private:
 #if USE_BACKEND
     MultithreadedLockfreeQueue<CallbackTask, queueConfig> replQueue;
 #endif
+
+	ProfileCollection scriptThreadData;
+	ProfileCollection::ID pLow, pHigh, pRepaint, pCompile;
 
 	MultithreadedLockfreeQueue<WeakReference<ScriptingApi::Content::ScriptPanel>, queueConfig> deferredPanels;
 };

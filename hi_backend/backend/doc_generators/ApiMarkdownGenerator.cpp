@@ -43,58 +43,56 @@ ScriptingApiDatabase::Data::~Data()
 
 }
 
-hise::MarkdownDataBase::Item ScriptingApiDatabase::ItemGenerator::createRootItem(MarkdownDataBase& parent)
+hise::MarkdownDataBase::Item::Ptr ScriptingApiDatabase::ItemGenerator::createRootItem(MarkdownDataBase& parent)
 {
 	auto item = DirectoryItemGenerator::createRootItem(parent);
 
 	auto v = data->v;
-    auto c = item.getChildWithName("scripting-api");
+    auto c = item->getChildWithName("scripting-api");
 	auto scriptingApi = updateWithValueTree(c ,data->v);
 
-	scriptingApi.fillMetadataFromURL();
+	scriptingApi->fillMetadataFromURL();
 
-	item.swapChildWithName(scriptingApi, "scripting-api");
-
-	item.setDefaultColour(colour);
+	item->swapChildWithName(scriptingApi, "scripting-api");
+	item->setDefaultColour(colour);
 
 	return item;
 }
 
-hise::MarkdownDataBase::Item ScriptingApiDatabase::ItemGenerator::updateWithValueTree(MarkdownDataBase::Item& item, ValueTree& v)
+hise::MarkdownDataBase::Item::Ptr ScriptingApiDatabase::ItemGenerator::updateWithValueTree(MarkdownDataBase::Item::Ptr item, ValueTree& v)
 {
 	const static Identifier root("Api");
 	const static Identifier method("method");
 
 	if (v.getType() == root)
 	{
-		Array<MarkdownDataBase::Item> newItems;
+		MarkdownDataBase::Item::List newItems;
 
 		// Create all classes
 		for (auto c : v)
 		{
 			auto t = MarkdownLink::Helpers::getSanitizedFilename(c.getType().toString());
 
-			MarkdownDataBase::Item i = item.getChildWithName(t);
-
-			if (!i)
+			if (auto i = item->getChildWithName(t))
 			{
-				i.description << "API class reference: `" << c.getType().toString() << "`";
-				i.tocString = c.getType().toString();
-				i.url = rootUrl.getChildUrl(c.getType().toString());
+				i->description << "API class reference: `" << c.getType().toString() << "`";
+				i->tocString = c.getType().toString();
+				i->url = rootUrl.getChildUrl(c.getType().toString());
+
+				newItems.add(updateWithValueTree(i, c));
 			}
 			else
 			{
-				i.tocString = c.getType().toString();
-				i.url = rootUrl.getChildUrl(c.getType().toString());
-			}
+				auto ni = MarkdownDataBase::Item::createNew();
+				ni->tocString = c.getType().toString();
+				ni->url = rootUrl.getChildUrl(c.getType().toString());
 
-			newItems.add(updateWithValueTree(i, c));
+				newItems.add(updateWithValueTree(ni, c));
+			}
 		}
 
-		item.swapChildren(newItems);
+		item->swapChildren(newItems);
 	}
-
-	
 
 #if 0
 	if (v.getType() == root)
@@ -132,36 +130,26 @@ hise::MarkdownDataBase::Item ScriptingApiDatabase::ItemGenerator::updateWithValu
 	if (v.getType() != method && v.getType() != root)
 	{
 
-		item.url.setType(MarkdownLink::Folder);
+		item->url.setType(MarkdownLink::Folder);
 
-		Array<MarkdownDataBase::Item> newChildren;
+		MarkdownDataBase::Item::List newChildren;
 
-		item.swapChildren(newChildren);
-
-#if 0
-		for(int i = 0; i < item.getNumChildren(); i++)
-		{
-			auto url = item[i].url;
-			
-			if (url.hasAnchor())
-				item.removeChild(i--);
-		}
-#endif
+		item->swapChildren(newChildren);
 
 		for (auto c : v)
 		{
-			MarkdownDataBase::Item i;
+			auto i = MarkdownDataBase::Item::createNew();
 
-			i.c = item.c;
+			i->c = item->c;
 			auto className = v.getType().toString();
-			i.tocString = c.getProperty("name").toString();
-			i.description << "`" << className << "." << i.tocString << "()`  ";
-			i.description << c.getProperty("description").toString();
-			i.url = rootUrl.getChildUrl(className).getChildUrl(c.getProperty("name").toString(), true);
-			item.addChild(std::move(i));
+			i->tocString = c.getProperty("name").toString();
+			i->description << "`" << className << "." << i->tocString << "()`  ";
+			i->description << c.getProperty("description").toString();
+			i->url = rootUrl.getChildUrl(className).getChildUrl(c.getProperty("name").toString(), true);
+			item->addChild(i);
 		}
 
-		item.sortChildren();
+		item->sortChildren();
 	}
 	else
 	{
@@ -222,11 +210,17 @@ juce::String ScriptingApiDatabase::Resolver::getContent(const MarkdownLink& url)
 
 			s << "  \n";
 			s << "# Class methods  \n";
-			
+
+			apiDump << "### API Class: " << classTree.getType().toString() << "\n";
+
+			apiDump << "\n```javascript\n";
+
 			for (auto c : classTree)
 			{
 				s << createMethodText(c);
 			}
+
+			apiDump << "\n```\n";
 
 			return s;
 		}
@@ -248,14 +242,43 @@ juce::String ScriptingApiDatabase::Resolver::createMethodText(ValueTree& mv)
 	String className = mv.getParent().getType().toString();
 	String methodName = mv.getProperty("name").toString();
 
-	s << "## `" << methodName << "`\n";
+	apiDump << "/* " << mv.getProperty("description").toString().trim() << " */\n";
+	apiDump << className << "." << methodName << mv.getProperty("arguments").toString() << ";\n\n";
 
-	s << "> " << mv.getProperty("description").toString().trim() << "\n";
+	s << "## `" << methodName;
+	
+	s << "`\n";
+
+	s << "> " << mv.getProperty("description").toString().trim();
+
+	auto fileLink = rootURL.getChildUrl(className).getChildUrl(methodName);
+	auto docFile = fileLink.getMarkdownFile(rootURL.getRoot());
+
+	if(rootURL.getRoot().isDirectory() && (!docFile.existsAsFile() || docFile.loadFileAsString().isEmpty()))
+	{
+		if(!docFile.existsAsFile())
+			docFile.create();
+
+		s << fileLink.getEditLinkOnGitHub(false);
+	}
+
+	s << "\n";
 
 	s << "```javascript\n" << className << "." << methodName << mv.getProperty("arguments").toString() << "```  \n";
 
-	auto fileLink = rootURL.getChildUrl(className).getChildUrl(methodName);
-	s << fileLink.toString(MarkdownLink::ContentWithoutHeader, rootURL.getRoot());
+	auto extendedDescription = fileLink.toString(MarkdownLink::ContentWithoutHeader, rootURL.getRoot());
+
+	if(extendedDescription.contains("```"))
+	{
+		auto code = extendedDescription.fromFirstOccurrenceOf("```", false, false).upToLastOccurrenceOf("```", false, false);
+
+		if(code.startsWith("javascript"))
+			code = code.fromFirstOccurrenceOf("javascript", false, false);
+
+		exampleDump << code.trim();
+	}
+
+	s << extendedDescription;
 	s << "  \n";
 
 	return s;

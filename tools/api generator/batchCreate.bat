@@ -24,6 +24,7 @@ xcopy "xml\classhise_1_1_scripting_api_1_1_date.xml" "xml\selection"
 xcopy "xml\structhise_1_1fixobj_1_1_array.xml" "xml\selection"
 xcopy "xml\structhise_1_1fixobj_1_1_factory.xml" "xml\selection"
 xcopy "xml\structhise_1_1fixobj_1_1_stack.xml" "xml\selection"
+xcopy "xml\structhise_1_1_scripting_objects_1_1_script_wavetable_controller.xml" "xml\selection"
 
 xcopy "xml\classhise_1_1_scripting_objects_1_1_script_file.xml" "xml\selection"
 xcopy "xml\classhise_1_1_scripting_api_1_1_server.xml" "xml\selection"
@@ -66,6 +67,8 @@ xcopy "xml\classhise_1_1_scripting_objects_1_1_script_buffer.xml" "xml\selection
 xcopy "xml\classhise_1_1_scripting_objects_1_1_scripted_midi_automation_handler.xml" "xml\selection"
 xcopy "xml\classhise_1_1_scripting_objects_1_1_scripted_macro_handler.xml" "xml\selection"
 xcopy "xml\classhise_1_1_scripting_objects_1_1_script_thread_safe_storage.xml" "xml\selection"
+xcopy "xml\structhise_1_1_scripting_objects_1_1_scripting_complex_group_manager.xml" "xml\selection"
+
 xcopy "xml\classhise_1_1_beatport_manager.xml" "xml\selection"
 
 
@@ -106,7 +109,10 @@ xcopy "xml\structhise_1_1_scripting_api_1_1_content_1_1_scripted_viewport.xml" "
 xcopy "xml\structhise_1_1_scripting_api_1_1_content_1_1_script_floating_tile.xml" "xml\selection"
 xcopy "xml\structhise_1_1_scripting_api_1_1_content_1_1_script_audio_waveform.xml" "xml\selection"
 xcopy "xml\structhise_1_1_scripting_api_1_1_content_1_1_script_multipage_dialog.xml" "xml\selection"
+xcopy "xml\structhise_1_1_scripting_api_1_1_content_1_1_script_dynamic_container.xml" "xml\selection"
+xcopy "xml\structhise_1_1_scripting_api_1_1_content_1_1_script_dynamic_container_1_1_child_reference.xml" "xml\selection"
 
+xcopy "xml\classhise_1_1_scripting_objects_1_1_script_rectangle.xml" "xml\selection"
 
 
 xcopy "xml\structhise_1_1_scripting_api_1_1_content_1_1_script_slider_1_1_modifier_object.xml" "xml\selection"
@@ -121,7 +127,7 @@ xcopy "xml\classscriptnode_1_1_dsp_network.xml" "xml\selection"
 xcopy "xml\structscriptnode_1_1_script_network_test.xml" "xml\selection"
 xcopy "xml\classscriptnode_1_1_node_base.xml" "xml\selection"
 xcopy "xml\classscriptnode_1_1_connection_base.xml" "xml\selection"
-xcopy "xml\classscriptnode_1_1_node_base_1_1_parameter.xml" "xml\selection"
+xcopy "xml\classscriptnode_1_1_parameter.xml" "xml\selection"
 
 
 ren "xml\selection\classhise_1_1_scripting_api_1_1_colours.xml" "Colours.xml"
@@ -179,6 +185,7 @@ ren "xml\selection\classhise_1_1_scripting_objects_1_1_timer_object.xml" "Timer.
 ren "xml\selection\classhise_1_1_scripting_objects_1_1_scripted_midi_player.xml" "MidiPlayer.xml"
 ren "xml\selection\classhise_1_1_scripting_objects_1_1_scripted_midi_automation_handler.xml" "MidiAutomationHandler.xml"
 ren "xml\selection\classhise_1_1_scripting_objects_1_1_scripted_macro_handler.xml" "MacroHandler.xml"
+ren "xml\selection\structhise_1_1_scripting_objects_1_1_scripting_complex_group_manager.xml" "ComplexGroupManager.xml"
 
 ren "xml\selection\classhise_1_1_scripting_objects_1_1_markdown_object.xml" "MarkdownRenderer.xml"
 
@@ -203,6 +210,8 @@ ren "xml\selection\structhise_1_1_scripting_api_1_1_content_1_1_script_floating_
 ren "xml\selection\structhise_1_1_scripting_api_1_1_content_1_1_script_web_view.xml" "ScriptWebView.xml"
 ren "xml\selection\structhise_1_1_scripting_api_1_1_content_1_1_script_audio_waveform.xml" "ScriptAudioWaveform.xml"
 ren "xml\selection\structhise_1_1_scripting_api_1_1_content_1_1_script_multipage_dialog.xml" "ScriptMultipageDialog.xml"
+ren "xml\selection\structhise_1_1_scripting_api_1_1_content_1_1_script_dynamic_container.xml" "ScriptDynamicContainer.xml"
+ren "xml\selection\structhise_1_1_scripting_api_1_1_content_1_1_script_dynamic_container_1_1_child_reference.xml" "ContainerChild.xml";
 
 ren "xml\selection\classhise_1_1_scripting_objects_1_1_script_buffer.xml" "Buffer.xml"
 ren "xml\selection\structhise_1_1_scripting_objects_1_1_script_error_handler.xml" "ErrorHandler.xml"
@@ -217,7 +226,7 @@ ren "xml\selection\classscriptnode_1_1_dsp_network.xml" "DspNetwork.xml"
 ren "xml\selection\structscriptnode_1_1_script_network_test.xml" "NetworkTest.xml"
 ren "xml\selection\classscriptnode_1_1_node_base.xml" "Node.xml"
 ren "xml\selection\classscriptnode_1_1_connection_base.xml" "Connection.xml"
-ren "xml\selection\classscriptnode_1_1_node_base_1_1_parameter.xml" "Parameter.xml"
+ren "xml\selection\classscriptnode_1_1_parameter.xml" "Parameter.xml"
 
 ren "xml\selection\structhise_1_1_scripting_objects_1_1_global_cable_reference.xml" "GlobalCable.xml"
 ren "xml\selection\structhise_1_1_scripting_objects_1_1_global_routing_manager_reference.xml" "GlobalRoutingManager.xml"
@@ -232,6 +241,8 @@ ren "xml\selection\structhise_1_1_script_unlocker_1_1_ref_object.xml" "Unlocker.
 ren "xml\selection\classhise_1_1_beatport_manager.xml" "BeatportManager.xml"
 ren "xml\selection\classhise_1_1_scripting_api_1_1_date.xml" "Date.xml"
 ren "xml\selection\classhise_1_1_scripting_objects_1_1_script_neural_network.xml" "NeuralNetwork.xml"
+ren "xml\selection\classhise_1_1_scripting_objects_1_1_script_rectangle.xml" "Rectangle.xml"
+ren "xml\selection\structhise_1_1_scripting_objects_1_1_script_wavetable_controller.xml" "WavetableController.xml"
 
 ApiExtractor.exe xml\selection xml\selection
 

@@ -275,7 +275,7 @@ public:
 
 		TimestretchMode mode = TimestretchMode::Disabled;
 		double tonality = 0.0;
-		bool skipStart = false;
+		bool synchronousSkip = false;
 		double numQuarters = 0.0;
 		Identifier engineId;
 
@@ -283,7 +283,7 @@ public:
 		{
 			mode = TimestretchMode::Disabled;
 			tonality = 0.0;
-			skipStart = false;
+			synchronousSkip = false;
 			numQuarters = 0.0;
 			engineId = {};
 		}
@@ -294,7 +294,7 @@ public:
 
 			const DynamicObject::Ptr obj = new DynamicObject();
 			obj->setProperty("Tonality", tonality);
-			obj->setProperty("SkipLatency", skipStart);
+			obj->setProperty("SkipLatency", synchronousSkip);
 			obj->setProperty("Mode", modes[static_cast<int>(mode)]);
 			obj->setProperty("NumQuarters", numQuarters);
 			obj->setProperty("PreferredEngine", engineId.toString());
@@ -307,7 +307,7 @@ public:
 			static const StringArray modes = { "Disabled", "VoiceStart", "TimeVariant", "TempoSynced" };
 
 			tonality = jlimit(0.0, 1.0, static_cast<double>(json.getProperty("Tonality", 0.0)));
-			skipStart = json.getProperty("SkipLatency", false);
+			synchronousSkip = json.getProperty("SkipLatency", false);
 			mode = static_cast<TimestretchMode>(modes.indexOf(json.getProperty("Mode", "Disabled").toString()));
 			numQuarters = json.getProperty("NumQuarters", 0.0);
 
@@ -446,7 +446,7 @@ public:
 	void preHiseEventCallback(HiseEvent &m) override;
 
 	bool isUsingCrossfadeGroups() const { return crossfadeGroups; }
-	float* calculateCrossfadeModulationValuesForVoice(int voiceIndex, int startSample, int numSamples, int groupIndex);
+	float* calculateCrossfadeModulationValuesForVoice(int voiceIndex, int startSample, int numSamples, ModulatorSamplerSound::Bitmask m);
 	const float *getCrossfadeModValues() const;
 
 	ValueTree parseMetadata(const File& sampleFile);
@@ -456,6 +456,29 @@ public:
 	void setVoiceLimit(int newVoiceLimit) override;
 
 	float getConstantCrossFadeModulationValue() const noexcept;
+
+	float* calculateGroupModulationValuesForVoice(const HiseEvent& e, int voiceIndex, int startSample, int numSamples,
+	                                              ModulatorSamplerSound::Bitmask m, bool firstInVoice)
+	{
+		if(soundCollector == nullptr)
+			return nullptr;
+
+		if(auto gm = getComplexGroupManager())
+			return gm->calculateGroupModulationValuesForVoice(e, voiceIndex, startSample, numSamples, m, firstInVoice);
+
+		return nullptr;
+	}
+
+	float getConstantGroupModulationValue(int voiceIndex, SynthSoundWithBitmask::Bitmask m) const
+	{
+		if(soundCollector == nullptr)
+			return 1.0f;
+
+		if(auto gm = getComplexGroupManager())
+			return gm->getConstantGroupModulationValue(voiceIndex, m);
+		
+		return 1.0f;
+	}
 
 	float getCrossfadeValue(int groupIndex, float inputValue) const;
 
@@ -575,7 +598,18 @@ public:
 
 	void setNumChannels(int numChannels);
 
+	bool setAllowReleaseStart(int eventId, bool shouldAllow);
 
+	void handleSustainPedal(int midiChannel, bool isDown) override;
+
+	void setUseComplexGroupManager(bool shouldUseComplexGroupManager);
+
+	SynthSoundWithBitmask::Bitmask getMaxGroupIndex() const { return getComplexGroupManager() != nullptr ? UINT64_MAX : (uint64)rrGroupAmount; }
+
+	ComplexGroupManager* getComplexGroupManager() const
+	{
+		return dynamic_cast<ComplexGroupManager*>(soundCollector.get());
+	}
 
 	struct ChannelData: RestorableObject
 	{
@@ -608,30 +642,9 @@ public:
 		String suffix;
 	};
 
-	const ChannelData &getChannelData(int index) const
-	{
-		if (index >= 0 && index < getNumMicPositions())
-		{
-			return channelData[index];
-		}
-		else
-		{
-			jassertfalse;
-			return channelData[0];
-		}
-		
-	}
+	const ChannelData &getChannelData(int index) const;
 
-	void setMicEnabled(int channelIndex, bool channelIsEnabled) noexcept
-	{
-		if (channelIndex >= NUM_MIC_POSITIONS || channelIndex < 0) return;
-
-        if(channelData[channelIndex].enabled != channelIsEnabled)
-        {
-            channelData[channelIndex].enabled = channelIsEnabled;
-            asyncPurger.triggerAsyncUpdate(); // will call refreshChannelsForSound asynchronously
-        }
-	}
+	void setMicEnabled(int channelIndex, bool channelIsEnabled) noexcept;
 
 	void refreshChannelsForSounds()
 	{

@@ -254,7 +254,11 @@ public:
 	int getNumDebugObjects() const override;
 
 	DebugableObjectBase* getDebugObject(const String& token) override;
-	
+
+	void setEnableOnInitProfiling(bool shouldBeProfiling)
+	{
+		enableOnInitProfiling = shouldBeProfiling;
+	}
 
 	void clearDebugInformation();
 	
@@ -388,8 +392,57 @@ public:
 
 	bool checkCyclicReferences(CyclicReferenceCheckBase::ThreadData& references, const Identifier &id);
 
+	struct RootObject;
 	
-	
+	struct Breakpoint
+	{
+	public:
+
+		struct Reference
+		{
+			Identifier localScopeId;
+			int index = -1;
+		};
+
+		class Listener
+		{
+		public:
+			virtual void breakpointWasHit(int breakpointIndex) = 0;
+
+			virtual ~Listener();
+
+		private:
+
+			friend class WeakReference<Listener>;
+
+			WeakReference<Listener>::Master masterReference;
+		};
+
+		Breakpoint();
+
+		Breakpoint(const Identifier& snippetId_, const String& externalLocation_, int lineNumber_, int charNumber_, int charIndex_, int index_);
+		;
+
+		~Breakpoint();
+
+		bool operator ==(const Breakpoint& other) const;
+
+		void copyLocalScopeToRoot(RootObject* r);
+
+		const Identifier snippetId;
+		const int lineNumber;
+		const int colNumber;
+		const int charIndex;
+
+		const int index;
+		const String externalLocation;
+
+		bool found = false;
+		bool hit = false;
+
+		DynamicObject::Ptr localScope;
+
+	};
 
 	//==============================================================================
 	struct RootObject : public DynamicObject,
@@ -439,11 +492,77 @@ public:
 		var getLocalThisObject() const { return localThreadThisObject.get(); }
 
 		//==============================================================================
-		struct CodeLocation;
-		struct CallStackEntry;
+		struct CodeLocation
+		{
+			CodeLocation(const String& code, const String& externalFile_) noexcept;
+			CodeLocation(const CodeLocation& other) noexcept;
+
+			String getCallbackName(bool returnExternalFileName = false) const;
+
+			void fillColumnAndLines(int& col, int& line) const;
+
+			String getLocationString() const;
+
+			int getCharIndex() const;
+
+			String getEncodedLocationString(const String& processorId, const File& scriptRoot, int col, int line) const;
+
+			String getEncodedLocationString(const String& processorId, const File& scriptRoot) const;
+
+			using Helpers = mcl::TextEditor::Error::Helpers;
+
+			String getErrorMessage(const String& message) const;
+
+			void throwError(const String& message) const;
+
+			String program;
+			mutable String externalFile;
+			String::CharPointerType location;
+		};
+		
+		struct CallStackEntry
+		{
+			CallStackEntry();
+			CallStackEntry(const Identifier & functionName_, const CodeLocation & location_, Processor * processor_);
+			CallStackEntry(const CallStackEntry & otherEntry);
+			CallStackEntry& operator=(const CallStackEntry & otherEntry);
+			CallStackEntry(const Identifier & functionName_);
+
+			bool operator== (const CallStackEntry & otherEntry) const;
+
+			CodeLocation swapLocation(CodeLocation & otherLocation);
+
+			WeakReference<Processor> processor;
+			Identifier functionName;
+			CodeLocation location;
+		};
+
 		struct Scope;
 
         HiseJavascriptPreprocessor::Ptr preprocessor;
+
+		void setEnableOnInitProfiling(bool shouldBeEnabled)
+		{
+			ignoreUnused(shouldBeEnabled);
+
+#if HISE_INCLUDE_PROFILING_TOOLKIT
+			auto isEnabled = onInitProfileSource != nullptr;
+
+			if(isEnabled != shouldBeEnabled)
+			{
+				parseProfileSource = new DebugSession::ProfileDataSource();
+				parseProfileSource->sourceType = DebugSession::ProfileDataSource::SourceType::Script;
+				parseProfileSource->name = "parse onInit()";
+
+				onInitProfileSource = new DebugSession::ProfileDataSource();
+				onInitProfileSource->sourceType = DebugSession::ProfileDataSource::SourceType::Script;
+				onInitProfileSource->name = "onInit()";
+			}
+#endif
+		}
+
+		DebugSession::ProfileDataSource::Ptr parseProfileSource;
+		DebugSession::ProfileDataSource::Ptr onInitProfileSource;
 
         struct LocalScopeCreator
         {
@@ -556,6 +675,7 @@ public:
 		struct ScopedPrinter;			struct ScopedBefore;		struct ScopedAfter;
 		struct ScopedDumper;			struct ScopedNoop;			struct ScopedCounter;
 		struct ScopedProfiler;			struct ScopedSuspender;		struct ScopedBypasser;
+        struct ScopedSampling;          struct ScopedCall;
 		
 
 		// Variables
@@ -896,55 +1016,7 @@ public:
 
 	
 
-	struct Breakpoint
-	{
-	public:
-
-		struct Reference
-		{
-			Identifier localScopeId;
-			int index = -1;
-		};
-
-		class Listener
-		{
-		public:
-			virtual void breakpointWasHit(int breakpointIndex) = 0;
-
-			virtual ~Listener();
-
-		private:
-
-			friend class WeakReference<Listener>;
-
-			WeakReference<Listener>::Master masterReference;
-		};
-
-		Breakpoint();
-
-		Breakpoint(const Identifier& snippetId_, const String& externalLocation_, int lineNumber_, int charNumber_, int charIndex_, int index_);
-		;
-
-		~Breakpoint();
-
-		bool operator ==(const Breakpoint& other) const;
-
-		void copyLocalScopeToRoot(RootObject& r);
-
-		const Identifier snippetId;
-		const int lineNumber;
-		const int colNumber;
-		const int charIndex;
-		
-		const int index;
-		const String externalLocation;
-
-		bool found = false;
-		bool hit = false;
-
-		DynamicObject::Ptr localScope;
-		
-	};
+	
 
 	void getColourAndLetterForType(int type, Colour& colour, char& letter) override
 	{
@@ -973,11 +1045,12 @@ public:
 	static void checkValidParameter(int index, const var& valueToTest, const RootObject::CodeLocation& location, VarTypeChecker::VarTypes expectedType);
 
     LambdaBroadcaster<bool> preCompileListeners;
-    
+	std::vector<std::pair<WeakReference<DebugableObjectBase>, std::function<void(DebugInformationBase::Ptr)>>> debugInfoListeners;
+
 private:
 
 	
-    
+    bool enableOnInitProfiling = false;
     bool initialising = false;
 	bool externalFunctionPending = false;
 
