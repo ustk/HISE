@@ -1483,7 +1483,7 @@ void HiseSettings::Data::settingWasChanged(const Identifier& id, const var& newV
 		if (newValue.toString().isNotEmpty())
 		{
 			auto driver = dynamic_cast<AudioProcessorDriver*>(mc);
-			driver->deviceManager->setCurrentAudioDeviceType(newValue.toString(), true);
+			driver->setAudioDeviceType(newValue.toString());
 			auto device = driver->deviceManager->getCurrentAudioDevice();
 
 			if (device == nullptr)

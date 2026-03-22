@@ -171,8 +171,20 @@ void AudioProcessorDriver::saveDeviceSettingsAsXml()
 
 void AudioProcessorDriver::setAudioDeviceType(const String deviceName)
 {
+	// Before switching device types, clear the input channels on the current device
+	// so that JUCE doesn't carry over numInputChansNeeded to the new device type.
+	// This prevents ASIO drivers from hanging when they're opened with input channels
+	// enabled during a device type switch.
+	auto savedInputChannel = activeInputChannel;
+
+	if (activeInputChannel >= 0)
+		setInputChannel(-1);
+
 	deviceManager->setCurrentAudioDeviceType(deviceName, true);
 
+	// Re-apply the input channel on the new device type if one was previously selected
+	if (savedInputChannel >= 0 && deviceManager->getCurrentAudioDevice() != nullptr)
+		setInputChannel(savedInputChannel);
 }
 
 void AudioProcessorDriver::resetToDefault()
@@ -180,7 +192,7 @@ void AudioProcessorDriver::resetToDefault()
 	auto prevState = getMidiInputState();
 	auto names = MidiInput::getDevices();
 
-	deviceManager->initialiseWithDefaultDevices(1, 2);
+	deviceManager->initialiseWithDefaultDevices(0, 2);
 	activeInputChannel = -1;
 
 	for (int i = 0; i < prevState.getHighestBit() + 1; i++)
@@ -339,8 +351,12 @@ void AudioProcessorDriver::initialiseAudioDriver(XmlElement *deviceData)
     
 	DebugLogger& logger = dynamic_cast<MainController*>(this)->getDebugLogger();
 
-	// Request up to 1 input channel to support mono audio input
-	const int numInputChannels = 1;
+	// Use 0 input channels for initialization so that switching audio device types
+	// (especially ASIO) doesn't automatically try to configure input channels,
+	// which can cause hangs on some ASIO drivers. Input channels from saved XML
+	// settings are still restored by JUCE. Active input is applied after init
+	// via setInputChannel() when activeInputChannel >= 0.
+	const int numInputChannels = 0;
 
 	if (deviceData != nullptr && deviceData->hasTagName("DEVICESETUP"))
 	{
