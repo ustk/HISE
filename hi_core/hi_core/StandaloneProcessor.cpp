@@ -111,8 +111,24 @@ void AudioProcessorDriver::setAudioDevice(const String& deviceName)
 	AudioDeviceManager::AudioDeviceSetup currentSetup;
 
 	deviceManager->getAudioDeviceSetup(currentSetup);
-	currentSetup.inputDeviceName = deviceName;
-	currentSetup.outputDeviceName = deviceName;
+
+	auto* type = deviceManager->getCurrentDeviceTypeObject();
+
+	if (type != nullptr && type->hasSeparateInputsAndOutputs())
+	{
+		// For drivers with separate I/O devices (DirectSound, WASAPI),
+		// only update the output device name. Keep the current input device
+		// name intact since input and output device names are different.
+		currentSetup.outputDeviceName = deviceName;
+	}
+	else
+	{
+		// For drivers like ASIO where input and output share the same
+		// device, both names must match.
+		currentSetup.inputDeviceName = deviceName;
+		currentSetup.outputDeviceName = deviceName;
+	}
+
 	deviceManager->setAudioDeviceSetup(currentSetup, true);
 }
 
