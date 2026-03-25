@@ -78,6 +78,12 @@ void AudioProcessorDriver::setCurrentSampleRate(double newSampleRate)
 	currentSetup.sampleRate = newSampleRate;
 	deviceManager->setAudioDeviceSetup(currentSetup, true);
 
+	// Force a full device close/reopen cycle so that the ASIO driver re-enumerates
+	// its channel names. Without this, JUCE's cached channel name arrays remain stale
+	// after a sample rate change that alters the channel count (e.g. RME double-speed mode).
+	deviceManager->closeAudioDevice();
+	deviceManager->restartLastAudioDevice();
+
 	if (savedInputChannel >= 0 && deviceManager->getCurrentAudioDevice() != nullptr)
 		setInputChannel(savedInputChannel);
 }
