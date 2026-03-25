@@ -64,11 +64,22 @@ int AudioProcessorDriver::getCurrentBlockSize()
 
 void AudioProcessorDriver::setCurrentSampleRate(double newSampleRate)
 {
+	// Before changing sample rate, clear input channels to prevent ASIO drivers
+	// from hanging when they reconfigure for double/quad-speed modes (88.2k+),
+	// which reduce the available channel count.
+	auto savedInputChannel = activeInputChannel;
+
+	if (activeInputChannel >= 0)
+		setInputChannel(-1);
+
 	AudioDeviceManager::AudioDeviceSetup currentSetup;
-		
+
 	deviceManager->getAudioDeviceSetup(currentSetup);
 	currentSetup.sampleRate = newSampleRate;
 	deviceManager->setAudioDeviceSetup(currentSetup, true);
+
+	if (savedInputChannel >= 0 && deviceManager->getCurrentAudioDevice() != nullptr)
+		setInputChannel(savedInputChannel);
 }
 
 void AudioProcessorDriver::setCurrentBlockSize(int newBlockSize)
