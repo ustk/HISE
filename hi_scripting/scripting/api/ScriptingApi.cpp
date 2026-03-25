@@ -2920,12 +2920,7 @@ var ScriptingApi::Settings::getAvailableDeviceTypes()
 
 String ScriptingApi::Settings::getCurrentAudioDeviceType()
 {
-	AudioIODevice* currentDevice = driver->deviceManager->getCurrentAudioDevice();
-	
-	if (currentDevice != nullptr)
-		return currentDevice->getTypeName();
-	
-	return "";
+	return driver->deviceManager->getCurrentAudioDeviceType();
 }
 
 void ScriptingApi::Settings::setAudioDeviceType(String deviceName)
