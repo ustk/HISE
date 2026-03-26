@@ -64,18 +64,24 @@ int AudioProcessorDriver::getCurrentBlockSize()
 
 void AudioProcessorDriver::setCurrentSampleRate(double newSampleRate)
 {
-	// Before changing sample rate, clear input channels to prevent ASIO drivers
-	// from hanging when they reconfigure for double/quad-speed modes (88.2k+),
-	// which reduce the available channel count.
+	// Before changing sample rate, clear both input and output channels to prevent
+	// ASIO drivers from hanging when they reconfigure for double/quad-speed modes
+	// (88.2k+), which reduce the available channel count. If previously selected
+	// channels are beyond the new channel count, the driver will hang.
 	auto savedInputChannel = activeInputChannel;
+
+	AudioDeviceManager::AudioDeviceSetup currentSetup;
+	deviceManager->getAudioDeviceSetup(currentSetup);
+
+	auto savedOutputChannels = currentSetup.outputChannels;
 
 	if (activeInputChannel >= 0)
 		setInputChannel(-1);
 
-	AudioDeviceManager::AudioDeviceSetup currentSetup;
-
+	// Clear output channels and set the new sample rate
 	deviceManager->getAudioDeviceSetup(currentSetup);
 	currentSetup.sampleRate = newSampleRate;
+	currentSetup.outputChannels.clear();
 	deviceManager->setAudioDeviceSetup(currentSetup, true);
 
 	// Force a full device close/reopen cycle so that the ASIO driver re-enumerates
@@ -84,8 +90,30 @@ void AudioProcessorDriver::setCurrentSampleRate(double newSampleRate)
 	deviceManager->closeAudioDevice();
 	deviceManager->restartLastAudioDevice();
 
-	if (savedInputChannel >= 0 && deviceManager->getCurrentAudioDevice() != nullptr)
-		setInputChannel(savedInputChannel);
+	// Restore output channels, clamping to the new channel count
+	auto* device = deviceManager->getCurrentAudioDevice();
+
+	if (device != nullptr)
+	{
+		auto numOutputs = device->getOutputChannelNames().size();
+
+		deviceManager->getAudioDeviceSetup(currentSetup);
+
+		if (savedOutputChannels.getHighestBit() < numOutputs)
+			currentSetup.outputChannels = savedOutputChannels;
+		else
+			currentSetup.useDefaultOutputChannels = true;
+
+		deviceManager->setAudioDeviceSetup(currentSetup, true);
+	}
+
+	if (savedInputChannel >= 0 && device != nullptr)
+	{
+		auto numInputs = device->getInputChannelNames().size();
+
+		if (savedInputChannel < numInputs)
+			setInputChannel(savedInputChannel);
+	}
 }
 
 void AudioProcessorDriver::setCurrentBlockSize(int newBlockSize)
