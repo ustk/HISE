@@ -82,10 +82,14 @@ void AudioProcessorDriver::setCurrentSampleRate(double newSampleRate)
 	deviceManager->setAudioDeviceSetup(currentSetup, true);
 
 	// Force a full device close/reopen cycle so that the ASIO driver re-enumerates
-	// its channel names. Without this, JUCE's cached channel name arrays remain stale
-	// after a sample rate change that alters the channel count (e.g. RME double-speed mode).
+	// its channel names and buffer sizes. Without this, JUCE's cached arrays remain
+	// stale after a sample rate change that alters the channel count or buffer ranges.
+	// Setting bufferSize to 0 before restart forces JUCE's ASIO readBufferSizes() to
+	// call refreshBufferSizes(), which re-queries the driver for available buffer sizes.
 	deviceManager->closeAudioDevice();
-	deviceManager->restartLastAudioDevice();
+	deviceManager->getAudioDeviceSetup(currentSetup);
+	currentSetup.bufferSize = 0;
+	deviceManager->setAudioDeviceSetup(currentSetup, true);
 }
 
 void AudioProcessorDriver::setCurrentBlockSize(int newBlockSize)
