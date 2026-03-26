@@ -64,24 +64,21 @@ int AudioProcessorDriver::getCurrentBlockSize()
 
 void AudioProcessorDriver::setCurrentSampleRate(double newSampleRate)
 {
-	// Before changing sample rate, clear both input and output channels to prevent
-	// ASIO drivers from hanging when they reconfigure for double/quad-speed modes
-	// (88.2k+), which reduce the available channel count. If previously selected
-	// channels are beyond the new channel count, the driver will hang.
-	auto savedInputChannel = activeInputChannel;
-
-	AudioDeviceManager::AudioDeviceSetup currentSetup;
-	deviceManager->getAudioDeviceSetup(currentSetup);
-
-	auto savedOutputChannels = currentSetup.outputChannels;
-
+	// Reset channels to safe defaults before changing sample rate.
+	// Channel indices don't map to the same physical I/O across sample rate modes
+	// (e.g. RME double-speed halves the channel count), so always reset to:
+	// - Input: none
+	// - Output: first stereo pair (or HISE_NUM_STANDALONE_OUTPUTS channels)
 	if (activeInputChannel >= 0)
 		setInputChannel(-1);
 
-	// Clear output channels and set the new sample rate
+	AudioDeviceManager::AudioDeviceSetup currentSetup;
 	deviceManager->getAudioDeviceSetup(currentSetup);
 	currentSetup.sampleRate = newSampleRate;
 	currentSetup.outputChannels.clear();
+	for (int i = 0; i < HISE_NUM_STANDALONE_OUTPUTS; i++)
+		currentSetup.outputChannels.setBit(i, true);
+	currentSetup.useDefaultOutputChannels = false;
 	deviceManager->setAudioDeviceSetup(currentSetup, true);
 
 	// Force a full device close/reopen cycle so that the ASIO driver re-enumerates
@@ -89,40 +86,6 @@ void AudioProcessorDriver::setCurrentSampleRate(double newSampleRate)
 	// after a sample rate change that alters the channel count (e.g. RME double-speed mode).
 	deviceManager->closeAudioDevice();
 	deviceManager->restartLastAudioDevice();
-
-	// Restore output channels, clamping to the new channel count
-	auto* device = deviceManager->getCurrentAudioDevice();
-
-	if (device != nullptr)
-	{
-		auto numOutputs = device->getOutputChannelNames().size();
-
-		deviceManager->getAudioDeviceSetup(currentSetup);
-
-		if (savedOutputChannels.getHighestBit() < numOutputs)
-		{
-			currentSetup.outputChannels = savedOutputChannels;
-		}
-		else
-		{
-			// Previously selected outputs are out of range, fall back to first stereo pair
-			currentSetup.outputChannels.clear();
-
-			for (int i = 0; i < jmin((int)HISE_NUM_STANDALONE_OUTPUTS, numOutputs); i++)
-				currentSetup.outputChannels.setBit(i, true);
-		}
-
-		currentSetup.useDefaultOutputChannels = false;
-		deviceManager->setAudioDeviceSetup(currentSetup, true);
-	}
-
-	if (savedInputChannel >= 0 && device != nullptr)
-	{
-		auto numInputs = device->getInputChannelNames().size();
-
-		if (savedInputChannel < numInputs)
-			setInputChannel(savedInputChannel);
-	}
 }
 
 void AudioProcessorDriver::setCurrentBlockSize(int newBlockSize)
