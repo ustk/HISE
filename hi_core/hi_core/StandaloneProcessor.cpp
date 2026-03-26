@@ -72,6 +72,11 @@ void AudioProcessorDriver::setCurrentSampleRate(double newSampleRate)
 	if (activeInputChannel >= 0)
 		setInputChannel(-1);
 
+	// Close device to force a full re-enumeration of buffer sizes and channels.
+	// Without this, JUCE reuses the existing device object (since the device name
+	// hasn't changed) and its cached bufferSizes array remains stale.
+	deviceManager->closeAudioDevice();
+
 	AudioDeviceManager::AudioDeviceSetup currentSetup;
 	deviceManager->getAudioDeviceSetup(currentSetup);
 	currentSetup.sampleRate = newSampleRate;
