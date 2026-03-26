@@ -100,10 +100,19 @@ void AudioProcessorDriver::setCurrentSampleRate(double newSampleRate)
 		deviceManager->getAudioDeviceSetup(currentSetup);
 
 		if (savedOutputChannels.getHighestBit() < numOutputs)
+		{
 			currentSetup.outputChannels = savedOutputChannels;
+		}
 		else
-			currentSetup.useDefaultOutputChannels = true;
+		{
+			// Previously selected outputs are out of range, fall back to first stereo pair
+			currentSetup.outputChannels.clear();
 
+			for (int i = 0; i < jmin((int)HISE_NUM_STANDALONE_OUTPUTS, numOutputs); i++)
+				currentSetup.outputChannels.setBit(i, true);
+		}
+
+		currentSetup.useDefaultOutputChannels = false;
 		deviceManager->setAudioDeviceSetup(currentSetup, true);
 	}
 
