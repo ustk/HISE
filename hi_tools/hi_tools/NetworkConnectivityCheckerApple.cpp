@@ -11,7 +11,18 @@
 
 #if JUCE_MAC || JUCE_IOS
 
+// SystemConfiguration drags in CoreServices/MacTypes.h, which defines a
+// global 'Point' (and friends) that collides with juce::Point inside the
+// hi_tools unity build. Use the same #define guard trick as the Accelerate
+// include in hi_tools_01.cpp.
+#define Point DummyPoint
+#define Component DummyComponent
+#define MemoryBlock DummyMB
 #include <SystemConfiguration/SystemConfiguration.h>
+#undef Point
+#undef Component
+#undef MemoryBlock
+
 #include <netinet/in.h>
 
 namespace hise {
