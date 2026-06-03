@@ -12,6 +12,20 @@
 #pragma comment(lib, "iphlpapi.lib")
 #pragma comment(lib, "wlanapi.lib")
 
+// GetIfTable2Ex / MIB_IF_ROW2 / GetIfEntry2 / FreeMibTable etc. live behind an
+// "NTDDI_VERSION >= NTDDI_VISTA" gate in netioapi.h. windows.h is pulled into this
+// unity build earlier with a lower target version, which compiles those out, so we
+// raise the target to Vista before the networking headers are first included here.
+// (NTDDI_VISTA / _WIN32_WINNT_VISTA come from sdkddkver.h, already included.)
+#if !defined(NTDDI_VERSION) || (NTDDI_VERSION < NTDDI_VISTA)
+ #undef NTDDI_VERSION
+ #define NTDDI_VERSION NTDDI_VISTA
+#endif
+#if !defined(_WIN32_WINNT) || (_WIN32_WINNT < _WIN32_WINNT_VISTA)
+ #undef _WIN32_WINNT
+ #define _WIN32_WINNT _WIN32_WINNT_VISTA
+#endif
+
 // These headers are not pulled in by the hi_tools unity build (JUCE only includes
 // them inside its own juce_core native TUs), so include them explicitly here:
 //  - iphlpapi.h / netioapi.h : MIB_IF_ROW2, GetIfTable2Ex, NDIS_PHYSICAL_MEDIUM, ...
