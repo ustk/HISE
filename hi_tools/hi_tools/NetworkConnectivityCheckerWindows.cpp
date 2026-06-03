@@ -12,6 +12,16 @@
 #pragma comment(lib, "iphlpapi.lib")
 #pragma comment(lib, "wlanapi.lib")
 
+// These headers are not pulled in by the hi_tools unity build (JUCE only includes
+// them inside its own juce_core native TUs), so include them explicitly here:
+//  - iphlpapi.h / netioapi.h : MIB_IF_ROW2, GetIfTable2Ex, NDIS_PHYSICAL_MEDIUM, ...
+//  - wlanapi.h               : WlanOpenHandle, WLAN_INTERFACE_INFO_LIST, ...
+// winsock2.h must precede iphlpapi.h to provide the socket types it depends on.
+#include <winsock2.h>
+#include <iphlpapi.h>
+#include <netioapi.h>
+#include <wlanapi.h>
+
 namespace hise {
 
 namespace winConnectivityHelpers
