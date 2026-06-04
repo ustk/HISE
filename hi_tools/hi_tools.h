@@ -43,8 +43,8 @@ BEGIN_JUCE_MODULE_DECLARATION
   license:          GPL / Commercial
 
   dependencies:      juce_audio_basics, juce_audio_formats, juce_core, juce_graphics,  juce_data_structures, juce_events
-  OSXFrameworks:    Accelerate SystemConfiguration
-  iOSFrameworks:    Accelerate SystemConfiguration
+  OSXFrameworks:    Accelerate
+  iOSFrameworks:    Accelerate
 
 END_JUCE_MODULE_DECLARATION
 
@@ -215,8 +215,6 @@ will break compatibility with older projects / presets because the tempo indexes
 
 
 #include "Macros.h"
-
-#include "hi_tools/NetworkConnectivityChecker.h"
 
 #include "hi_tools/CustomDataContainers.h"
 #include "hi_tools/HiseEventBuffer.h"
