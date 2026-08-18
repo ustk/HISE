@@ -104,8 +104,58 @@ void FrontendProcessor::processBlock (AudioSampleBuffer& buffer, MidiBuffer& mid
     }
 #endif
 
-#if FRONTEND_IS_PLUGIN && HI_SUPPORT_MONO_CHANNEL_LAYOUT
-	
+#if FRONTEND_IS_PLUGIN && defined(HISE_SIDECHAIN_CHANNEL_LAYOUT)
+
+	// Normalise whatever bus layout the host negotiated into a fixed
+	// [main L][main R][sc L][sc R] buffer, so the DSP always finds the sidechain
+	// on channels 2/3 whether the main bus is mono or stereo.
+	//
+	// Without this the copy in MainController::processBlockCommon() is
+	// index-for-index, so a mono main bus would shift the sidechain down to
+	// channels 1/2 and the network would silently read the wrong signal.
+	//
+	// This mirrors the mono path below: HISE always renders internally in
+	// stereo, so a mono input is duplicated across both channels and only the
+	// channels the main output bus asks for are copied back.
+	{
+		const int numSamples = buffer.getNumSamples();
+
+		auto mainIn  = getBusBuffer(buffer, true,  0);
+		auto mainOut = getBusBuffer(buffer, false, 0);
+
+		const int numMainIn = mainIn.getNumChannels();
+
+		sidechainCopy.copyFrom(0, 0, mainIn, 0, 0, numSamples);
+		sidechainCopy.copyFrom(1, 0, mainIn, numMainIn > 1 ? 1 : 0, 0, numSamples);
+
+		auto* scBus = getBus(true, 1);
+
+		if (scBus != nullptr && scBus->isEnabled())
+		{
+			auto scIn = getBusBuffer(buffer, true, 1);
+			const int numSc = scIn.getNumChannels();
+
+			sidechainCopy.copyFrom(2, 0, scIn, 0, 0, numSamples);
+			sidechainCopy.copyFrom(3, 0, scIn, numSc > 1 ? 1 : 0, 0, numSamples);
+		}
+		else
+		{
+			// The sidechain bus is optional, so it has to read as silence when
+			// the host has not connected one.
+			sidechainCopy.clear(2, 0, numSamples);
+			sidechainCopy.clear(3, 0, numSamples);
+		}
+
+		AudioSampleBuffer scratch(sidechainCopy.getArrayOfWritePointers(), 4, numSamples);
+
+		getDelayedRenderer().processWrapped(scratch, midiMessages);
+
+		for (int i = 0; i < mainOut.getNumChannels(); i++)
+			mainOut.copyFrom(i, 0, sidechainCopy, i, 0, numSamples);
+	}
+
+#elif FRONTEND_IS_PLUGIN && HI_SUPPORT_MONO_CHANNEL_LAYOUT
+
 	if (buffer.getNumChannels() == 1)
 	{
 		stereoCopy.copyFrom(0, 0, buffer, 0, 0, buffer.getNumSamples());
@@ -373,6 +423,10 @@ updater(*this)
 #if FRONTEND_IS_PLUGIN && HI_SUPPORT_MONO_CHANNEL_LAYOUT
 	stereoCopy.setSize(2, 0);
 #endif
+
+#if FRONTEND_IS_PLUGIN && defined(HISE_SIDECHAIN_CHANNEL_LAYOUT)
+	sidechainCopy.setSize(4, 0);
+#endif
     
 #if USE_SCRIPT_COPY_PROTECTION
 
@@ -509,6 +563,10 @@ void FrontendProcessor::prepareToPlay(double newSampleRate, int samplesPerBlock)
 	
 #if HI_SUPPORT_MONO_CHANNEL_LAYOUT
 	ProcessorHelpers::increaseBufferIfNeeded(stereoCopy, samplesPerBlock);
+#endif
+
+#ifdef HISE_SIDECHAIN_CHANNEL_LAYOUT
+	ProcessorHelpers::increaseBufferIfNeeded(sidechainCopy, samplesPerBlock);
 #endif
 #endif
 };

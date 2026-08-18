@@ -263,6 +263,12 @@ private:
 	AudioSampleBuffer stereoCopy;
 #endif
 
+#if FRONTEND_IS_PLUGIN && defined(HISE_SIDECHAIN_CHANNEL_LAYOUT)
+	/** Fixed [main L][main R][sc L][sc R] scratch buffer, so the DSP sees the
+		sidechain on channels 2/3 regardless of the negotiated main bus width. */
+	AudioSampleBuffer sidechainCopy;
+#endif
+
 	
 	AudioPlayHead::CurrentPositionInfo lastPosInfo;
 

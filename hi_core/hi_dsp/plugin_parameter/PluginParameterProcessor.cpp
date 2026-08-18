@@ -587,10 +587,26 @@ AudioProcessor::BusesProperties PluginParameterAudioProcessor::getHiseBusPropert
 #endif
 
 #if FRONTEND_IS_PLUGIN
-#if HI_SUPPORT_MONO_CHANNEL_LAYOUT
+#ifdef HISE_SIDECHAIN_CHANNEL_LAYOUT
+
+		// A single build that serves BOTH mono and stereo tracks and still offers
+		// an external sidechain. Previously these were mutually exclusive: the
+		// HI_SUPPORT_MONO_CHANNEL_LAYOUT branch returned before any sidechain bus
+		// could be declared.
+		//
+		// The main bus is declared stereo but is negotiable down to mono in
+		// isBusesLayoutSupported(). The sidechain is declared inactive by default
+		// so that hosts without sidechain support - and tracks that simply don't
+		// want one - still load the plugin.
+		return BusesProperties()
+			.withInput ("Input",     AudioChannelSet::stereo(), true)
+			.withInput ("Sidechain", AudioChannelSet::stereo(), false)
+			.withOutput("Output",    AudioChannelSet::stereo(), true);
+
+#elif HI_SUPPORT_MONO_CHANNEL_LAYOUT
 
 		auto m2s = BusesProperties().withInput("Input", AudioChannelSet::mono()).withOutput("Output", AudioChannelSet::stereo());
-		auto s2s = BusesProperties().withInput("Input", AudioChannelSet::stereo()).withOutput("Output", AudioChannelSet::stereo());	
+		auto s2s = BusesProperties().withInput("Input", AudioChannelSet::stereo()).withOutput("Output", AudioChannelSet::stereo());
 
 #if HI_SUPPORT_MONO_TO_STEREO
 		// FL Studio is at it again...
@@ -607,17 +623,11 @@ AudioProcessor::BusesProperties PluginParameterAudioProcessor::getHiseBusPropert
 
 		auto busProp = BusesProperties();
 
-#ifdef HISE_SIDECHAIN_CHANNEL_LAYOUT
-        busProp = busProp.withInput("Input", AudioChannelSet::stereo())
-            .withInput("Sidechain", AudioChannelSet::stereo())
-            .withOutput("Output", AudioChannelSet::stereo());
-#else
 		for (int i = 0; i < numChannels; i += 2)
 			busProp = busProp.withInput("Input " + String(i+1), AudioChannelSet::stereo()).withOutput("Output " + String(i+1), AudioChannelSet::stereo());
-#endif
 
 		return busProp;
-		
+
 #endif
 #else
 	auto busProp = BusesProperties();
@@ -658,7 +668,28 @@ bool PluginParameterAudioProcessor::isBusesLayoutSupported(const BusesLayout& la
 #endif
 
 #if FRONTEND_IS_PLUGIN
-#if HI_SUPPORT_MONO_CHANNEL_LAYOUT
+#ifdef HISE_SIDECHAIN_CHANNEL_LAYOUT
+	{
+		// Main bus: mono->mono or stereo->stereo, so one build covers mono and
+		// stereo tracks. Sidechain bus: absent, mono or stereo. FrontendProcessor
+		// normalises whatever the host negotiates into a fixed
+		// [main L][main R][sc L][sc R] buffer, so the DSP always finds the
+		// sidechain on channels 2/3.
+		const auto mainIn  = layouts.getMainInputChannelSet();
+		const auto mainOut = layouts.getMainOutputChannelSet();
+
+		if (mainIn != mainOut)
+			return false;
+
+		if (mainIn != AudioChannelSet::mono() && mainIn != AudioChannelSet::stereo())
+			return false;
+
+		const auto sc = layouts.getNumChannels(true, 1) > 0 ? layouts.getChannelSet(true, 1)
+															: AudioChannelSet::disabled();
+
+		return sc.isDisabled() || sc == AudioChannelSet::mono() || sc == AudioChannelSet::stereo();
+	}
+#elif HI_SUPPORT_MONO_CHANNEL_LAYOUT
 #if HI_SUPPORT_MONO_TO_STEREO
 		if (outputs == 1) return false; // only mono to stereo support
 		return (outputs == 2) && (inputs == 1 || inputs == 2);
