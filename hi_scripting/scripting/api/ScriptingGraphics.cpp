@@ -2631,12 +2631,15 @@ void ScriptingObjects::ScriptedLookAndFeel::setStyleSheetInternal(const String& 
 	currentStyleSheet = cssCode;
 	simple_css::Parser p(cssCode);
 
+	p.setAddAllStyleSheet(true);
+
 	auto ok = p.parse();
 
 	if(!ok.wasOk())
 		reportScriptError(ok.getErrorMessage());
 
 	auto newCollection = p.getCSSValues();
+
 	SimpleReadWriteLock::ScopedWriteLock sl(getMainController()->getJavascriptThreadPool().getLookAndFeelRenderLock());
 
 	graphics.clear();
@@ -6121,6 +6124,29 @@ LookAndFeel* HiseColourScheme::createAlertWindowLookAndFeel(void* mainController
 	}
 
 	return new hise::AlertWindowLookAndFeel();
+}
+
+LookAndFeel* HiseColourScheme::createPopupMenuLookAndFeel(void* mainController, Component* c)
+{
+	// Check local script LAF first. FloatingTileWrapper::updateLookAndFeel sets
+	// the local LAF recursively on all child components, so getLookAndFeel() on
+	// any child of a styled FloatingTile returns a LafBase-derived type.
+	if (c != nullptr)
+	{
+		if (auto lafBase = dynamic_cast<ScriptingObjects::ScriptedLookAndFeel::LafBase*>(&c->getLookAndFeel()))
+		{
+			if (auto scriptLaf = lafBase->get())
+				return new ScriptingObjects::ScriptedLookAndFeel::LocalLaf(scriptLaf);
+		}
+	}
+
+	if (auto mc = reinterpret_cast<MainController*>(mainController))
+	{
+		if (mc->getCurrentScriptLookAndFeel() != nullptr)
+			return new ScriptingObjects::ScriptedLookAndFeel::Laf(mc);
+	}
+
+	return new hise::PopupLookAndFeel();
 }
 #endif
 

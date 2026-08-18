@@ -38,6 +38,10 @@ namespace hise { using namespace juce;
 class JavascriptProcessor;
 class DialogWindowWithBackgroundThread;
 
+#if USE_BACKEND
+bool isStaticRealtimeCallbackName(const Identifier& id);
+#endif
+
 
 class HiseJavascriptPreprocessor: public ReferenceCountedObject
 {
@@ -499,7 +503,7 @@ public:
 
 			String getCallbackName(bool returnExternalFileName = false) const;
 
-			void fillColumnAndLines(int& col, int& line) const;
+			void fillColumnAndLines(int& col, int& line, int& charIndex) const;
 
 			String getLocationString() const;
 

@@ -40,7 +40,7 @@
     runtime field. Consumers read it off any response (or `/api/status`) to
     verify they are talking to a HISE build that matches their expected schema.
 */
-#define HISE_REST_API_VERSION "0.5.0"
+#define HISE_REST_API_VERSION "0.9.2"
 
 namespace hise { using namespace juce;
 
@@ -61,8 +61,15 @@ namespace RestApiIds
     DECLARE_ID(hierarchy);
 
     // Common response fields
-    DECLARE_ID(success);
-    DECLARE_ID(result);
+	DECLARE_ID(success);
+	DECLARE_ID(ok);
+	DECLARE_ID(autofix);
+	DECLARE_ID(autofixRequested);
+	DECLARE_ID(autofixApplied);
+	DECLARE_ID(fixedNodeId);
+	DECLARE_ID(beforeError);
+	DECLARE_ID(afterError);
+	DECLARE_ID(result);
     DECLARE_ID(logs);
     DECLARE_ID(errors);
     DECLARE_ID(errorMessage);
@@ -186,6 +193,22 @@ namespace RestApiIds
     DECLARE_ID(files);                // Array of included file entries
     DECLARE_ID(processor);            // Owning processor ID for an included file
 
+    // script/tree
+    DECLARE_ID(tree);                 // Hierarchical script symbol tree
+    DECLARE_ID(dataType);             // HiseScript / external data type
+    DECLARE_ID(dataIndex);            // External data index; -1 means embedded data
+    DECLARE_ID(slotIndex);            // Slot index within the selected data type
+    DECLARE_ID(complexData);           // External data slots used by a DSP node
+    DECLARE_ID(search);               // Text search filter
+    DECLARE_ID(available);            // Whether a location can be used for jump-to-definition
+    DECLARE_ID(charNumber);           // Character offset for jump-to-definition
+    DECLARE_ID(maxDepth);             // Maximum tree recursion depth
+    DECLARE_ID(compact);              // If true, omit extended node metadata
+    DECLARE_ID(totalMatches);         // Number of matched nodes before limiting
+    DECLARE_ID(returned);             // Number of returned nodes after limiting
+    DECLARE_ID(truncated);            // True if limit clipped the result
+    const Identifier namespace_("namespace"); // Namespace filter parameter / response value
+
     // profile / attachable profiling
     DECLARE_ID(durationMs);           // Profiling duration in milliseconds
     DECLARE_ID(threadFilter);         // Array of thread names to filter
@@ -270,6 +293,9 @@ namespace RestApiIds
     DECLARE_ID(op);                   // Operation type (add, remove, clone, set_attributes, etc.)
     DECLARE_ID(attributes);           // Parameter values object {paramName: value}
     DECLARE_ID(effect);               // Effect/network name for HotswappableEffect modules
+    DECLARE_ID(matrix);               // Routing matrix array: index=source channel, value=destination (-1 = none); length sets numSourceChannels
+    DECLARE_ID(send);                 // Send connection array (parallel sends); same shape as matrix, length must match numSourceChannels
+    DECLARE_ID(preset);               // Routing preset name (stereo, stereo_2, stereo_3, all, all_to_stereo)
 
     // UI component endpoints
     DECLARE_ID(componentType);        // Component type (ScriptButton, ScriptPanel, etc.)
@@ -331,6 +357,38 @@ namespace RestApiIds
     DECLARE_ID(middlePosition);       // Parameter middle position
     DECLARE_ID(skewFactor);           // Parameter skew factor
     DECLARE_ID(matchRange);           // connect op flag: copy target range onto source after wiring
+    DECLARE_ID(injectId);             // Child node ID to inject before
+    DECLARE_ID(probeId);              // Child node ID to probe after
+    DECLARE_ID(injectIndex);          // Resolved injection checkpoint index
+    DECLARE_ID(probeIndex);           // Resolved probe checkpoint index
+    DECLARE_ID(recursive);            // Probe all child containers recursively
+    DECLARE_ID(signalType);           // Probe signal type
+    DECLARE_ID(gain);                 // Probe signal gain
+    DECLARE_ID(seed);                 // Probe noise seed
+    DECLARE_ID(delayMs);              // Probe delay before capture
+    DECLARE_ID(specs);                // Probe processing specs
+    DECLARE_ID(containers);           // Recursive probe container reports
+    DECLARE_ID(numChildren);          // Number of child nodes in a container report
+    DECLARE_ID(sampleRate);           // Processing sample rate
+    DECLARE_ID(numChannels);          // Processed channel count
+    DECLARE_ID(blockSize);            // Processing block size
+    DECLARE_ID(polyphonic);           // Whether voice processing was enabled
+    DECLARE_ID(processMidi);          // Whether container was in MIDI context
+    DECLARE_ID(channels);             // Array of channel reports
+    DECLARE_ID(channelIndex);         // Channel report index
+    DECLARE_ID(avg);                  // Channel average sample value
+    DECLARE_ID(peakIndex);            // Sample index of positive peak
+    DECLARE_ID(silence);              // Whether the channel block was silent
+    DECLARE_ID(injected);             // Parameter values injected during a DSP probe
+    DECLARE_ID(probed);               // Parameter values captured during a DSP probe
+    DECLARE_ID(touchedEdges);         // Parameter connections touched by a wildcard probe
+    DECLARE_ID(testValue);            // Injected parameter value after processing
+    DECLARE_ID(originalValue);        // Parameter value before injection
+    DECLARE_ID(normalizedValue);      // Normalised parameter value
+    DECLARE_ID(outOfRange);           // Whether a parameter value is outside its range
+    DECLARE_ID(connectionMode);        // Parameter connection scaling mode
+    DECLARE_ID(sourceValue);          // Captured connection source value
+    DECLARE_ID(targetValue);          // Captured connection target value
 
     // snippet browser
     DECLARE_ID(exists);               // Whether a snippet browser instance is alive
@@ -392,13 +450,13 @@ public:
     static constexpr int TestPort = 1901;
     
     //==============================================================================
-    enum Method { GET, POST, PUT, DELETE };
+    enum class Method { Get, Post, Put, Delete };
 
     //==============================================================================
     /** Represents an incoming HTTP request. */
     struct Request
     {
-        Method method = GET;            //< HTTP method (GET, POST, etc.)
+        Method method = Method::Get;            //< HTTP method (GET, POST, etc.)
         URL url;                        //< Full URL with path, query params, and POST data
         StringPairArray headers;        //< HTTP headers
 
@@ -671,7 +729,7 @@ public:
         Use this with getChildURL() and withParameter() to define routes.
         
         @code
-        server.addRoute(RestServer::GET, 
+        server.addRoute(RestServer::Method::Get, 
             server.getBaseURL()
                 .getChildURL("api/recompile")
                 .withParameter("moduleId", ""),

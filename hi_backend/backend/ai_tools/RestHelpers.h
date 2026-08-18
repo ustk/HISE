@@ -58,6 +58,7 @@ struct RestHelpers
         Status,                 ///< GET  /api/status - Get project status
         StatusPreprocessors,    ///< GET  /api/status/preprocessors - List preprocessor catalogue with runtime values
         GetScript,              ///< GET  /api/get_script - Read script content
+        ScriptTree,             ///< GET  /api/script/tree - Get compiled script symbol tree
         SetScript,              ///< POST /api/set_script - Update script content
         EvaluateREPL,           ///< POST /api/repl - Evaluate an expression and get the result
         Recompile,              ///< POST /api/recompile - Recompile a processor
@@ -92,9 +93,11 @@ struct RestHelpers
         TestingSequence,        ///< POST /api/testing/sequence - Run timed test sequence (MIDI, attributes, REPL, signals)
         DspList,                ///< GET  /api/dsp/list - List available DspNetwork names
         DspInit,                ///< POST /api/dsp/init - Create/load a DspNetwork
-        DspTree,                ///< GET  /api/dsp/tree - Get scriptnode network hierarchy
-        DspApply,               ///< POST /api/dsp/apply - Apply operations to scriptnode graph
-        DspSave,                ///< POST /api/dsp/save - Save DspNetwork to XML file
+		DspTree,                ///< GET  /api/dsp/tree - Get scriptnode network hierarchy
+		DspApply,               ///< POST /api/dsp/apply - Apply operations to scriptnode graph
+		DspProbe,               ///< POST /api/dsp/probe - Inject a test signal and return a probe report
+		DspRuntimeStatus,       ///< GET  /api/dsp/runtime_status - Query scriptnode runtime errors
+		DspSave,                ///< POST /api/dsp/save - Save DspNetwork to XML file
         DspScreenshot,          ///< GET  /api/dsp/screenshot - Capture screenshot of current DspNetwork graph
         ProjectList,            ///< GET  /api/project/list - List available HISE projects
         ProjectTree,            ///< GET  /api/project/tree - Project file tree with referenced flags
@@ -131,6 +134,7 @@ struct RestHelpers
     {
         String discriminatorValue;  ///< e.g., "add", "remove", "set"
         String description;
+        StringArray requiredProperties;
     };
 
     /** Metadata for a REST API route parameter. Uses fluent builder pattern.
@@ -144,15 +148,21 @@ struct RestHelpers
     {
         Identifier name;
         String description;
-        String defaultValue;  ///< Empty = no default
+        var defaultValue;      ///< Void = no default
+        bool hasMinimum = false;
+        double minimum = 0.0;
         bool required = true;
         ParamType type = ParamType::String;
         StringArray enumValues;   ///< Valid values for Enum type
         String example;           ///< Example value for OpenAPI spec
+        String format;            ///< Optional OpenAPI format, eg. int64
+        String schemaRef;         ///< Optional OpenAPI $ref target
 
         // Nested schema support
         Array<RouteParameter> properties;       ///< Child fields for Object type
         std::shared_ptr<RouteParameter> itemSchema;  ///< Element schema for Array type (replaces itemType)
+        std::shared_ptr<RouteParameter> additionalPropertiesSchema; ///< Dynamic object value schema
+        Array<RouteParameter> oneOfSchemas;     ///< Untagged oneOf variants
         String discriminator;                   ///< Field name that selects the variant (e.g., "op", "type")
         Array<SchemaVariant> variants;          ///< Variant descriptions keyed by discriminator value
 
@@ -164,8 +174,21 @@ struct RestHelpers
         RouteParameter withDefault(const String& def) const
         {
             auto copy = *this;
-            copy.defaultValue = def;
+            if (copy.type == ParamType::Int)
+                copy.defaultValue = def.getIntValue();
+            else if (copy.type == ParamType::Float)
+                copy.defaultValue = def.getDoubleValue();
+            else
+                copy.defaultValue = def;
             copy.required = false;
+            return copy;
+        }
+
+        RouteParameter withMinimum(double value) const
+        {
+            auto copy = *this;
+            copy.hasMinimum = true;
+            copy.minimum = value;
             return copy;
         }
 
@@ -212,6 +235,36 @@ struct RestHelpers
             return copy;
         }
 
+        /** Set the dynamic object value schema (OpenAPI additionalProperties). */
+        RouteParameter withAdditionalProperties(const RouteParameter& schema) const
+        {
+            auto copy = *this;
+            copy.type = ParamType::Object;
+            copy.additionalPropertiesSchema = std::make_shared<RouteParameter>(schema);
+            return copy;
+        }
+
+        /** Set untagged oneOf variants. */
+        RouteParameter withOneOf(const RouteParameter& first, const RouteParameter& second) const
+        {
+            auto copy = *this;
+            copy.oneOfSchemas.clear();
+            copy.oneOfSchemas.add(first);
+            copy.oneOfSchemas.add(second);
+            return copy;
+        }
+
+        /** Set untagged oneOf variants. */
+        RouteParameter withOneOf(const RouteParameter& first, const RouteParameter& second, const RouteParameter& third) const
+        {
+            auto copy = *this;
+            copy.oneOfSchemas.clear();
+            copy.oneOfSchemas.add(first);
+            copy.oneOfSchemas.add(second);
+            copy.oneOfSchemas.add(third);
+            return copy;
+        }
+
         /** Set the discriminator field for oneOf schemas. */
         RouteParameter withDiscriminator(const String& fieldName) const
         {
@@ -228,11 +281,37 @@ struct RestHelpers
             return copy;
         }
 
+        RouteParameter withVariantRequired(const String& value, const String& desc,
+                                           const StringArray& required) const
+        {
+            auto copy = *this;
+            SchemaVariant variant { value, desc };
+            variant.requiredProperties = required;
+            copy.variants.add(variant);
+            return copy;
+        }
+
         /** Set an example value for OpenAPI documentation. */
         RouteParameter withExample(const String& ex) const
         {
             auto copy = *this;
             copy.example = ex;
+            return copy;
+        }
+
+        /** Set an OpenAPI format value, eg. int64. */
+        RouteParameter withFormat(const String& fmt) const
+        {
+            auto copy = *this;
+            copy.format = fmt;
+            return copy;
+        }
+
+        /** Reference a schema from the OpenAPI components section. */
+        RouteParameter withRef(const String& ref) const
+        {
+            auto copy = *this;
+            copy.schemaRef = ref;
             return copy;
         }
     };
@@ -242,7 +321,7 @@ struct RestHelpers
     {
         ApiRoute id = ApiRoute::numRoutes;
         String path;              ///< e.g., "api/status" (without leading /)
-        RestServer::Method method = RestServer::GET;
+        RestServer::Method method = RestServer::Method::Get;
         String category;          ///< "status", "scripting", "ui"
         String summary;           ///< Short one-sentence summary (OpenAPI summary)
         String description;       ///< Detailed description with behavioral notes (OpenAPI description)
@@ -807,6 +886,10 @@ struct RestHelpers
     /** Handler for GET /api/get_script - Read script content. */
     static RestServer::Response handleGetScript(MainController* mc, 
                                                 RestServer::AsyncRequest::Ptr req);
+
+    /** Handler for GET /api/script/tree - Get compiled script symbol tree. */
+    static RestServer::Response handleScriptTree(MainController* mc,
+                                                 RestServer::AsyncRequest::Ptr req);
     
     /** Handler for POST /api/set_script - Update script content. */
     static RestServer::Response handleSetScript(MainController* mc, 
@@ -999,7 +1082,15 @@ struct RestHelpers
     static RestServer::Response handleDspApply(MainController* mc,
                                                RestServer::AsyncRequest::Ptr req);
 
-    /** Handler for POST /api/dsp/save - Save DspNetwork to XML file */
+	/** Handler for POST /api/dsp/probe - Inject a test signal and return a probe report */
+	static RestServer::Response handleDspProbe(MainController* mc,
+	                                           RestServer::AsyncRequest::Ptr req);
+
+	/** Handler for GET /api/dsp/runtime_status - Query scriptnode runtime errors */
+	static RestServer::Response handleDspRuntimeStatus(MainController* mc,
+	                                                   RestServer::AsyncRequest::Ptr req);
+
+	/** Handler for POST /api/dsp/save - Save DspNetwork to XML file */
     static RestServer::Response handleDspSave(MainController* mc,
                                               RestServer::AsyncRequest::Ptr req);
 
@@ -1229,6 +1320,13 @@ private:
     
     /** Build JSON array for a specific chain. */
     static Array<var> buildChainArray(Processor* parent, int chainIndex);
+
+private:
+
+    static String paramTypeToOpenApi(ParamType t);
+    static var paramToOpenApiSchema(const RouteParameter& p);
+    static var buildResponseSchema(const RouteMetadata& route);
+    static var buildOpenApiComponents();
 };
 
 //==============================================================================

@@ -513,6 +513,17 @@ ScriptingApi::Content::ScriptComponent::ScriptComponent(ProcessorWithScriptingCo
 	//enableAllocationFreeMessages(30);
 }
 
+bool ScriptingApi::Content::ScriptComponent::isScriptPluginParameter()
+{
+	bool ok = isAutomatable();
+	ok &= (bool)getScriptObjectProperty(ScriptingApi::Content::ScriptComponent::Properties::isPluginParameter);
+
+	if(HISE_GET_PREPROCESSOR(getScriptProcessor()->getMainController_(), HISE_MACROS_ARE_PLUGIN_PARAMETERS))
+		ok |= isAdditionalPluginParameter;
+
+	return ok;
+}
+
 StringArray ScriptingApi::Content::ScriptComponent::getOptionsFor(const Identifier &id)
 {
 	if (id == getIdFor(macroControl))
@@ -5989,7 +6000,7 @@ void ScriptingApi::Content::ScriptWebView::preRecompileCallback()
 
 		auto t = Thread::getCurrentThread();
 
-		while(!t->threadShouldExit() && data->hasWebViews())
+		while(t != nullptr && !t->threadShouldExit() && data->hasWebViews())
 		{
 			t->sleep(10);
 		}
@@ -6684,7 +6695,7 @@ void ScriptingApi::Content::ScriptDynamicContainer::ChildReference::addStateToUs
 	}
 }
 
-void ScriptingApi::Content::ScriptDynamicContainer::ChildReference::resetUserPresetState()
+void ScriptingApi::Content::ScriptDynamicContainer::ChildReference::resetUserPresetState(const var&)
 {
 	removeAllChildren();
 

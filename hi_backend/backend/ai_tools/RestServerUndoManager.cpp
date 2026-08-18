@@ -107,11 +107,13 @@ void RestServerUndoManager::Factory::registerAllFunctions()
 {
 	registerCreatorFunctionT<rest_undo::builder::add>(Domain::Builder);
 	registerCreatorFunctionT<rest_undo::builder::remove>(Domain::Builder);
+	registerCreatorFunctionT<rest_undo::builder::move>(Domain::Builder);
 	registerCreatorFunctionT<rest_undo::builder::clone>(Domain::Builder);
 	registerCreatorFunctionT<rest_undo::builder::set_attributes>(Domain::Builder);
 	registerCreatorFunctionT<rest_undo::builder::set_id>(Domain::Builder);
 	registerCreatorFunctionT<rest_undo::builder::set_bypassed>(Domain::Builder);
 	registerCreatorFunctionT<rest_undo::builder::set_effect>(Domain::Builder);
+	registerCreatorFunctionT<rest_undo::builder::set_routing>(Domain::Builder);
 	registerCreatorFunctionT<rest_undo::builder::set_complex_data>(Domain::Builder);
 
 	registerCreatorFunctionT<rest_undo::ui::add>(Domain::UI);
@@ -129,6 +131,7 @@ void RestServerUndoManager::Factory::registerAllFunctions()
 	registerCreatorFunctionT<rest_undo::dsp::bypass>(Domain::DSP);
 	registerCreatorFunctionT<rest_undo::dsp::create_parameter>(Domain::DSP);
 	registerCreatorFunctionT<rest_undo::dsp::clear>(Domain::DSP);
+	registerCreatorFunctionT<rest_undo::dsp::set_complex_data>(Domain::DSP);
 }
 
 hise::RestServerUndoManager::Instance* RestServerUndoManager::Instance::getOrCreate(MainController* mc, RestHelpers::ApiRoute endpoint)

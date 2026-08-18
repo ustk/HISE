@@ -65,7 +65,6 @@ ModulatorSynthChain::ModulatorSynthChain(MainController *mc, const String &id, i
 	gainChain->getFactoryType()->setConstrainer(constrainer, false);
 
 	effectChain->getFactoryType()->setConstrainer(constrainer, false);
-	effectChain->setForceMonophonicProcessingOfPolyphonicEffects(true);
 
 	updateParameterSlots();
 
@@ -324,7 +323,7 @@ void ModulatorSynthChain::renderNextBlockWithModulators(AudioSampleBuffer &buffe
     if(isRoot)
     {
         int numChannels = jmin(buffer.getNumChannels(), internalBuffer.getNumChannels());
-        
+
         for(int i = 0; i < numChannels; i++)
         {
             FloatVectorOperations::copy(internalBuffer.getWritePointer(i),
@@ -334,6 +333,22 @@ void ModulatorSynthChain::renderNextBlockWithModulators(AudioSampleBuffer &buffe
 		// now clear the buffer
 		buffer.clear();
     }
+#elif USE_BACKEND
+	// Route the input through the effect chain during Tools -> Check latency so
+	// the injected impulse gets processed like in a FORCE_INPUT_CHANNELS build
+	if (isRoot && getMainController()->isRunningLatencyCheck())
+	{
+		int numChannels = jmin(buffer.getNumChannels(), internalBuffer.getNumChannels());
+
+		for (int i = 0; i < numChannels; i++)
+		{
+			FloatVectorOperations::copy(internalBuffer.getWritePointer(i),
+										buffer.getReadPointer(i), numSamples);
+		}
+
+		// now clear the buffer
+		buffer.clear();
+	}
 #endif
 
 	ScopedAnalyser sa(getMainController(), this, internalBuffer, buffer.getNumSamples());
@@ -412,20 +427,28 @@ void ModulatorSynthChain::restoreFromValueTree(const ValueTree &v)
 
 	ModulatorSynth::restoreFromValueTree(v);
 
-	if (!getMainController()->shouldSkipCompiling())
+	auto midiHandler = getMainController()->getMacroManager().getMidiControlAutomationHandler();
+	auto pluginState = UserPresetStateManager::StateTarget::PluginState;
+
+	if (!getMainController()->shouldSkipCompiling() && midiHandler->matchesStateTarget(pluginState))
 	{
 		ValueTree autoData = v.getChildWithName("MidiAutomation");
 
 		if (autoData.isValid())
-			getMainController()->getMacroManager().getMidiControlAutomationHandler()->restoreFromValueTree(autoData);
+			midiHandler->restoreFromValueTree(autoData);
 	}
 
-	ValueTree mpeData = v.getChildWithName("MPEData");
+	auto& mpeHandler = midiHandler->getMPEData();
 
-	if (mpeData.isValid())
-		getMainController()->getMacroManager().getMidiControlAutomationHandler()->getMPEData().restoreFromValueTree(mpeData);
-	else
-		getMainController()->getMacroManager().getMidiControlAutomationHandler()->getMPEData().reset();
+	if (mpeHandler.matchesStateTarget(pluginState))
+	{
+		ValueTree mpeData = v.getChildWithName("MPEData");
+
+		if (mpeData.isValid())
+			mpeHandler.restoreFromValueTree(mpeData);
+		else
+			mpeHandler.reset();
+	}
 }
 
 void ModulatorSynthChain::reset()

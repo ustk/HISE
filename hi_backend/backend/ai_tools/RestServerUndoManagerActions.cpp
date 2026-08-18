@@ -418,7 +418,7 @@ struct add : public ActionBase
 		{
 			return Error(*this)
 				.withError(r.getErrorMessage() + ": " + md.id.toString())
-				.withHint("Constrainer: " + wildcard);
+				.withHint(". Constrainer: " + wildcard);
 		}
 
 		return {};
@@ -434,7 +434,8 @@ struct add : public ActionBase
 		auto parentId = parentProcessor.getType();
 
 		ProcessorMetadataRegistry rd;
-		const ProcessorMetadata* pm = rd.get(parentId);
+
+		auto pm = *rd.get(parentId);
 		const ProcessorMetadata* md = rd.get(typeId);
 
 		if (md == nullptr)
@@ -469,7 +470,7 @@ struct add : public ActionBase
 			if (!e)
 				return e;
 
-			return expectWildcardMatch(*md, pm->fxConstrainerWildcard);
+			return expectWildcardMatch(*md, pm.fxConstrainerWildcard);
 		}
 		else if (md->type == ProcessorMetadataIds::SoundGenerator)
 		{
@@ -477,7 +478,7 @@ struct add : public ActionBase
 			if (!e)
 				return e;
 
-			e = expectWildcardMatch(*md, pm->constrainerWildcard);
+			e = expectWildcardMatch(*md, pm.constrainerWildcard);
 
 			if (!e)
 				return e;
@@ -486,7 +487,7 @@ struct add : public ActionBase
 		{
 			jassert(md->type == ProcessorMetadataIds::Modulator);
 
-			if (pm->type == ProcessorMetadataIds::SoundGenerator)
+			if (pm.type == ProcessorMetadataIds::SoundGenerator)
 			{
 				if(chainIndex == Chains::Direct || chainIndex == Chains::Midi || chainIndex == Chains::FX)
 				{
@@ -501,14 +502,25 @@ struct add : public ActionBase
 
 			bool found = false;
 
-			for (const auto& mod : pm->modulation)
+			for (const auto& mod : pm.modulation)
 			{
 				if (mod.chainIndex == chainIndex)
 				{
 					if (mod.disabled)
 						return Error(*this).withError(mod.id.toString() + " is disabled");
+				
+					auto wc = mod.constrainerWildcard;
+
+					if (wc == "*")
+					{
+						if (auto pp = ProcessorHelpers::getFirstProcessorWithName(getMainController()->getMainSynthChain(), parentProcessor.getId()))
+						{
+							if(auto mc = dynamic_cast<Chain*>(pp->getChildProcessor(mod.chainIndex)))
+								wc = mc->getDynamicWildcard(ProcessorMetadataIds::Modulator);
+						}
+					}
 					
-					e = expectWildcardMatch(*md, mod.constrainerWildcard);
+					e = expectWildcardMatch(*md, wc);
 
 					if (!e)
 						return e;
@@ -623,6 +635,234 @@ struct remove : public ActionBase
 		}
 
 		return {};
+	}
+};
+
+struct move : public ActionBase
+{
+	BUILDER_ID(move);
+
+	static Error prevalidate(MainController*, const var& op)
+	{
+		if (op[RestApiIds::target].toString().isEmpty())
+			return Error().withError("move requires 'target'");
+
+		bool hasParent = op.hasProperty(RestApiIds::parent);
+		bool hasChain  = op.hasProperty(RestApiIds::chain);
+		bool hasIndex  = op.hasProperty(RestApiIds::index);
+
+		if (hasParent != hasChain)
+			return Error().withError("move requires both 'parent' and 'chain' (or neither for in-place reorder)");
+
+		if (!hasParent && !hasIndex)
+			return Error().withError("move requires either 'parent' + 'chain' or 'index'");
+
+		return {};
+	}
+
+	move(MainController* mc, const var& obj) :
+		ActionBase(mc),
+		targetProcessor(obj["target"].toString()),
+		explicitParent(obj.hasProperty(RestApiIds::parent)),
+		newParent(obj["parent"].toString()),
+		newChainIndex(obj.hasProperty(RestApiIds::chain) ? (int)obj["chain"] : -2),
+		insertIndex((int)obj.getProperty(RestApiIds::index, -1)),
+		oldParent({ ProcessorReference(""), -2 })
+	{}
+
+	ProcessorReference targetProcessor;
+	bool explicitParent;
+	ProcessorReference newParent;
+	int newChainIndex;
+	int insertIndex;
+
+	std::pair<ProcessorReference, int> oldParent;
+	int oldChildIndex = -1;
+
+	int getRebuildLevel(Domain d, bool) const override
+	{
+		if (d != Domain::Builder) return 0;
+		return RebuildLevel::UpdateUI;
+	}
+
+	bool needsKillVoice() const override { return true; }
+
+	void addToDiffList(std::vector<Diff>& diffList, bool) override
+	{
+		Diff d;
+		d.target = targetProcessor.getId();
+		d.domain = Domain::Builder;
+		d.type = Diff::Type::Modify;
+		diffList.push_back(d);
+	}
+
+	String getHistoryMessage(bool undo) const override
+	{
+		if (undo)
+			return "Restore " + targetProcessor.getId() + " to " + oldParent.first.getId();
+		return "Move " + targetProcessor.getId() + " to " + newParent.getId();
+	}
+
+	String getDescription() const override
+	{
+		String s;
+		s << "move " << targetProcessor.getId();
+		if (explicitParent)
+			s << " to " << newParent.getId() << "." << Helpers::getChainId(newChainIndex);
+		if (insertIndex >= 0)
+			s << " @" << String(insertIndex);
+		return s;
+	}
+
+	Error validate() override
+	{
+		if (!targetProcessor.initAtValidation(planValidation, getMainController()))
+			return Error().withError("Can't find module with ID " + targetProcessor.getId());
+
+		oldParent = Helpers::getParentSynthAndChainIndex(targetProcessor);
+
+		if (oldParent.second == -2)
+			return Error().withError("Can't determine current parent of " + targetProcessor.getId());
+
+		if (!explicitParent)
+		{
+			newParent = oldParent.first;
+			newChainIndex = oldParent.second;
+		}
+		else
+		{
+			if (!newParent.initAtValidation(planValidation, getMainController()))
+				return Error().withError("Can't find parent module with ID " + newParent.getId());
+
+			if (newParent.getId() == targetProcessor.getId())
+				return Error().withError("Cannot move '" + targetProcessor.getId() + "' into itself");
+		}
+
+		if (planValidation != nullptr)
+		{
+			auto v = planValidation->get(targetProcessor.getId());
+			if (!v.isValid())
+				return Error().withError("Plan model: target not found");
+
+			ValueTree copy = v.createCopy();
+
+			if (!planValidation->remove(targetProcessor.getId()))
+				return Error().withError("Plan model: remove failed");
+
+			if (!planValidation->add(newParent.getId(), copy, newChainIndex))
+				return Error().withError("Plan model: add to '" + newParent.getId() + "' chain " + String(newChainIndex) + " failed");
+		}
+
+		return {};
+	}
+
+	void perform() override
+	{
+		if (!targetProcessor.initAtPerform(getMainController()))
+			Helpers::throwProcessorDeleted(targetProcessor.getId());
+
+		auto* p = targetProcessor.get();
+		auto* oldChain = dynamic_cast<Chain*>(p->getParentProcessor(false));
+
+		if (oldChain == nullptr)
+			Helpers::throwRuntimeError(targetProcessor.getId() + " has no parent chain");
+
+		oldChildIndex = -1;
+		for (int i = 0; i < oldChain->getHandler()->getNumProcessors(); i++)
+		{
+			if (oldChain->getHandler()->getProcessor(i) == p)
+			{
+				oldChildIndex = i;
+				break;
+			}
+		}
+
+		Processor* newParentProc = nullptr;
+
+		if (explicitParent)
+		{
+			if (!newParent.initAtPerform(getMainController()))
+				Helpers::throwProcessorDeleted(newParent.getId());
+			newParentProc = newParent.get();
+		}
+		else
+		{
+			if (!oldParent.first.initAtPerform(getMainController()))
+				Helpers::throwProcessorDeleted(oldParent.first.getId());
+			newParent = oldParent.first;
+			newChainIndex = oldParent.second;
+			newParentProc = oldParent.first.get();
+		}
+
+		Chain* newChain = nullptr;
+		if (newChainIndex == -1)
+			newChain = dynamic_cast<Chain*>(newParentProc);
+		else
+			newChain = dynamic_cast<Chain*>(newParentProc->getChildProcessor(newChainIndex));
+
+		if (newChain == nullptr)
+			Helpers::throwRuntimeError("Invalid chain index " + String(newChainIndex) + " on " + newParent.getId());
+
+		if (newChain->getFactoryType()->getProcessorTypeIndex(p->getType()) == -1)
+			Helpers::throwRuntimeError(p->getType().toString() + " not allowed in " + newParent.getId() + "." + Helpers::getChainId(newChainIndex));
+
+		for (auto* anc = newParentProc; anc != nullptr; anc = anc->getParentProcessor(false))
+		{
+			if (anc == p)
+				Helpers::throwRuntimeError("Cannot move '" + targetProcessor.getId() + "' into its own descendant '" + newParent.getId() + "'");
+		}
+
+		oldChain->getHandler()->remove(p, false);
+
+		Processor* sibling = nullptr;
+		if (insertIndex >= 0 && insertIndex < newChain->getHandler()->getNumProcessors())
+			sibling = newChain->getHandler()->getProcessor(insertIndex);
+
+		newChain->getHandler()->add(p, sibling);
+
+		auto mc = getMainController();
+		mc->getProcessorChangeHandler().sendProcessorChangeMessage(
+			mc->getMainSynthChain(),
+			MainController::ProcessorChangeHandler::EventType::RebuildModuleList,
+			false);
+	}
+
+	void undo() override
+	{
+		if (!targetProcessor.initAtPerform(getMainController()))
+			Helpers::throwProcessorDeleted(targetProcessor.getId());
+
+		if (!oldParent.first.initAtPerform(getMainController()))
+			Helpers::throwProcessorDeleted(oldParent.first.getId());
+
+		auto* p = targetProcessor.get();
+		auto* currentChain = dynamic_cast<Chain*>(p->getParentProcessor(false));
+
+		if (currentChain == nullptr)
+			Helpers::throwRuntimeError(targetProcessor.getId() + " has no parent chain");
+
+		Chain* oldChainPtr = nullptr;
+		if (oldParent.second == -1)
+			oldChainPtr = dynamic_cast<Chain*>(oldParent.first.get());
+		else
+			oldChainPtr = dynamic_cast<Chain*>(oldParent.first.get()->getChildProcessor(oldParent.second));
+
+		if (oldChainPtr == nullptr)
+			Helpers::throwRuntimeError("Original chain no longer exists");
+
+		currentChain->getHandler()->remove(p, false);
+
+		Processor* sibling = nullptr;
+		if (oldChildIndex >= 0 && oldChildIndex < oldChainPtr->getHandler()->getNumProcessors())
+			sibling = oldChainPtr->getHandler()->getProcessor(oldChildIndex);
+
+		oldChainPtr->getHandler()->add(p, sibling);
+
+		auto mc = getMainController();
+		mc->getProcessorChangeHandler().sendProcessorChangeMessage(
+			mc->getMainSynthChain(),
+			MainController::ProcessorChangeHandler::EventType::RebuildModuleList,
+			false);
 	}
 };
 
@@ -1283,6 +1523,226 @@ struct set_effect : public ActionBase
 
 		if (target.existsInRuntime())
 			return checkRuntimeEffectSlot();
+
+		return {};
+	}
+};
+
+struct set_routing : public ActionBase
+{
+	BUILDER_ID(set_routing);
+
+	static int presetFromString(const String& s)
+	{
+		if (s == "stereo")        return (int)RoutableProcessor::Presets::FirstStereo;
+		if (s == "stereo_2")      return (int)RoutableProcessor::Presets::SecondStereo;
+		if (s == "stereo_3")      return (int)RoutableProcessor::Presets::ThirdStereo;
+		if (s == "all")           return (int)RoutableProcessor::Presets::AllChannels;
+		if (s == "all_to_stereo") return (int)RoutableProcessor::Presets::AllChannelsToStereo;
+		return -1;
+	}
+
+	static StringArray getPresetNames()
+	{
+		return { "stereo", "stereo_2", "stereo_3", "all", "all_to_stereo" };
+	}
+
+	static Error prevalidate(MainController*, const var& op)
+	{
+		if (op[RestApiIds::target].toString().isEmpty())
+			return Error().withError("set_routing requires 'target'");
+
+		const bool hasMatrix = op[RestApiIds::matrix].isArray();
+		const bool hasSend   = op[RestApiIds::send].isArray();
+		const bool hasPreset = op[RestApiIds::preset].toString().isNotEmpty();
+
+		const int payloadCount = (int)hasMatrix + (int)hasSend + (int)hasPreset;
+
+		if (payloadCount == 0)
+			return Error().withError("set_routing requires one of 'matrix', 'send', or 'preset'");
+		if (payloadCount > 1)
+			return Error().withError("set_routing fields 'matrix', 'send', and 'preset' are mutually exclusive");
+
+		if (hasPreset)
+		{
+			const auto p = op[RestApiIds::preset].toString();
+			if (presetFromString(p) == -1)
+				return Error().withError("Unknown preset '" + p + "'")
+					.withHint(Helpers::getHintForUnknownString(p, getPresetNames()));
+		}
+
+		return {};
+	}
+
+	set_routing(MainController* mc, const var& obj) :
+		ActionBase(mc),
+		target(obj["target"].toString()),
+		matrixVar(obj[RestApiIds::matrix]),
+		sendVar(obj[RestApiIds::send]),
+		presetStr(obj[RestApiIds::preset].toString())
+	{}
+
+	ProcessorReference target;
+	var matrixVar;
+	var sendVar;
+	String presetStr;
+	ValueTree previousState;
+
+	int getRebuildLevel(Domain d, bool undo) const override { return 0; }
+
+	void addToDiffList(std::vector<Diff>& diffList, bool undo) override
+	{
+		Diff d;
+		d.target = target.getId();
+		d.domain = Domain::Builder;
+		d.type = Diff::Type::Modify;
+		diffList.push_back(d);
+	}
+
+	RoutableProcessor* getRoutable() const
+	{
+		return dynamic_cast<RoutableProcessor*>(target.get());
+	}
+
+	static void applyMatrixArray(RoutableProcessor::MatrixData& m, const Array<var>& entries, bool isSend)
+	{
+		const int newLen = entries.size();
+
+		if (!isSend)
+		{
+			if (newLen != m.getNumSourceChannels())
+				m.setNumSourceChannels(newLen, sendNotification);
+
+			m.clearAllConnections();
+		}
+		else
+		{
+			for (int i = 0; i < m.getNumSourceChannels(); i++)
+			{
+				const int existing = m.getSendForSourceChannel(i);
+				if (existing != -1)
+					m.removeSendConnection(i, existing);
+			}
+		}
+
+		for (int i = 0; i < newLen; i++)
+		{
+			const int dst = (int)entries[i];
+			if (dst >= 0)
+			{
+				if (isSend)
+					m.addSendConnection(i, dst);
+				else
+					m.addConnection(i, dst);
+			}
+		}
+	}
+
+	void perform() override
+	{
+		if (!target.initAtPerform(getMainController()))
+			Helpers::throwProcessorDeleted(target.getId());
+
+		auto rp = getRoutable();
+		if (rp == nullptr)
+			Helpers::throwRuntimeError(target.getId() + " is not a RoutableProcessor");
+
+		auto& m = rp->getMatrix();
+		previousState = m.exportAsValueTree();
+
+		if (matrixVar.isArray())
+			applyMatrixArray(m, *matrixVar.getArray(), false);
+		else if (sendVar.isArray())
+			applyMatrixArray(m, *sendVar.getArray(), true);
+		else
+			m.loadPreset((RoutableProcessor::Presets)presetFromString(presetStr));
+	}
+
+	void undo() override
+	{
+		if (!target.initAtPerform(getMainController()))
+			Helpers::throwProcessorDeleted(target.getId());
+
+		auto rp = getRoutable();
+		if (rp == nullptr)
+			Helpers::throwRuntimeError(target.getId() + " is not a RoutableProcessor");
+
+		rp->getMatrix().restoreFromValueTree(previousState);
+	}
+
+	bool needsKillVoice() const override { return true; }
+
+	String getHistoryMessage(bool undo) const override
+	{
+		return (undo ? "Restore routing on " : "Set routing on ") + target.getId();
+	}
+
+	String getDescription() const override
+	{
+		if (matrixVar.isArray()) return "set_routing matrix on " + target.getId();
+		if (sendVar.isArray())   return "set_routing send on " + target.getId();
+		return "set_routing preset=" + presetStr + " on " + target.getId();
+	}
+
+	Error validate() override
+	{
+		if (!target.initAtValidation(planValidation, getMainController()))
+			return Error().withError("Can't find module with ID " + target.getId());
+
+		// Routing state requires the live module; defer to perform-time when only a plan exists.
+		if (!target.existsInRuntime())
+			return {};
+
+		auto rp = getRoutable();
+		if (rp == nullptr)
+			return Error().withError(target.getId() + " is not a RoutableProcessor");
+
+		auto& m = rp->getMatrix();
+		const int numDst = m.getNumDestinationChannels();
+		const int numSrc = m.getNumSourceChannels();
+		const int allowedConn = m.getNumAllowedConnections();
+		const bool resizeOk = m.resizingIsAllowed();
+		const bool enableOnly = m.onlyEnablingAllowed();
+
+		auto validateArray = [&](const Array<var>& entries, bool isSend) -> Error
+		{
+			const int len = entries.size();
+
+			if (isSend)
+			{
+				if (len != numSrc)
+					return Error().withError("send length " + String(len) + " does not match numSourceChannels " + String(numSrc));
+			}
+			else
+			{
+				if (!resizeOk && len != numSrc)
+					return Error().withError(target.getId() + " does not allow resizing (matrix length must equal " + String(numSrc) + ")");
+			}
+
+			int activeCount = 0;
+			for (int i = 0; i < len; i++)
+			{
+				const int dst = (int)entries[i];
+				if (dst < -1 || dst >= numDst)
+					return Error().withError("entry " + String(i) + " value " + String(dst) + " out of range [-1.." + String(numDst - 1) + "]");
+				if (dst >= 0)
+				{
+					if (enableOnly && dst != i)
+						return Error().withError(target.getId() + " only allows enable-style routing; entry " + String(i) + " maps to " + String(dst));
+					activeCount++;
+				}
+			}
+
+			if (allowedConn > 0 && activeCount > allowedConn)
+				return Error().withError("active connection count " + String(activeCount) + " exceeds allowed " + String(allowedConn));
+
+			return {};
+		};
+
+		if (matrixVar.isArray())
+			return validateArray(*matrixVar.getArray(), false);
+		if (sendVar.isArray())
+			return validateArray(*sendVar.getArray(), true);
 
 		return {};
 	}
@@ -2329,6 +2789,57 @@ struct Helpers
 		return {};
 	}
 
+	static void processTemplateNodeIds(ValueTree& tn)
+	{
+		auto rootId = tn[PropertyIds::ID].toString();
+
+		std::map<String, String> changedNames;
+
+		valuetree::Helpers::forEach(tn, [&](ValueTree& cn)
+		{
+			if (cn.getType() == PropertyIds::Node)
+			{
+				if (cn != tn)
+				{
+					auto cid = cn[PropertyIds::ID].toString();
+					auto nid = rootId + "_" + cid;
+					cn.setProperty(PropertyIds::ID, nid, nullptr);
+					changedNames[cid] = nid;
+				}
+			}
+
+			return false;
+		});
+
+		valuetree::Helpers::forEach(tn, [&](ValueTree& cn)
+		{
+			if (cn.getType() == PropertyIds::Connection)
+			{
+				auto oldNodeId = cn[PropertyIds::NodeId].toString();
+				auto newNodeId = changedNames[oldNodeId];
+				jassert(newNodeId.isNotEmpty());
+				cn.setProperty(PropertyIds::NodeId, newNodeId, nullptr);
+			}
+            
+            if(cn.getType() == PropertyIds::Property)
+            {
+                if(cn[PropertyIds::ID] == PropertyIds::Connection.toString())
+                {
+                    auto oldNodeId = cn[PropertyIds::Value].toString();
+                    
+                    if(oldNodeId.isNotEmpty())
+                    {
+                        auto newNodeId = changedNames[oldNodeId];
+                        jassert(newNodeId.isNotEmpty());
+                        cn.setProperty(PropertyIds::Value, newNodeId, nullptr);
+                    }
+                }
+            }
+
+			return false;
+		});
+	}
+
 	static String makeUniqueId(const ValueTree& v, String id)
 	{
 		int trailingIndex = id.getTrailingIntValue();
@@ -2722,6 +3233,10 @@ struct add : public ActionBase
 		
 		nodeToAdd.setProperty(PropertyIds::ID, nodeId, nullptr);
 		
+		if (factoryPath.startsWith("template"))
+		{
+			Helpers::processTemplateNodeIds(nodeToAdd);
+		}
 
 		auto pn = Helpers::findValueTree(rn, [&](const ValueTree& c)
 		{
@@ -2922,6 +3437,25 @@ struct move : public ActionBase
 		return {};
 	}
 
+    void setNewParent(ValueTree& nodeToMove, ValueTree& newParent, int indexToUse)
+    {
+        // try to funnel it through the NodeBase method which preserves connections
+        if(auto an = Helpers::getNetworkFromModule(getMainController(), moduleId))
+        {
+            if(auto existingNode = an->getNodeForValueTree(nodeToMove))
+            {
+                if(auto pn = an->getNodeForValueTree(newParent))
+                {
+                    existingNode->setParent(var(pn), indexToUse);
+                    return;
+                }
+            }
+        }
+        
+        nodeToMove.getParent().removeChild(nodeToMove, nullptr);
+        newParent.getChildWithName(PropertyIds::Nodes).addChild(nodeToMove, indexToUse, nullptr);
+    }
+    
 	void perform() override
 	{
 		auto rv = Helpers::getRootTree(this, moduleId);
@@ -2941,10 +3475,7 @@ struct move : public ActionBase
 		oldIndex = n.getParent().indexOf(n);
 		oldParentId = n.getParent().getParent()[PropertyIds::ID].toString();
 
-		n.getParent().removeChild(n, nullptr);
-		np.getChildWithName(PropertyIds::Nodes).addChild(n, insertIndex, nullptr);
-
-		
+        setNewParent(n, np, insertIndex);
 	}
 
 	void undo() override
@@ -2963,8 +3494,7 @@ struct move : public ActionBase
 		if (!op.getChildWithName(PropertyIds::Nodes).isValid())
 			throw Error().withError(newParentId + " is not a container");
 
-		n.getParent().removeChild(n, nullptr);
-		op.getChildWithName(PropertyIds::Nodes).addChild(n, oldIndex, nullptr);
+        setNewParent(n, op, oldIndex);
 	}
 };
 
@@ -3171,8 +3701,6 @@ struct disconnect : public ActionBase
 
 	static Error prevalidate(MainController*, const var& op)
 	{
-		if (op[RestApiIds::source].toString().isEmpty())
-			return Error().withError("disconnect requires 'source'");
 		if (op[RestApiIds::target].toString().isEmpty())
 			return Error().withError("disconnect requires 'target'");
 		if (op[RestApiIds::parameter].toString().isEmpty())
@@ -3183,15 +3711,16 @@ struct disconnect : public ActionBase
 	disconnect(MainController* mc, const var& obj) :
 		ActionBase(mc),
 		moduleId(obj[RestApiIds::moduleId].toString()),
-		sourceId(obj[RestApiIds::source].toString()),
 		targetId(obj[RestApiIds::target].toString()),
 		parameterName(obj[RestApiIds::parameter].toString())
 	{}
 
 	String moduleId;
-	String sourceId;
 	String targetId;
 	String parameterName;
+
+	// Captured at perform/validate time so undo can rebuild the connection
+	String resolvedSourceId;
 	String oldSourceOutput;
 
 	int getRebuildLevel(Domain, bool) const override { return 0; }
@@ -3208,12 +3737,49 @@ struct disconnect : public ActionBase
 
 	String getHistoryMessage(bool undo) const override
 	{
-		return (undo ? "Reconnect " : "Disconnect ") + sourceId + " -> " + targetId + "." + parameterName;
+		auto src = resolvedSourceId.isNotEmpty() ? resolvedSourceId : String("?");
+		return (undo ? "Reconnect " : "Disconnect ") + src + " -> " + targetId + "." + parameterName;
 	}
 
 	String getDescription() const override
 	{
-		return "disconnect " + sourceId + " -> " + targetId + "." + parameterName;
+		return "disconnect -> " + targetId + "." + parameterName;
+	}
+
+	// Walk the entire network looking for the unique Connection child whose
+	// NodeId/ParameterId matches the target. Multiple matches are an error
+	// because the caller relies on uniqueness.
+	static ValueTree findUniqueConnection(const ValueTree& rv,
+	                                       const String& targetId,
+	                                       const String& parameterName,
+	                                       Error& outError)
+	{
+		ValueTree found;
+		bool ambiguous = false;
+
+		valuetree::Helpers::forEach(rv, [&](const ValueTree& c)
+		{
+			if (c.getType() == PropertyIds::Connection &&
+				c[PropertyIds::NodeId].toString() == targetId &&
+				c[PropertyIds::ParameterId].toString() == parameterName)
+			{
+				if (found.isValid())
+				{
+					ambiguous = true;
+					return true;
+				}
+				found = c;
+			}
+			return false;
+		});
+
+		if (ambiguous)
+		{
+			outError = Error().withError("Multiple connections match target='" + targetId + "' parameter='" + parameterName + "'; cannot disconnect unambiguously");
+			return {};
+		}
+
+		return found;
 	}
 
 	Error validate() override
@@ -3225,17 +3791,11 @@ struct disconnect : public ActionBase
 
 		if (dspValidation != nullptr)
 		{
-			auto sn = Helpers::findNode(rv, sourceId);
+			Error ambiguityErr;
+			auto con = findUniqueConnection(rv, targetId, parameterName, ambiguityErr);
 
-			if (!sn.isValid())
-				return Helpers::getErrorForNode404(rv, sourceId);
-
-			auto con = Helpers::findValueTree(sn, [&](const ValueTree& c)
-			{
-				return c.getType() == PropertyIds::Connection &&
-					c[PropertyIds::NodeId] == targetId &&
-					c[PropertyIds::ParameterId] == parameterName;
-			});
+			if (!ambiguityErr)
+				return ambiguityErr;
 
 			if (!con.isValid())
 				return Error().withError("Connection not found");
@@ -3251,21 +3811,22 @@ struct disconnect : public ActionBase
 	void perform() override
 	{
 		auto rv = Helpers::getRootTree(this, moduleId);
-		auto sn = Helpers::findNode(rv, sourceId);
 
-		if (!sn.isValid())
-			throw Helpers::getErrorForNode404(rv, sourceId);
+		Error ambiguityErr;
+		auto con = findUniqueConnection(rv, targetId, parameterName, ambiguityErr);
 
-		auto con = Helpers::findValueTree(sn, [&](const ValueTree& c)
-		{
-			return c.getType() == PropertyIds::Connection &&
-				c[PropertyIds::NodeId] == targetId &&
-				c[PropertyIds::ParameterId] == parameterName;
-		});
+		if (!ambiguityErr)
+			throw ambiguityErr;
 
 		if (!con.isValid())
 			throw Error().withError("Connection not found");
 
+		auto sourceNode = valuetree::Helpers::findParentWithType(con, PropertyIds::Node);
+
+		if (!sourceNode.isValid())
+			throw Error().withError("Could not resolve source node for connection");
+
+		resolvedSourceId = sourceNode[PropertyIds::ID].toString();
 		oldSourceOutput = Helpers::getSourceOutput(con);
 
 		con.getParent().removeChild(con, nullptr);
@@ -3274,10 +3835,10 @@ struct disconnect : public ActionBase
 	void undo() override
 	{
 		auto rv = Helpers::getRootTree(this, moduleId);
-		auto sn = Helpers::findNode(rv, sourceId);
+		auto sn = Helpers::findNode(rv, resolvedSourceId);
 
 		if (!sn.isValid())
-			throw Helpers::getErrorForNode404(rv, sourceId);
+			throw Helpers::getErrorForNode404(rv, resolvedSourceId);
 
 		auto tn = Helpers::findNode(rv, targetId);
 
@@ -3294,6 +3855,178 @@ struct disconnect : public ActionBase
 		if (!Helpers::addConnection(conTree, targetId, parameterName))
 			throw Error().withError("Connection already exists");
 	}
+};
+
+struct set_complex_data : public ActionBase
+{
+	BUILDER_ID(set_complex_data);
+
+	static ExternalData::DataType getDataType(const String& id)
+	{
+		if (id == "Table")             return ExternalData::DataType::Table;
+		if (id == "SliderPack")        return ExternalData::DataType::SliderPack;
+		if (id == "AudioFile")         return ExternalData::DataType::AudioFile;
+		if (id == "FilterCoefficients") return ExternalData::DataType::FilterCoefficients;
+		if (id == "DisplayBuffer")     return ExternalData::DataType::DisplayBuffer;
+
+		return ExternalData::DataType::numDataTypes;
+	}
+
+	static Error prevalidate(MainController*, const var& op)
+	{
+		if (op[RestApiIds::nodeId].toString().isEmpty())
+			return Error().withError("set_complex_data requires 'nodeId'");
+
+		auto dataType = op[RestApiIds::dataType].toString();
+		if (getDataType(dataType) == ExternalData::DataType::numDataTypes)
+			return Error().withError("set_complex_data requires a valid 'dataType'");
+
+		if (!op.hasProperty(RestApiIds::dataIndex))
+			return Error().withError("set_complex_data requires 'dataIndex'");
+
+		auto dataIndex = op[RestApiIds::dataIndex];
+		if (!dataIndex.isInt() && !dataIndex.isInt64())
+			return Error().withError("set_complex_data requires 'dataIndex' to be an integer");
+
+		if ((int)dataIndex < -1)
+			return Error().withError("set_complex_data requires 'dataIndex' to be -1 or greater");
+
+		auto slotIndex = op.getProperty(RestApiIds::slotIndex, 0);
+		if (!slotIndex.isInt() && !slotIndex.isInt64())
+			return Error().withError("set_complex_data requires 'slotIndex' to be an integer");
+
+		if ((int)slotIndex < 0)
+			return Error().withError("set_complex_data requires 'slotIndex' to be zero or greater");
+
+		return {};
+	}
+
+	set_complex_data(MainController* mc, const var& op) :
+	  ActionBase(mc),
+	  moduleId(op[RestApiIds::moduleId].toString()),
+	  nodeId(op[RestApiIds::nodeId].toString()),
+	  slotIndex(op.getProperty(RestApiIds::slotIndex, 0)),
+	  newIndex(op[RestApiIds::dataIndex]),
+	  dt(getDataType(op[RestApiIds::dataType].toString()))
+	{}
+
+	int getRebuildLevel(Domain, bool) const override { return 0; }
+	bool needsKillVoice() const override { return false; }
+
+	void addToDiffList(std::vector<Diff>& diffList, bool) override
+	{
+		Diff d;
+		d.target = nodeId;
+		d.domain = Domain::DSP;
+		d.type = Diff::Type::Modify;
+		diffList.push_back(d);
+	}
+
+	String getHistoryMessage(bool undo) const override
+	{
+		return "Set complex data";
+	}
+
+	String getDescription() const override
+	{
+		return "set complex data";
+	}
+
+	String moduleId;
+	String nodeId;
+	int slotIndex = 0;
+
+	int newIndex;
+	int oldIndex;
+	ExternalData::DataType dt;
+
+	Error validate() override
+	{
+		auto rv = Helpers::getRootTree(this, moduleId);
+
+		if (!rv.isValid())
+			return Helpers::getErrorForModule404(getMainController(), moduleId);
+
+		if (dspValidation != nullptr)
+		{
+			auto n = Helpers::findNode(rv, nodeId);
+
+			if (!n.isValid())
+				return Helpers::getErrorForNode404(rv, nodeId);
+
+			auto id = ExternalData::getDataTypeName(dt, true);
+
+			auto datas = n.getChildWithName(PropertyIds::ComplexData).getChildWithName(id);
+
+			if (!datas.isValid())
+				return Error().withError("Node does not have " + id);
+
+			auto data = datas.getChild(slotIndex);
+
+			if (!data.isValid())
+				return Error().withError("illegal slot index for " + id);
+
+			data.setProperty(PropertyIds::Index, newIndex, nullptr);
+		}
+
+		return {};
+	}
+
+	void perform() override
+	{
+		auto rv = Helpers::getRootTree(this, moduleId);
+
+		if (!rv.isValid())
+			throw Helpers::getErrorForModule404(getMainController(), moduleId);
+
+		auto n = Helpers::findNode(rv, nodeId);
+
+		if (!n.isValid())
+			throw Helpers::getErrorForNode404(rv, nodeId);
+
+		auto id = ExternalData::getDataTypeName(dt, true);
+
+		auto datas = n.getChildWithName(PropertyIds::ComplexData).getChildWithName(id);
+
+		if (!datas.isValid())
+			throw Error().withError("Node does not have " + id);
+
+		auto data = datas.getChild(slotIndex);
+
+		if (!data.isValid())
+			throw Error().withError("illegal slot index for " + id);
+
+		oldIndex = (int)data.getProperty(PropertyIds::Index);
+		data.setProperty(PropertyIds::Index, newIndex, nullptr);
+	}
+
+	void undo() override
+	{
+		auto rv = Helpers::getRootTree(this, moduleId);
+
+		if (!rv.isValid())
+			throw Helpers::getErrorForModule404(getMainController(), moduleId);
+
+		auto n = Helpers::findNode(rv, nodeId);
+
+		if (!n.isValid())
+			throw Helpers::getErrorForNode404(rv, nodeId);
+
+		auto id = ExternalData::getDataTypeName(dt, true);
+
+		auto datas = n.getChildWithName(PropertyIds::ComplexData).getChildWithName(id);
+
+		if (!datas.isValid())
+			throw Error().withError("Node does not have " + id);
+
+		auto data = datas.getChild(slotIndex);
+
+		if (!data.isValid())
+			throw Error().withError("illegal slot index for " + id);
+
+		data.setProperty(PropertyIds::Index, oldIndex, nullptr);
+	}
+
 };
 
 struct set : public ActionBase
@@ -3328,14 +4061,6 @@ struct set : public ActionBase
 
 			if (op.hasProperty(RestApiIds::skewFactor) && op.hasProperty(RestApiIds::middlePosition))
 				return Error().withError("set range-write: 'skewFactor' and 'middlePosition' are mutually exclusive");
-
-			if (op.hasProperty(RestApiIds::min) && op.hasProperty(RestApiIds::max))
-			{
-				const double mn = (double)op[RestApiIds::min];
-				const double mx = (double)op[RestApiIds::max];
-				if (!(mn < mx))
-					return Error().withError("set range-write: 'min' must be less than 'max'");
-			}
 
 			return {};
 		}
