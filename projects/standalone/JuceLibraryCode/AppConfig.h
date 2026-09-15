@@ -120,6 +120,10 @@
  //#define DONT_CREATE_EXPANSIONS_FOLDER 0
 #endif
 
+#ifndef    DONT_CREATE_GENERAL_SETTINGS_FILE
+ //#define DONT_CREATE_GENERAL_SETTINGS_FILE 0
+#endif
+
 #ifndef    HISE_OVERWRITE_OLD_USER_PRESETS
  //#define HISE_OVERWRITE_OLD_USER_PRESETS 0
 #endif
@@ -407,6 +411,10 @@
 
 #ifndef    HISE_USE_SCRIPT_RECTANGLE_OBJECT
  //#define HISE_USE_SCRIPT_RECTANGLE_OBJECT 0
+#endif
+
+#ifndef    SLIDER_LASTMODVALUE_SMOOTHING_RATIO
+ //#define SLIDER_LASTMODVALUE_SMOOTHING_RATIO 1
 #endif
 
 //==============================================================================
